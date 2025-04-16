@@ -10,9 +10,9 @@ import os
 # Import local modules
 from database import create_tables, save_historical_data, get_historical_data
 from binance_api import get_klines_data, get_available_symbols
-from indicators import add_bollinger_bands, add_macd, add_rsi, add_ema
-from strategy import evaluate_buy_sell_signals
-from utils import timeframe_to_seconds, timeframe_to_interval, get_timeframe_options
+from indicators import add_bollinger_bands, add_macd, add_rsi, add_ema, add_stochastic, add_atr, add_adx
+from strategy import evaluate_buy_sell_signals, backtest_strategy, find_optimal_strategy
+from utils import timeframe_to_seconds, timeframe_to_interval, get_timeframe_options, calculate_trade_statistics
 
 # Set page config
 st.set_page_config(
@@ -417,72 +417,242 @@ def main():
         else:
             st.info("No recent signals detected.")
         
-        # Strategy Performance
+        # Strategy Performance - Advanced Backtesting
         st.subheader("Strategy Performance")
-        
-        # Simple backtest calculation
-        if not df.empty and len(df) > 1:
-            buy_prices = []
-            sell_prices = []
-            current_position = False
+
+        # Perform advanced backtesting using our strategy module
+        with st.spinner("Running strategy backtesting..."):
+            # Advanced backtest using the strategy module
+            backtest_results = backtest_strategy(df)
             
-            for i, row in df.iterrows():
-                if row['buy_signal'] and not current_position:
-                    buy_prices.append(row['close'])
-                    current_position = True
-                elif row['sell_signal'] and current_position:
-                    sell_prices.append(row['close'])
-                    current_position = False
-            
-            # Make sure we have equal buy/sell pairs
-            min_trades = min(len(buy_prices), len(sell_prices))
-            buy_prices = buy_prices[:min_trades]
-            sell_prices = sell_prices[:min_trades]
-            
-            # Calculate performance
-            if min_trades > 0:
-                trade_results = [(sell - buy) / buy * 100 for buy, sell in zip(buy_prices, sell_prices)]
-                winning_trades = sum(1 for res in trade_results if res > 0)
-                losing_trades = sum(1 for res in trade_results if res <= 0)
-                
-                # Calculate metrics
-                total_return = sum(trade_results)
-                avg_return = sum(trade_results) / len(trade_results) if trade_results else 0
-                win_rate = winning_trades / min_trades * 100 if min_trades > 0 else 0
+            if backtest_results and backtest_results['metrics']['num_trades'] > 0:
+                metrics = backtest_results['metrics']
+                trades = backtest_results['trades']
                 
                 # Display metrics
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Total Trades", min_trades)
+                    st.metric("Total Trades", metrics['num_trades'])
                 
                 with col2:
-                    st.metric("Win Rate", f"{win_rate:.1f}%")
+                    st.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
                 
                 with col3:
-                    st.metric("Avg Return per Trade", f"{avg_return:.2f}%")
+                    st.metric("Avg Return per Trade", f"{metrics['avg_profit_pct']:.2f}%")
                 
                 with col4:
-                    st.metric("Total Return", f"{total_return:.2f}%")
+                    st.metric("Total Return", f"{metrics['total_return_pct']:.2f}%")
                 
                 # Recent trade history
-                if min_trades > 0:
-                    st.subheader("Recent Trade History")
-                    trade_history = []
+                if len(trades) > 0:
+                    sell_trades = [t for t in trades if t['type'] in ['SELL', 'SELL (EOT)']]
                     
-                    for i in range(min(min_trades, 10)):
-                        trade_history.append({
-                            "Entry Price": f"${buy_prices[i]:.2f}",
-                            "Exit Price": f"${sell_prices[i]:.2f}",
-                            "Return (%)": f"{trade_results[i]:.2f}%",
-                            "Result": "Win" if trade_results[i] > 0 else "Loss"
-                        })
+                    if sell_trades:
+                        st.subheader("Recent Trade History")
+                        trade_history = []
+                        
+                        # Get only the most recent trades (up to 10)
+                        recent_trades = sell_trades[-10:] if len(sell_trades) > 10 else sell_trades
+                        
+                        for trade in recent_trades:
+                            # Find the corresponding buy trade
+                            buy_price = 0
+                            for t in trades:
+                                if t['type'] == 'BUY' and t['timestamp'] < trade['timestamp']:
+                                    buy_price = t['price']
+                                    break
+                            
+                            trade_history.append({
+                                "Entry Time": trade.get('entry_time', 'Unknown'),
+                                "Exit Time": trade['timestamp'],
+                                "Entry Price": f"${buy_price:.2f}",
+                                "Exit Price": f"${trade['price']:.2f}",
+                                "Return (%)": f"{trade.get('profit_pct', 0):.2f}%",
+                                "Holding Time (hours)": f"{trade.get('holding_time', 0):.1f}",
+                                "Result": "Win" if trade.get('profit_pct', 0) > 0 else "Loss"
+                            })
+                        
+                        # Reverse to show most recent first
+                        trade_history.reverse()
+                        st.dataframe(trade_history, use_container_width=True)
+                
+                # Show equity curve
+                backtest_df = backtest_results['backtest_df']
+                if not backtest_df.empty and 'portfolio_value' in backtest_df.columns:
+                    st.subheader("Equity Curve")
                     
-                    # Reverse to show most recent first
-                    trade_history.reverse()
-                    st.dataframe(trade_history, use_container_width=True)
+                    fig = go.Figure()
+                    fig.add_trace(
+                        go.Scatter(
+                            x=backtest_df['timestamp'],
+                            y=backtest_df['portfolio_value'],
+                            mode='lines',
+                            name="Portfolio Value",
+                            line=dict(color='green', width=2)
+                        )
+                    )
+                    
+                    fig.update_layout(
+                        title="Portfolio Performance Over Time",
+                        xaxis_title="Date",
+                        yaxis_title="Portfolio Value ($)",
+                        template="plotly_dark",
+                        height=400,
+                        margin=dict(l=50, r=50, t=50, b=50),
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Strategy Optimization - Find the most profitable parameters
+                st.subheader("Strategy Optimization")
+                
+                with st.expander("Optimize Trading Strategy", expanded=True):
+                    if st.button("Run Optimization"):
+                        with st.spinner("Finding optimal trading parameters..."):
+                            # Define parameter ranges to test
+                            parameter_ranges = {
+                                'bb_threshold': [0.1, 0.2, 0.3, 0.4, 0.5],
+                                'rsi_oversold': [20, 25, 30, 35],
+                                'rsi_overbought': [65, 70, 75, 80, 85]
+                            }
+                            
+                            # Run optimization
+                            optimization_results = find_optimal_strategy(df, parameter_ranges)
+                            
+                            if optimization_results:
+                                st.success("Optimization completed!")
+                                
+                                # Display optimal parameters
+                                st.write("### Optimal Strategy Parameters")
+                                
+                                params = optimization_results['parameters']
+                                opt_metrics = optimization_results['metrics']
+                                
+                                # Create side-by-side columns
+                                p1, p2, p3 = st.columns(3)
+                                with p1:
+                                    st.metric("Bollinger Band Threshold", f"{params['bb_threshold']:.2f}")
+                                with p2:
+                                    st.metric("RSI Oversold", f"{params['rsi_oversold']}")
+                                with p3:
+                                    st.metric("RSI Overbought", f"{params['rsi_overbought']}")
+                                
+                                # Performance metrics for optimal strategy
+                                st.write("### Optimal Strategy Performance")
+                                
+                                m1, m2, m3, m4 = st.columns(4)
+                                with m1:
+                                    st.metric("Total Return", f"{opt_metrics['total_return_pct']:.2f}%")
+                                with m2:
+                                    st.metric("Number of Trades", opt_metrics['num_trades'])
+                                with m3:
+                                    st.metric("Win Rate", f"{opt_metrics['win_rate']:.1f}%")
+                                with m4:
+                                    st.metric("Avg Profit per Trade", f"{opt_metrics['avg_profit_pct']:.2f}%")
+                                
+                                # Display optimal trades
+                                if 'trades' in optimization_results and len(optimization_results['trades']) > 0:
+                                    st.write("### Profitable Trading Opportunities")
+                                    
+                                    # Filter to show only winning trades
+                                    sell_trades = [t for t in optimization_results['trades'] 
+                                                 if t['type'] in ['SELL', 'SELL (EOT)'] and t.get('profit_pct', 0) > 0]
+                                    
+                                    if sell_trades:
+                                        # Sort by profitability
+                                        sell_trades.sort(key=lambda x: x.get('profit_pct', 0), reverse=True)
+                                        
+                                        # Take top 10 most profitable trades
+                                        top_trades = sell_trades[:10]
+                                        
+                                        trade_data = []
+                                        for trade in top_trades:
+                                            trade_data.append({
+                                                "Exit Date": trade['timestamp'],
+                                                "Price": f"${trade['price']:.2f}",
+                                                "Profit (%)": f"{trade.get('profit_pct', 0):.2f}%",
+                                                "Holding Period (hrs)": f"{trade.get('holding_time', 0):.1f}"
+                                            })
+                                        
+                                        st.dataframe(trade_data, use_container_width=True)
+                                    else:
+                                        st.info("No profitable trades found in the optimal strategy.")
+                                        
+                                    # Plot the buy/sell points of the optimal strategy
+                                    st.write("### Optimal Strategy Buy/Sell Points")
+                                    
+                                    # Create a new figure for the optimal strategy visualization
+                                    fig = go.Figure()
+                                    
+                                    # Add candlestick chart
+                                    fig.add_trace(
+                                        go.Candlestick(
+                                            x=df['timestamp'],
+                                            open=df['open'],
+                                            high=df['high'],
+                                            low=df['low'],
+                                            close=df['close'],
+                                            name="Price"
+                                        )
+                                    )
+                                    
+                                    # Add buy points
+                                    buy_trades = [t for t in optimization_results['trades'] if t['type'] == 'BUY']
+                                    if buy_trades:
+                                        buy_times = [t['timestamp'] for t in buy_trades]
+                                        buy_prices = [t['price'] for t in buy_trades]
+                                        
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=buy_times,
+                                                y=buy_prices,
+                                                mode='markers',
+                                                marker=dict(
+                                                    symbol='triangle-up',
+                                                    size=15,
+                                                    color='green',
+                                                    line=dict(width=2, color='darkgreen')
+                                                ),
+                                                name="Optimal Buy"
+                                            )
+                                        )
+                                    
+                                    # Add sell points
+                                    if sell_trades:
+                                        sell_times = [t['timestamp'] for t in sell_trades]
+                                        sell_prices = [t['price'] for t in sell_trades]
+                                        
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=sell_times,
+                                                y=sell_prices,
+                                                mode='markers',
+                                                marker=dict(
+                                                    symbol='triangle-down',
+                                                    size=15,
+                                                    color='red',
+                                                    line=dict(width=2, color='darkred')
+                                                ),
+                                                name="Optimal Sell"
+                                            )
+                                        )
+                                    
+                                    fig.update_layout(
+                                        title="Optimal Strategy Entry/Exit Points",
+                                        xaxis_title="Date",
+                                        yaxis_title="Price ($)",
+                                        template="plotly_dark",
+                                        height=500,
+                                        xaxis_rangeslider_visible=False,
+                                        margin=dict(l=50, r=50, t=50, b=50),
+                                    )
+                                    
+                                    st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.warning("Could not find an optimal strategy. Try adjusting parameter ranges or using a different dataset.")
             else:
-                st.info("No completed trades to analyze.")
+                st.info("No completed trades to analyze. The strategy didn't generate any signals during this period or there wasn't enough data for backtesting.")
         
         # Auto-refresh logic
         if auto_refresh:
