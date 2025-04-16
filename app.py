@@ -217,7 +217,9 @@ def main():
             
             # Calculate indicators
             try:
-                # Access indicators functions directly
+                # Import indicator functions again for proper scope
+                from indicators import add_bollinger_bands, add_macd, add_rsi, add_ema
+                
                 if show_bollinger:
                     df = add_bollinger_bands(df)
                 if show_macd:
@@ -231,6 +233,8 @@ def main():
                     df = add_ema(df, 200)
             except Exception as e:
                 st.error(f"Error calculating indicators: {str(e)}")
+                import traceback
+                st.text(traceback.format_exc())
                 # Continue with available data
             
             # Evaluate buy/sell signals
@@ -827,20 +831,22 @@ def main():
                             base_df = df.copy()
                             
                             # Make sure all needed indicators are calculated
+                            # Make sure we're accessing the indicator functions properly
+                            # These are already imported at the top of the file
                             try:
-                                # Import indicators at the top level
-                                from indicators import add_bollinger_bands, add_rsi, add_macd
-                                
                                 if 'bb_lower' not in base_df.columns:
                                     st.text("Adding Bollinger Bands...")
+                                    from indicators import add_bollinger_bands
                                     base_df = add_bollinger_bands(base_df)
                                 
                                 if 'rsi' not in base_df.columns:
                                     st.text("Adding RSI...")
+                                    from indicators import add_rsi
                                     base_df = add_rsi(base_df)
                                 
                                 if 'macd' not in base_df.columns:
                                     st.text("Adding MACD...")
+                                    from indicators import add_macd
                                     base_df = add_macd(base_df)
                                     
                             except Exception as e:
