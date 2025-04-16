@@ -1,8 +1,16 @@
 import pandas as pd
 import numpy as np
 
-def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbought=70):
-    """Evaluate buy/sell signals based on technical indicators"""
+def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbought=70, use_macd_crossover=True):
+    """Evaluate buy/sell signals based on technical indicators
+    
+    Args:
+        df: DataFrame with OHLCV data and indicators
+        bb_threshold: Bollinger Bands threshold (0.0-0.5)
+        rsi_oversold: RSI level considered oversold
+        rsi_overbought: RSI level considered overbought
+        use_macd_crossover: Whether to use MACD crossover signals
+    """
     if df.empty:
         return df
     
@@ -47,15 +55,23 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         
         # MACD strategy
         if has_macd:
-            # Buy signal: MACD crosses above signal line
-            if (result_df.iloc[i]['macd'] > result_df.iloc[i]['macd_signal'] and 
-                result_df.iloc[i-1]['macd'] <= result_df.iloc[i-1]['macd_signal']):
-                buy_signals.append(True)
+            if use_macd_crossover:
+                # Buy signal: MACD crosses above signal line
+                if (result_df.iloc[i]['macd'] > result_df.iloc[i]['macd_signal'] and 
+                    result_df.iloc[i-1]['macd'] <= result_df.iloc[i-1]['macd_signal']):
+                    buy_signals.append(True)
+                    
+                # Sell signal: MACD crosses below signal line
+                if (result_df.iloc[i]['macd'] < result_df.iloc[i]['macd_signal'] and 
+                    result_df.iloc[i-1]['macd'] >= result_df.iloc[i-1]['macd_signal']):
+                    sell_signals.append(True)
+            else:
+                # Alternative MACD strategy: Use positive/negative MACD histogram
+                if result_df.iloc[i]['macd_histogram'] > 0 and result_df.iloc[i-1]['macd_histogram'] <= 0:
+                    buy_signals.append(True)
                 
-            # Sell signal: MACD crosses below signal line
-            if (result_df.iloc[i]['macd'] < result_df.iloc[i]['macd_signal'] and 
-                result_df.iloc[i-1]['macd'] >= result_df.iloc[i-1]['macd_signal']):
-                sell_signals.append(True)
+                if result_df.iloc[i]['macd_histogram'] < 0 and result_df.iloc[i-1]['macd_histogram'] >= 0:
+                    sell_signals.append(True)
         
         # EMA crossover strategy
         if has_ema:
@@ -262,7 +278,8 @@ def find_optimal_strategy(df, parameter_ranges=None):
         parameter_ranges = {
             'bb_threshold': [0.1, 0.2, 0.3, 0.4, 0.5],
             'rsi_oversold': [20, 25, 30, 35],
-            'rsi_overbought': [65, 70, 75, 80]
+            'rsi_overbought': [65, 70, 75, 80],
+            'use_macd_crossover': [True, False]  # Test both MACD strategies
         }
     
     # Calculate all indicators first
@@ -296,15 +313,24 @@ def find_optimal_strategy(df, parameter_ranges=None):
                 for rsi_o in parameter_ranges['rsi_oversold']:
                     if 'rsi_overbought' in parameter_ranges:
                         for rsi_b in parameter_ranges['rsi_overbought']:
-                            param_combinations.append({
-                                'bb_threshold': bb,
-                                'rsi_oversold': rsi_o,
-                                'rsi_overbought': rsi_b
-                            })
+                            if 'use_macd_crossover' in parameter_ranges:
+                                for macd_cross in parameter_ranges['use_macd_crossover']:
+                                    param_combinations.append({
+                                        'bb_threshold': bb,
+                                        'rsi_oversold': rsi_o,
+                                        'rsi_overbought': rsi_b,
+                                        'use_macd_crossover': macd_cross
+                                    })
+                            else:
+                                param_combinations.append({
+                                    'bb_threshold': bb,
+                                    'rsi_oversold': rsi_o,
+                                    'rsi_overbought': rsi_b
+                                })
     
     # If no parameters to test, use defaults
     if not param_combinations:
-        param_combinations = [{'bb_threshold': 0.2, 'rsi_oversold': 30, 'rsi_overbought': 70}]
+        param_combinations = [{'bb_threshold': 0.2, 'rsi_oversold': 30, 'rsi_overbought': 70, 'use_macd_crossover': True}]
     
     # Test each parameter combination
     for params in param_combinations:
@@ -313,7 +339,8 @@ def find_optimal_strategy(df, parameter_ranges=None):
             base_df, 
             bb_threshold=params.get('bb_threshold', 0.2),
             rsi_oversold=params.get('rsi_oversold', 30),
-            rsi_overbought=params.get('rsi_overbought', 70)
+            rsi_overbought=params.get('rsi_overbought', 70),
+            use_macd_crossover=params.get('use_macd_crossover', True)
         )
         
         # Run backtest
