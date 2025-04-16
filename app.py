@@ -26,10 +26,27 @@ st.set_page_config(
 create_tables()
 
 # Function to fetch data from Binance API or Database
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def get_data(symbol, interval, lookback_days):
-    end_time = datetime.now()
-    start_time = end_time - timedelta(days=lookback_days)
+def get_data(symbol, interval, lookback_days, start_date=None, end_date=None):
+    """
+    Fetch data for specified symbol and interval
+    
+    Args:
+        symbol: Trading pair symbol (e.g., BTCUSDT)
+        interval: Time interval for candles
+        lookback_days: Default number of days to look back
+        start_date: Optional specific start date (overrides lookback_days)
+        end_date: Optional specific end date (defaults to now)
+    """
+    # Calculate date range if not explicitly provided
+    if end_date is None:
+        end_time = datetime.now()
+    else:
+        end_time = end_date
+        
+    if start_date is None:
+        start_time = end_time - timedelta(days=lookback_days)
+    else:
+        start_time = start_date
     
     # Try to get data from database first
     df = get_historical_data(symbol, interval, start_time, end_time)
@@ -41,6 +58,12 @@ def get_data(symbol, interval, lookback_days):
             save_historical_data(df, symbol, interval)
     
     return df
+
+# Cache wrapper for get_data function
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_cached_data(symbol, interval, lookback_days, start_date=None, end_date=None):
+    """Cached version of get_data to improve performance"""
+    return get_data(symbol, interval, lookback_days, start_date, end_date)
 
 def main():
     st.title("Cryptocurrency Trading Analysis Platform")
@@ -100,14 +123,92 @@ def main():
     rsi_oversold = st.sidebar.slider("RSI Oversold Threshold", 10, 40, 30)
     rsi_overbought = st.sidebar.slider("RSI Overbought Threshold", 60, 90, 70)
     
+    # Add date range selection for advanced users
+    st.sidebar.header("Date Range")
+    use_custom_dates = st.sidebar.checkbox("Use Custom Date Range", value=False)
+    
+    start_date = None
+    end_date = None
+    
+    if use_custom_dates:
+        # Calculate default dates
+        default_end_date = datetime.now()
+        default_start_date = default_end_date - timedelta(days=lookback_days)
+        
+        # Date range inputs
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", value=default_start_date, 
+                                       max_value=datetime.now())
+        with col2:
+            end_date = st.date_input("End Date", value=default_end_date, 
+                                     max_value=datetime.now())
+        
+        # Convert to datetime with time
+        start_date = datetime.combine(start_date, datetime.min.time())
+        end_date = datetime.combine(end_date, datetime.max.time())
+        
+        # Ensure end date is not before start date
+        if end_date < start_date:
+            st.error("End date cannot be before start date")
+            return
+    
+    # Load More Data button for when scrolling
+    if st.sidebar.button("Load More Historical Data"):
+        # If already using custom dates, extend them further back
+        if use_custom_dates and start_date:
+            # Extend lookback by 3x
+            extended_start_date = start_date - timedelta(days=lookback_days*2)
+            start_date = extended_start_date
+        else:
+            # Use 3x the normal lookback
+            lookback_days = lookback_days * 3
+        
+        st.sidebar.success(f"Loading {lookback_days} days of historical data...")
+            
     # Get data from API or database
     try:
         with st.spinner(f"Fetching {symbol} data..."):
-            df = get_data(symbol, binance_interval, lookback_days)
+            # Use the cached data function with appropriate parameters
+            if use_custom_dates:
+                df = get_cached_data(symbol, binance_interval, lookback_days, start_date, end_date)
+                
+                # Format dates nicely for display
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                
+                st.sidebar.info(f"Showing data from {start_date_str} to {end_date_str}")
+            else:
+                df = get_cached_data(symbol, binance_interval, lookback_days)
+                
+                # Provide feedback about the date range being shown
+                if not df.empty:
+                    try:
+                        actual_start = df['timestamp'].min()
+                        actual_end = df['timestamp'].max()
+                        
+                        # Make sure timestamp is a datetime object
+                        if isinstance(actual_start, (str, int, float)):
+                            actual_start = pd.to_datetime(actual_start)
+                            
+                        if isinstance(actual_end, (str, int, float)):
+                            actual_end = pd.to_datetime(actual_end)
+                            
+                        start_date_str = actual_start.strftime('%Y-%m-%d')
+                        end_date_str = actual_end.strftime('%Y-%m-%d')
+                        
+                        date_range_text = f"Showing data from {start_date_str} to {end_date_str}"
+                        st.sidebar.info(date_range_text)
+                    except (AttributeError, TypeError):
+                        # If there's any issue with date formatting, just show a simpler message
+                        st.sidebar.info(f"Loaded {len(df)} data points")
             
             if df.empty:
                 st.error("No data available for the selected pair and timeframe.")
                 return
+            
+            # Display the number of candles loaded
+            st.sidebar.success(f"Loaded {len(df)} candles")
             
             # Calculate indicators
             if show_bollinger:
@@ -435,10 +536,57 @@ def main():
                 spikethickness=1
             )
         
+        # Add dynamic events for chart relayouts (zooming/panning)
+        fig.update_layout(
+            # Add event listeners for range changes
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    buttons=[
+                        dict(
+                            args=[{"dragmode": "zoom"}, {"annotations": {}}],
+                            label="Zoom",
+                            method="relayout"
+                        ),
+                        dict(
+                            args=[{"dragmode": "pan"}, {"annotations": {}}],
+                            label="Pan",
+                            method="relayout"
+                        ),
+                        dict(
+                            args=[{
+                                "xaxis.autorange": True, 
+                                "yaxis.autorange": True,
+                                "xaxis.range": None,
+                                "yaxis.range": None
+                            }],
+                            label="Reset Zoom",
+                            method="relayout"
+                        )
+                    ],
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.05,
+                    xanchor="left",
+                    y=1.08,
+                    yanchor="top"
+                )
+            ]
+        )
+        
+        # Add a message about data loading
+        st.info("📈 **Chart Navigation**: Use the mouse wheel to zoom, drag to pan. To load more historical data, use the 'Load More Historical Data' button in the sidebar.")
+        
         # Show chart
         chart_container = st.container()
         with chart_container:
-            chart = st.plotly_chart(fig, use_container_width=True)
+            chart = st.plotly_chart(fig, use_container_width=True, config={
+                'scrollZoom': True,  # Enable scroll to zoom
+                'displayModeBar': True,  # Always show the mode bar
+                'modeBarButtonsToAdd': ['select2d', 'lasso2d', 'resetScale2d', 'autoScale2d'],
+                'modeBarButtonsToRemove': ['toggleSpikelines']
+            })
             
         # Display current signals
         col1, col2, col3 = st.columns(3)
