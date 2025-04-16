@@ -216,17 +216,22 @@ def main():
             st.sidebar.success(f"Loaded {len(df)} candles")
             
             # Calculate indicators
-            if show_bollinger:
-                df = add_bollinger_bands(df)
-            if show_macd:
-                df = add_macd(df)
-            if show_rsi:
-                df = add_rsi(df)
-            if show_ema:
-                df = add_ema(df, 9)
-                df = add_ema(df, 21)
-                df = add_ema(df, 50)
-                df = add_ema(df, 200)
+            try:
+                # Access indicators functions directly
+                if show_bollinger:
+                    df = add_bollinger_bands(df)
+                if show_macd:
+                    df = add_macd(df)
+                if show_rsi:
+                    df = add_rsi(df)
+                if show_ema:
+                    df = add_ema(df, 9)
+                    df = add_ema(df, 21)
+                    df = add_ema(df, 50)
+                    df = add_ema(df, 200)
+            except Exception as e:
+                st.error(f"Error calculating indicators: {str(e)}")
+                # Continue with available data
             
             # Evaluate buy/sell signals
             df = evaluate_buy_sell_signals(df, bb_threshold, rsi_oversold, rsi_overbought)
@@ -822,17 +827,26 @@ def main():
                             base_df = df.copy()
                             
                             # Make sure all needed indicators are calculated
-                            if 'bb_lower' not in base_df.columns:
-                                from indicators import add_bollinger_bands
-                                base_df = add_bollinger_bands(base_df)
-                            
-                            if 'rsi' not in base_df.columns:
-                                from indicators import add_rsi
-                                base_df = add_rsi(base_df)
-                            
-                            if 'macd' not in base_df.columns:
-                                from indicators import add_macd
-                                base_df = add_macd(base_df)
+                            try:
+                                # Import indicators at the top level
+                                from indicators import add_bollinger_bands, add_rsi, add_macd
+                                
+                                if 'bb_lower' not in base_df.columns:
+                                    st.text("Adding Bollinger Bands...")
+                                    base_df = add_bollinger_bands(base_df)
+                                
+                                if 'rsi' not in base_df.columns:
+                                    st.text("Adding RSI...")
+                                    base_df = add_rsi(base_df)
+                                
+                                if 'macd' not in base_df.columns:
+                                    st.text("Adding MACD...")
+                                    base_df = add_macd(base_df)
+                                    
+                            except Exception as e:
+                                st.error(f"Error calculating indicators: {str(e)}")
+                                import traceback
+                                st.text(traceback.format_exc())
                             
                             # Test each combination of parameters
                             for bb in parameter_ranges['bb_threshold']:

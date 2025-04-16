@@ -267,17 +267,23 @@ def find_optimal_strategy(df, parameter_ranges=None):
     
     # Calculate all indicators first
     base_df = df.copy()
-    if 'bb_lower' not in base_df.columns:
-        from indicators import add_bollinger_bands
-        base_df = add_bollinger_bands(base_df)
-    
-    if 'rsi' not in base_df.columns:
-        from indicators import add_rsi
-        base_df = add_rsi(base_df)
-    
-    if 'macd' not in base_df.columns:
-        from indicators import add_macd
-        base_df = add_macd(base_df)
+    try:
+        # Import indicators once at the top level
+        from indicators import add_bollinger_bands, add_rsi, add_macd
+        
+        if 'bb_lower' not in base_df.columns:
+            base_df = add_bollinger_bands(base_df)
+        
+        if 'rsi' not in base_df.columns:
+            base_df = add_rsi(base_df)
+        
+        if 'macd' not in base_df.columns:
+            base_df = add_macd(base_df)
+    except Exception as e:
+        # Print error but continue with what we have
+        print(f"Error calculating indicators: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
     
     # Test all combinations
     results = []
