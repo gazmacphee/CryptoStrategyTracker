@@ -1,19 +1,18 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 
 def add_bollinger_bands(df, window=20, window_dev=2):
     """Add Bollinger Bands indicator to DataFrame"""
     if df.empty:
         return df
     
-    # Calculate Bollinger Bands
-    bb_result = ta.bbands(df['close'], length=window, std=window_dev)
+    # Calculate rolling mean and standard deviation
+    df['bb_middle'] = df['close'].rolling(window=window).mean()
+    rolling_std = df['close'].rolling(window=window).std()
     
-    # Add to DataFrame
-    df['bb_lower'] = bb_result['BBL_' + str(window) + '_' + str(window_dev) + '.0']
-    df['bb_middle'] = bb_result['BBM_' + str(window) + '_' + str(window_dev) + '.0']
-    df['bb_upper'] = bb_result['BBU_' + str(window) + '_' + str(window_dev) + '.0']
+    # Calculate upper and lower bands
+    df['bb_upper'] = df['bb_middle'] + (rolling_std * window_dev)
+    df['bb_lower'] = df['bb_middle'] - (rolling_std * window_dev)
     
     # Calculate %B (relative position within Bollinger Bands)
     df['bb_percent'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
@@ -25,8 +24,22 @@ def add_rsi(df, window=14):
     if df.empty:
         return df
     
+    # Calculate price changes
+    delta = df['close'].diff()
+    
+    # Create gain (positive) and loss (negative) series
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    
+    # Calculate average gain and average loss
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    
+    # Calculate RS (Relative Strength)
+    rs = avg_gain / avg_loss
+    
     # Calculate RSI
-    df['rsi'] = ta.rsi(df['close'], length=window)
+    df['rsi'] = 100 - (100 / (1 + rs))
     
     return df
 
@@ -35,13 +48,21 @@ def add_macd(df, fast=12, slow=26, signal=9):
     if df.empty:
         return df
     
-    # Calculate MACD
-    macd_result = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+    # Calculate EMA values
+    df['ema_fast'] = df['close'].ewm(span=fast, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=slow, adjust=False).mean()
     
-    # Add to DataFrame
-    df['macd'] = macd_result[f'MACD_{fast}_{slow}_{signal}']
-    df['macd_signal'] = macd_result[f'MACDs_{fast}_{slow}_{signal}']
-    df['macd_histogram'] = macd_result[f'MACDh_{fast}_{slow}_{signal}']
+    # Calculate MACD line
+    df['macd'] = df['ema_fast'] - df['ema_slow']
+    
+    # Calculate MACD signal line
+    df['macd_signal'] = df['macd'].ewm(span=signal, adjust=False).mean()
+    
+    # Calculate MACD histogram
+    df['macd_histogram'] = df['macd'] - df['macd_signal']
+    
+    # Clean up temporary columns
+    df.drop(['ema_fast', 'ema_slow'], axis=1, inplace=True, errors='ignore')
     
     return df
 
@@ -51,7 +72,7 @@ def add_ema(df, window=9):
         return df
     
     # Calculate EMA
-    df[f'ema_{window}'] = ta.ema(df['close'], length=window)
+    df[f'ema_{window}'] = df['close'].ewm(span=window, adjust=False).mean()
     
     return df
 
@@ -60,8 +81,17 @@ def add_atr(df, window=14):
     if df.empty:
         return df
     
+    # Calculate True Range
+    df['tr0'] = abs(df['high'] - df['low'])
+    df['tr1'] = abs(df['high'] - df['close'].shift())
+    df['tr2'] = abs(df['low'] - df['close'].shift())
+    df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+    
     # Calculate ATR
-    df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=window)
+    df['atr'] = df['tr'].rolling(window=window).mean()
+    
+    # Clean up temporary columns
+    df.drop(['tr0', 'tr1', 'tr2', 'tr'], axis=1, inplace=True, errors='ignore')
     
     return df
 
@@ -70,12 +100,27 @@ def add_stochastic(df, k_period=14, d_period=3, smooth_k=3):
     if df.empty:
         return df
     
-    # Calculate Stochastic
-    stoch_result = ta.stoch(df['high'], df['low'], df['close'], k=k_period, d=d_period, smooth_k=smooth_k)
+    # Calculate %K (fast stochastic)
+    low_min = df['low'].rolling(window=k_period).min()
+    high_max = df['high'].rolling(window=k_period).max()
     
-    # Add to DataFrame
-    df['stoch_k'] = stoch_result[f'STOCHk_{k_period}_{d_period}_{smooth_k}']
-    df['stoch_d'] = stoch_result[f'STOCHd_{k_period}_{d_period}_{smooth_k}']
+    # Handle division by zero
+    denom = high_max - low_min
+    denom = denom.replace(0, np.nan)
+    
+    df['stoch_k_raw'] = 100 * ((df['close'] - low_min) / denom)
+    
+    # Apply smoothing to %K if needed
+    if smooth_k > 1:
+        df['stoch_k'] = df['stoch_k_raw'].rolling(window=smooth_k).mean()
+    else:
+        df['stoch_k'] = df['stoch_k_raw']
+    
+    # Calculate %D (slow stochastic) - moving average of %K
+    df['stoch_d'] = df['stoch_k'].rolling(window=d_period).mean()
+    
+    # Clean up temporary columns
+    df.drop(['stoch_k_raw'], axis=1, inplace=True, errors='ignore')
     
     return df
 
@@ -84,13 +129,39 @@ def add_adx(df, window=14):
     if df.empty:
         return df
     
-    # Calculate ADX
-    adx_result = ta.adx(df['high'], df['low'], df['close'], length=window)
+    # Calculate True Range
+    df['tr0'] = abs(df['high'] - df['low'])
+    df['tr1'] = abs(df['high'] - df['close'].shift())
+    df['tr2'] = abs(df['low'] - df['close'].shift())
+    df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
     
-    # Add to DataFrame
-    df['adx'] = adx_result[f'ADX_{window}']
-    df['di_plus'] = adx_result[f'DMP_{window}']
-    df['di_minus'] = adx_result[f'DMN_{window}']
+    # Calculate Directional Movement
+    df['up_move'] = df['high'].diff()
+    df['down_move'] = df['low'].diff(-1).abs()
+    
+    # Calculate Positive and Negative Directional Movement
+    df['plus_dm'] = np.where((df['up_move'] > df['down_move']) & (df['up_move'] > 0), df['up_move'], 0)
+    df['minus_dm'] = np.where((df['down_move'] > df['up_move']) & (df['down_move'] > 0), df['down_move'], 0)
+    
+    # Smooth the True Range and Directional Movement
+    df['tr_smooth'] = df['tr'].rolling(window=window).mean()
+    df['plus_dm_smooth'] = df['plus_dm'].rolling(window=window).mean()
+    df['minus_dm_smooth'] = df['minus_dm'].rolling(window=window).mean()
+    
+    # Calculate Directional Indicators
+    df['di_plus'] = 100 * (df['plus_dm_smooth'] / df['tr_smooth'])
+    df['di_minus'] = 100 * (df['minus_dm_smooth'] / df['tr_smooth'])
+    
+    # Calculate Directional Index
+    df['dx'] = 100 * abs(df['di_plus'] - df['di_minus']) / (df['di_plus'] + df['di_minus'])
+    
+    # Calculate Average Directional Index
+    df['adx'] = df['dx'].rolling(window=window).mean()
+    
+    # Clean up temporary columns
+    df.drop(['tr0', 'tr1', 'tr2', 'tr', 'up_move', 'down_move', 'plus_dm', 'minus_dm', 
+             'tr_smooth', 'plus_dm_smooth', 'minus_dm_smooth', 'dx'], 
+             axis=1, inplace=True, errors='ignore')
     
     return df
 
