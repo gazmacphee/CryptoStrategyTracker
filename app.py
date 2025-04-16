@@ -174,8 +174,13 @@ def main():
                 df = get_cached_data(symbol, binance_interval, lookback_days, start_date, end_date)
                 
                 # Format dates nicely for display
-                start_date_str = start_date.strftime('%Y-%m-%d')
-                end_date_str = end_date.strftime('%Y-%m-%d')
+                try:
+                    start_date_str = start_date.strftime('%Y-%m-%d')
+                    end_date_str = end_date.strftime('%Y-%m-%d')
+                except (AttributeError, TypeError):
+                    # If dates aren't datetime objects, convert them
+                    start_date_str = pd.to_datetime(start_date).strftime('%Y-%m-%d')
+                    end_date_str = pd.to_datetime(end_date).strftime('%Y-%m-%d')
                 
                 st.sidebar.info(f"Showing data from {start_date_str} to {end_date_str}")
             else:
@@ -750,19 +755,133 @@ def main():
                 st.subheader("Strategy Optimization")
                 
                 with st.expander("Optimize Trading Strategy", expanded=True):
-                    if st.button("Run Optimization"):
-                        with st.spinner("Finding optimal trading parameters..."):
-                            # Define parameter ranges to test
+                    # Create a container for the optimization controls
+                    optimization_container = st.container()
+                    
+                    # Use this container to show optimization results
+                    results_container = st.container()
+                    
+                    with optimization_container:
+                        # Add some explanation text
+                        st.write("""
+                        The optimization process will test multiple combinations of parameters to find the most profitable trading strategy.
+                        This process may take some time depending on the amount of data and parameter combinations.
+                        """)
+                        
+                        # Allow user to adjust parameter ranges
+                        st.write("### Parameter Ranges to Test")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            bb_min = st.slider("BB Threshold Min", 0.0, 0.5, 0.1, 0.1)
+                            bb_max = st.slider("BB Threshold Max", 0.1, 0.9, 0.5, 0.1)
+                            bb_step = 0.1
+                            bb_values = [round(x, 1) for x in np.arange(bb_min, bb_max + bb_step, bb_step)]
+                            
+                        with col2:
+                            rsi_o_min = st.slider("RSI Oversold Min", 10, 40, 20, 5)
+                            rsi_o_max = st.slider("RSI Oversold Max", 20, 45, 35, 5)
+                            rsi_o_step = 5
+                            rsi_o_values = list(range(rsi_o_min, rsi_o_max + rsi_o_step, rsi_o_step))
+                            
+                        with col3:
+                            rsi_ob_min = st.slider("RSI Overbought Min", 55, 85, 65, 5)
+                            rsi_ob_max = st.slider("RSI Overbought Max", 65, 90, 85, 5)
+                            rsi_ob_step = 5
+                            rsi_ob_values = list(range(rsi_ob_min, rsi_ob_max + rsi_ob_step, rsi_ob_step))
+                        
+                        # Display the number of combinations that will be tested
+                        total_combinations = len(bb_values) * len(rsi_o_values) * len(rsi_ob_values)
+                        st.info(f"Total parameter combinations to test: {total_combinations}")
+                        
+                        # Run optimization button
+                        if st.button("Run Optimization"):
+                            # Define parameter ranges from user input
                             parameter_ranges = {
-                                'bb_threshold': [0.1, 0.2, 0.3, 0.4, 0.5],
-                                'rsi_oversold': [20, 25, 30, 35],
-                                'rsi_overbought': [65, 70, 75, 80, 85]
+                                'bb_threshold': bb_values,
+                                'rsi_oversold': rsi_o_values,
+                                'rsi_overbought': rsi_ob_values
                             }
                             
-                            # Run optimization
-                            optimization_results = find_optimal_strategy(df, parameter_ranges)
+                            # Create a progress bar
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
                             
-                            if optimization_results:
+                            # Run optimization with progress updates
+                            status_text.text("Starting optimization process...")
+                            
+                            # Create a placeholder for intermediate results
+                            interim_results = st.empty()
+                            
+                            # Track number of combinations tested
+                            combinations_tested = 0
+                            
+                            # Rather than passing the full optimization to find_optimal_strategy,
+                            # we'll run each combination individually to show progress
+                            results = []
+                            base_df = df.copy()
+                            
+                            # Make sure all needed indicators are calculated
+                            if 'bb_lower' not in base_df.columns:
+                                from indicators import add_bollinger_bands
+                                base_df = add_bollinger_bands(base_df)
+                            
+                            if 'rsi' not in base_df.columns:
+                                from indicators import add_rsi
+                                base_df = add_rsi(base_df)
+                            
+                            if 'macd' not in base_df.columns:
+                                from indicators import add_macd
+                                base_df = add_macd(base_df)
+                            
+                            # Test each combination of parameters
+                            for bb in parameter_ranges['bb_threshold']:
+                                for rsi_o in parameter_ranges['rsi_oversold']:
+                                    for rsi_ob in parameter_ranges['rsi_overbought']:
+                                        # Update status
+                                        params = {
+                                            'bb_threshold': bb,
+                                            'rsi_oversold': rsi_o,
+                                            'rsi_overbought': rsi_ob
+                                        }
+                                        
+                                        status_text.text(f"Testing parameters: BB={bb}, RSI Oversold={rsi_o}, RSI Overbought={rsi_ob}")
+                                        
+                                        # Generate signals and backtest
+                                        signals_df = evaluate_buy_sell_signals(base_df, bb_threshold=bb, rsi_oversold=rsi_o, rsi_overbought=rsi_ob)
+                                        backtest_result = backtest_strategy(signals_df)
+                                        
+                                        if backtest_result and backtest_result['metrics']['num_trades'] > 0:
+                                            results.append({
+                                                'parameters': params,
+                                                'metrics': backtest_result['metrics'],
+                                                'trades': backtest_result['trades']
+                                            })
+                                            
+                                            # Show interim best result
+                                            if results:
+                                                best_so_far = sorted(results, key=lambda x: x['metrics']['total_return_pct'], reverse=True)[0]
+                                                interim_results.info(f"Best strategy so far: BB={best_so_far['parameters']['bb_threshold']}, "
+                                                                   f"RSI Oversold={best_so_far['parameters']['rsi_oversold']}, "
+                                                                   f"RSI Overbought={best_so_far['parameters']['rsi_overbought']} - "
+                                                                   f"Return: {best_so_far['metrics']['total_return_pct']:.2f}%")
+                                        
+                                        # Update progress
+                                        combinations_tested += 1
+                                        progress_percentage = int(combinations_tested / total_combinations * 100)
+                                        progress_bar.progress(progress_percentage)
+                            
+                            # Clear status
+                            status_text.empty()
+                            progress_bar.empty()
+                            interim_results.empty()
+                            
+                            # Find best result
+                            optimization_results = None
+                            if results:
+                                # Sort by total return
+                                results.sort(key=lambda x: x['metrics']['total_return_pct'], reverse=True)
+                                optimization_results = results[0]
                                 st.success("Optimization completed!")
                                 
                                 # Display optimal parameters

@@ -117,9 +117,10 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
             coins_to_buy = cash_to_use / current_price
             
             # Update position and cash
-            backtest_df.iloc[i, backtest_df.columns.get_loc('position')] = coins_to_buy
-            backtest_df.iloc[i, backtest_df.columns.get_loc('cash')] = backtest_df.iloc[i-1]['cash'] - cash_to_use
-            backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = coins_to_buy * current_price
+            # Convert to float explicitly to avoid dtype warnings
+            backtest_df.iloc[i, backtest_df.columns.get_loc('position')] = float(coins_to_buy)
+            backtest_df.iloc[i, backtest_df.columns.get_loc('cash')] = float(backtest_df.iloc[i-1]['cash'] - cash_to_use)
+            backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = float(coins_to_buy * current_price)
             
             # Record trade
             in_position = True
@@ -180,9 +181,10 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
         
         # Update holdings value and portfolio value
         if backtest_df.iloc[i]['position'] > 0:
-            backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = backtest_df.iloc[i]['position'] * current_price
+            backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = float(backtest_df.iloc[i]['position'] * current_price)
         
-        backtest_df.iloc[i, backtest_df.columns.get_loc('portfolio_value')] = backtest_df.iloc[i]['cash'] + backtest_df.iloc[i]['holdings']
+        # Use float for all numeric values to avoid dtype warnings
+        backtest_df.iloc[i, backtest_df.columns.get_loc('portfolio_value')] = float(backtest_df.iloc[i]['cash'] + backtest_df.iloc[i]['holdings'])
     
     # Close any open position at the end of the period using the last price
     if in_position:
