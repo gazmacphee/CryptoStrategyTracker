@@ -126,13 +126,45 @@ def main():
             df = evaluate_buy_sell_signals(df, bb_threshold, rsi_oversold, rsi_overbought)
     
         # Create main chart with candlesticks
+        # Determine how many subplots we need based on selected indicators
+        num_rows = 1  # Always have the main price chart
+        
+        # Add row for volume
+        num_rows += 1
+        
+        # Add row for MACD if selected
+        if show_macd:
+            num_rows += 1
+            
+        # Add row for RSI if selected
+        if show_rsi:
+            num_rows += 1
+        
+        # Calculate row heights - give more space to price chart
+        row_heights = [0.5]  # Main price chart gets 50%
+        remaining_height = 0.5  # Remaining 50% divided among other indicators
+        
+        # Distribute remaining height among other rows
+        for i in range(1, num_rows):
+            row_heights.append(remaining_height / (num_rows - 1))
+        
+        # Create subplot titles
+        subplot_titles = [f"{symbol} - {interval}"]
+        subplot_titles.append("Volume")
+        
+        if show_macd:
+            subplot_titles.append("MACD")
+        
+        if show_rsi:
+            subplot_titles.append("RSI")
+        
         fig = make_subplots(
-            rows=2, 
+            rows=num_rows, 
             cols=1, 
             shared_xaxes=True, 
             vertical_spacing=0.03, 
-            row_heights=[0.7, 0.3],
-            subplot_titles=(f"{symbol} - {interval}", "Volume")
+            row_heights=row_heights,
+            subplot_titles=subplot_titles
         )
         
         # Add candlestick chart
@@ -215,8 +247,13 @@ def main():
                         row=1, col=1
                     )
         
-        # Add MACD to subplot
+        # Track which row we're on for indicators
+        current_row = 3  # Start after price and volume
+        
+        # Add MACD to subplot (in its own row if selected)
         if show_macd and 'macd' in df.columns:
+            macd_row = current_row
+            
             fig.add_trace(
                 go.Scatter(
                     x=df['timestamp'],
@@ -224,7 +261,7 @@ def main():
                     line=dict(color='blue', width=1.5),
                     name="MACD"
                 ),
-                row=2, col=1
+                row=macd_row, col=1
             )
             
             fig.add_trace(
@@ -234,7 +271,7 @@ def main():
                     line=dict(color='red', width=1.5),
                     name="Signal"
                 ),
-                row=2, col=1
+                row=macd_row, col=1
             )
             
             colors = ['green' if val > 0 else 'red' for val in df['macd_histogram']]
@@ -245,43 +282,47 @@ def main():
                     marker_color=colors,
                     name="Histogram"
                 ),
-                row=2, col=1
+                row=macd_row, col=1
             )
+            
+            # Move to next row
+            current_row += 1
         
         # RSI indicator (if selected)
         if show_rsi and 'rsi' in df.columns:
-            # Replace MACD with RSI if selected
-            if not show_macd:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['timestamp'],
-                        y=df['rsi'],
-                        line=dict(color='purple', width=1.5),
-                        name="RSI"
-                    ),
-                    row=2, col=1
-                )
-                
-                # Add overbought/oversold lines
-                fig.add_trace(
-                    go.Scatter(
-                        x=[df['timestamp'].iloc[0], df['timestamp'].iloc[-1]],
-                        y=[rsi_overbought, rsi_overbought],
-                        line=dict(color='red', width=1, dash='dash'),
-                        name=f"Overbought ({rsi_overbought})"
-                    ),
-                    row=2, col=1
-                )
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=[df['timestamp'].iloc[0], df['timestamp'].iloc[-1]],
-                        y=[rsi_oversold, rsi_oversold],
-                        line=dict(color='green', width=1, dash='dash'),
-                        name=f"Oversold ({rsi_oversold})"
-                    ),
-                    row=2, col=1
-                )
+            # Always gets its own subplot
+            rsi_row = current_row if show_macd else 3
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df['timestamp'],
+                    y=df['rsi'],
+                    line=dict(color='purple', width=1.5),
+                    name="RSI"
+                ),
+                row=rsi_row, col=1
+            )
+            
+            # Add overbought/oversold lines
+            fig.add_trace(
+                go.Scatter(
+                    x=[df['timestamp'].iloc[0], df['timestamp'].iloc[-1]],
+                    y=[rsi_overbought, rsi_overbought],
+                    line=dict(color='red', width=1, dash='dash'),
+                    name=f"Overbought ({rsi_overbought})"
+                ),
+                row=rsi_row, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[df['timestamp'].iloc[0], df['timestamp'].iloc[-1]],
+                    y=[rsi_oversold, rsi_oversold],
+                    line=dict(color='green', width=1, dash='dash'),
+                    name=f"Oversold ({rsi_oversold})"
+                ),
+                row=rsi_row, col=1
+            )
         
         # Add buy/sell markers
         buy_signals = df[df['buy_signal']]
@@ -329,17 +370,70 @@ def main():
             template="plotly_dark",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
             margin=dict(l=50, r=50, t=85, b=100),
+            # Enable scrolling and zooming
+            dragmode='zoom',  # Default drag mode is zoom
+            hovermode='closest',
+            # Allow more interaction options
+            modebar=dict(
+                orientation='v',
+                bgcolor='rgba(0,0,0,0.2)',
+                color='white',
+                activecolor='rgba(0,191,255,0.7)'
+            ),
+            # Add zoom and pan buttons
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="left",
+                    buttons=[
+                        dict(
+                            args=[{"dragmode": "zoom"}, {"annotations": {}}],
+                            label="Zoom",
+                            method="relayout"
+                        ),
+                        dict(
+                            args=[{"dragmode": "pan"}, {"annotations": {}}],
+                            label="Pan",
+                            method="relayout"
+                        )
+                    ],
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.05,
+                    xanchor="left",
+                    y=1.08,
+                    yanchor="top"
+                )
+            ]
         )
         
-        fig.update_xaxes(
-            gridcolor="rgba(255, 255, 255, 0.1)",
-            showgrid=True
-        )
-        
-        fig.update_yaxes(
-            gridcolor="rgba(255, 255, 255, 0.1)",
-            showgrid=True
-        )
+        # Add grid to all axes
+        for i in range(1, num_rows + 1):
+            # Configure x-axis for each subplot
+            fig.update_xaxes(
+                row=i, col=1,
+                gridcolor="rgba(255, 255, 255, 0.1)",
+                showgrid=True,
+                # Make the chart more interactive
+                rangeslider_visible=False,
+                showspikes=True,
+                spikemode='across',
+                spikesnap='cursor',
+                spikecolor="rgba(255, 255, 255, 0.5)",
+                spikethickness=1
+            )
+            
+            # Configure y-axis for each subplot
+            fig.update_yaxes(
+                row=i, col=1,
+                gridcolor="rgba(255, 255, 255, 0.1)",
+                showgrid=True,
+                showspikes=True,
+                spikemode='across',
+                spikesnap='cursor',
+                spikecolor="rgba(255, 255, 255, 0.5)",
+                spikethickness=1
+            )
         
         # Show chart
         chart_container = st.container()
