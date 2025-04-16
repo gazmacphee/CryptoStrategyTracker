@@ -5,23 +5,73 @@ from datetime import datetime, timedelta
 from psycopg2 import sql
 
 # Database configuration - get from environment variables with defaults
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "crypto")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASS", "postgres")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+# Parse DATABASE_URL if available
+if DATABASE_URL:
+    # Parse the URL to get components
+    try:
+        # Handle postgresql:// urls
+        if DATABASE_URL.startswith("postgresql://"):
+            # Strip off postgres:// part
+            user_pass_host_port_db = DATABASE_URL[len("postgresql://"):]
+            user_pass, host_port_db = user_pass_host_port_db.split("@", 1)
+            
+            if ":" in user_pass:
+                DB_USER, DB_PASS = user_pass.split(":", 1)
+            else:
+                DB_USER = user_pass
+                DB_PASS = ""
+                
+            if "/" in host_port_db:
+                host_port, DB_NAME = host_port_db.split("/", 1)
+            else:
+                host_port = host_port_db
+                DB_NAME = ""
+                
+            if ":" in host_port:
+                DB_HOST, DB_PORT = host_port.split(":", 1)
+            else:
+                DB_HOST = host_port
+                DB_PORT = "5432"
+        else:
+            # Fallback to environment variables
+            DB_HOST = os.getenv("PGHOST", "localhost")
+            DB_PORT = os.getenv("PGPORT", "5432")
+            DB_NAME = os.getenv("PGDATABASE", "crypto")
+            DB_USER = os.getenv("PGUSER", "postgres")
+            DB_PASS = os.getenv("PGPASSWORD", "postgres")
+    except Exception as e:
+        print(f"Error parsing DATABASE_URL: {e}, using environment variables instead")
+        DB_HOST = os.getenv("PGHOST", "localhost")
+        DB_PORT = os.getenv("PGPORT", "5432")
+        DB_NAME = os.getenv("PGDATABASE", "crypto")
+        DB_USER = os.getenv("PGUSER", "postgres")
+        DB_PASS = os.getenv("PGPASSWORD", "postgres")
+else:
+    # Use environment variables
+    DB_HOST = os.getenv("PGHOST", "localhost")
+    DB_PORT = os.getenv("PGPORT", "5432")
+    DB_NAME = os.getenv("PGDATABASE", "crypto")
+    DB_USER = os.getenv("PGUSER", "postgres")
+    DB_PASS = os.getenv("PGPASSWORD", "postgres")
 
 def get_db_connection():
     """Create a database connection"""
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASS
-        )
-        return conn
+        # Try connecting using DATABASE_URL directly first if available
+        if DATABASE_URL:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        else:
+            # Fall back to individual parameters
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASS
+            )
+            return conn
     except psycopg2.Error as e:
         print(f"Error connecting to database: {e}")
         return None

@@ -98,6 +98,7 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
     # Initial state
     in_position = False
     entry_price = 0
+    entry_time = None
     
     for i in range(1, len(backtest_df)):
         # Default: carry over previous values
@@ -107,6 +108,7 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
         
         # Get current close price
         current_price = backtest_df.iloc[i]['close']
+        current_time = backtest_df.iloc[i]['timestamp']
         
         # Handle buy signal
         if backtest_df.iloc[i]['buy_signal'] and not in_position:
@@ -122,12 +124,21 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
             # Record trade
             in_position = True
             entry_price = current_price
+            entry_time = current_time
+            
+            # Get indicators at buy time for analysis
+            indicators = {}
+            for col in backtest_df.columns:
+                if col in ['rsi', 'macd', 'bb_percent', 'stoch_k', 'stoch_d', 'adx']:
+                    if col in backtest_df.columns:
+                        indicators[col] = backtest_df.iloc[i].get(col, None)
             
             trades.append({
                 'type': 'BUY',
                 'price': current_price,
                 'coins': coins_to_buy,
-                'timestamp': backtest_df.iloc[i]['timestamp']
+                'timestamp': current_time,
+                'indicators': indicators
             })
         
         # Handle sell signal
@@ -141,6 +152,18 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
             backtest_df.iloc[i, backtest_df.columns.get_loc('cash')] = backtest_df.iloc[i-1]['cash'] + cash_from_sale
             backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = 0
             
+            # Calculate profit and percentage
+            profit = current_price - entry_price
+            profit_pct = (profit / entry_price) * 100
+            holding_time = (current_time - entry_time).total_seconds() / 3600  # hours
+            
+            # Get indicators at sell time for analysis
+            indicators = {}
+            for col in backtest_df.columns:
+                if col in ['rsi', 'macd', 'bb_percent', 'stoch_k', 'stoch_d', 'adx']:
+                    if col in backtest_df.columns:
+                        indicators[col] = backtest_df.iloc[i].get(col, None)
+            
             # Record trade
             in_position = False
             
@@ -148,8 +171,11 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
                 'type': 'SELL',
                 'price': current_price,
                 'coins': coins_to_sell,
-                'timestamp': backtest_df.iloc[i]['timestamp'],
-                'profit_pct': (current_price - entry_price) / entry_price * 100
+                'timestamp': current_time,
+                'profit': profit,
+                'profit_pct': profit_pct,
+                'holding_time': holding_time,
+                'indicators': indicators
             })
         
         # Update holdings value and portfolio value
@@ -158,25 +184,50 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
         
         backtest_df.iloc[i, backtest_df.columns.get_loc('portfolio_value')] = backtest_df.iloc[i]['cash'] + backtest_df.iloc[i]['holdings']
     
+    # Close any open position at the end of the period using the last price
+    if in_position:
+        last_price = backtest_df.iloc[-1]['close']
+        coins_to_sell = backtest_df.iloc[-1]['position']
+        profit = last_price - entry_price
+        profit_pct = (profit / entry_price) * 100
+        
+        trades.append({
+            'type': 'SELL (EOT)',  # End of Time period
+            'price': last_price,
+            'coins': coins_to_sell,
+            'timestamp': backtest_df.iloc[-1]['timestamp'],
+            'profit': profit,
+            'profit_pct': profit_pct,
+            'holding_time': (backtest_df.iloc[-1]['timestamp'] - entry_time).total_seconds() / 3600  # hours
+        })
+    
     # Calculate backtest metrics
     initial_value = backtest_df.iloc[0]['portfolio_value']
     final_value = backtest_df.iloc[-1]['portfolio_value']
     total_return = (final_value - initial_value) / initial_value * 100
     
     # Calculate trade metrics
-    num_trades = len([t for t in trades if t['type'] == 'SELL'])
-    winning_trades = len([t for t in trades if t['type'] == 'SELL' and t.get('profit_pct', 0) > 0])
+    sell_trades = [t for t in trades if t['type'] in ['SELL', 'SELL (EOT)']]
+    num_trades = len(sell_trades)
+    winning_trades = len([t for t in sell_trades if t.get('profit_pct', 0) > 0])
+    
     if num_trades > 0:
         win_rate = winning_trades / num_trades * 100
+        avg_profit = sum(t.get('profit_pct', 0) for t in sell_trades) / num_trades
+        avg_holding_time = sum(t.get('holding_time', 0) for t in sell_trades) / num_trades
     else:
         win_rate = 0
+        avg_profit = 0
+        avg_holding_time = 0
     
     metrics = {
         'initial_capital': initial_capital,
         'final_value': final_value,
         'total_return_pct': total_return,
         'num_trades': num_trades,
-        'win_rate': win_rate
+        'win_rate': win_rate,
+        'avg_profit_pct': avg_profit,
+        'avg_holding_time_hours': avg_holding_time
     }
     
     return {
@@ -184,3 +235,93 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
         'trades': trades,
         'backtest_df': backtest_df
     }
+
+def find_optimal_strategy(df, parameter_ranges=None):
+    """
+    Test multiple strategy parameter combinations to find the most profitable settings
+    
+    Args:
+        df: DataFrame with OHLCV data
+        parameter_ranges: Dictionary of parameter ranges to test, e.g.
+            {
+                'bb_threshold': [0.1, 0.2, 0.3, 0.4],
+                'rsi_oversold': [20, 25, 30, 35],
+                'rsi_overbought': [65, 70, 75, 80]
+            }
+    
+    Returns:
+        Dictionary with optimal parameters and backtest results
+    """
+    if df.empty:
+        return None
+    
+    # Default parameter ranges if none provided
+    if parameter_ranges is None:
+        parameter_ranges = {
+            'bb_threshold': [0.1, 0.2, 0.3, 0.4, 0.5],
+            'rsi_oversold': [20, 25, 30, 35],
+            'rsi_overbought': [65, 70, 75, 80]
+        }
+    
+    # Calculate all indicators first
+    base_df = df.copy()
+    if 'bb_lower' not in base_df.columns:
+        from indicators import add_bollinger_bands
+        base_df = add_bollinger_bands(base_df)
+    
+    if 'rsi' not in base_df.columns:
+        from indicators import add_rsi
+        base_df = add_rsi(base_df)
+    
+    if 'macd' not in base_df.columns:
+        from indicators import add_macd
+        base_df = add_macd(base_df)
+    
+    # Test all combinations
+    results = []
+    
+    # Generate all combinations of parameters
+    param_combinations = []
+    if 'bb_threshold' in parameter_ranges:
+        for bb in parameter_ranges['bb_threshold']:
+            if 'rsi_oversold' in parameter_ranges:
+                for rsi_o in parameter_ranges['rsi_oversold']:
+                    if 'rsi_overbought' in parameter_ranges:
+                        for rsi_b in parameter_ranges['rsi_overbought']:
+                            param_combinations.append({
+                                'bb_threshold': bb,
+                                'rsi_oversold': rsi_o,
+                                'rsi_overbought': rsi_b
+                            })
+    
+    # If no parameters to test, use defaults
+    if not param_combinations:
+        param_combinations = [{'bb_threshold': 0.2, 'rsi_oversold': 30, 'rsi_overbought': 70}]
+    
+    # Test each parameter combination
+    for params in param_combinations:
+        # Generate buy/sell signals with these parameters
+        signals_df = evaluate_buy_sell_signals(
+            base_df, 
+            bb_threshold=params.get('bb_threshold', 0.2),
+            rsi_oversold=params.get('rsi_oversold', 30),
+            rsi_overbought=params.get('rsi_overbought', 70)
+        )
+        
+        # Run backtest
+        backtest_results = backtest_strategy(signals_df)
+        
+        if backtest_results and backtest_results['metrics']['num_trades'] > 0:
+            results.append({
+                'parameters': params,
+                'metrics': backtest_results['metrics'],
+                'trades': backtest_results['trades']
+            })
+    
+    # Find best strategy by total return
+    if results:
+        # Sort by total return
+        results.sort(key=lambda x: x['metrics']['total_return_pct'], reverse=True)
+        return results[0]
+    
+    return None
