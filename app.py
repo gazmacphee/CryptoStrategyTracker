@@ -185,15 +185,36 @@ def main():
         st.session_state.backfill_started = False
         st.session_state.backfill_thread = None
     
-    # Start background backfill automatically on first load
-    if not st.session_state.backfill_started:
-        # Start a continuous background update with specified interval
+    # Start background backfill automatically on first load if needed
+    # Add a timestamp to track when the backfill was started
+    if 'backfill_start_time' not in st.session_state:
+        st.session_state.backfill_start_time = datetime.now()
+    
+    # Only start a new backfill process if one hasn't been started in the last 5 minutes
+    current_time = datetime.now()
+    time_diff = (current_time - st.session_state.backfill_start_time).total_seconds()
+    
+    # If it's the first time or if it's been more than 5 minutes since last attempt
+    if not st.session_state.backfill_started or time_diff > 300:
+        # Kill any existing backfill processes before starting a new one
+        if st.session_state.backfill_started:
+            import subprocess
+            try:
+                # Find and kill any running backfill_database.py processes
+                subprocess.run(["pkill", "-f", "backfill_database.py"], 
+                              stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                time.sleep(1)  # Give it a second to clean up
+            except Exception:
+                pass  # Ignore errors with killing process
+        
+        # Start a new continuous background update with specified interval
         st.session_state.backfill_thread = run_background_backfill(
             continuous=True,  # Run continuously
             full=False,       # Start with quick update
-            interval_minutes=10  # Update every 10 minutes
+            interval_minutes=15  # Update every 15 minutes
         )
         st.session_state.backfill_started = True
+        st.session_state.backfill_start_time = current_time
         st.info("Continuous database updates started in the background. The database will be regularly updated with the latest prices, indicators, and trading signals.")
     
     # Show database status in expandable section
