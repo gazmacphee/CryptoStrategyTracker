@@ -307,72 +307,61 @@ def main():
         except Exception as e:
             st.sidebar.error(f"Error starting backfill process: {e}")
             
-    # Get data from API or database
-    try:
-        # Get the selected symbol first
-        available_symbols = get_available_symbols()
-        default_symbol = "BTCUSDT"
-        
-        if available_symbols:
-            default_symbol = available_symbols[0]
-        
-        symbol = st.sidebar.selectbox(
-            "Select Cryptocurrency Pair",
-            options=available_symbols,
-            index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0
-        )
-        
-        # Show last update time for this specific symbol/interval
-        last_update_for_interval = get_last_update_time(symbol, binance_interval)
-        if last_update_for_interval:
-            st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        with st.spinner(f"Fetching {symbol} data..."):
-            # Use the cached data function with appropriate parameters
-            if use_custom_dates:
-                df = get_cached_data(symbol, binance_interval, lookback_days, start_date, end_date)
-                
-                # Format dates nicely for display
-                try:
-                    start_date_str = start_date.strftime('%Y-%m-%d')
-                    end_date_str = end_date.strftime('%Y-%m-%d')
-                except (AttributeError, TypeError):
-                    # If dates aren't datetime objects, convert them
-                    start_date_str = pd.to_datetime(start_date).strftime('%Y-%m-%d')
-                    end_date_str = pd.to_datetime(end_date).strftime('%Y-%m-%d')
-                
-                st.sidebar.info(f"Showing data from {start_date_str} to {end_date_str}")
-            else:
-                df = get_cached_data(symbol, binance_interval, lookback_days)
-                
-                # Provide feedback about the date range being shown
-                if not df.empty:
+    # This code should only execute if we're in the Analysis tab
+    if selected_tab == "Analysis":
+        # Get data from API or database
+        try:
+            # Show last update time for this specific symbol/interval
+            last_update_for_interval = get_last_update_time(symbol, binance_interval)
+            if last_update_for_interval:
+                st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            with st.spinner(f"Fetching {symbol} data..."):
+                # Use the cached data function with appropriate parameters
+                if use_custom_dates:
+                    df = get_cached_data(symbol, binance_interval, lookback_days, start_date, end_date)
+                    
+                    # Format dates nicely for display
                     try:
-                        actual_start = df['timestamp'].min()
-                        actual_end = df['timestamp'].max()
-                        
-                        # Make sure timestamp is a datetime object
-                        if isinstance(actual_start, (str, int, float)):
-                            actual_start = pd.to_datetime(actual_start)
-                            
-                        if isinstance(actual_end, (str, int, float)):
-                            actual_end = pd.to_datetime(actual_end)
-                            
-                        start_date_str = actual_start.strftime('%Y-%m-%d')
-                        end_date_str = actual_end.strftime('%Y-%m-%d')
-                        
-                        date_range_text = f"Showing data from {start_date_str} to {end_date_str}"
-                        st.sidebar.info(date_range_text)
+                        start_date_str = start_date.strftime('%Y-%m-%d')
+                        end_date_str = end_date.strftime('%Y-%m-%d')
                     except (AttributeError, TypeError):
-                        # If there's any issue with date formatting, just show a simpler message
-                        st.sidebar.info(f"Loaded {len(df)} data points")
-            
-            if df.empty:
-                st.error("No data available for the selected pair and timeframe.")
-                return
-            
-            # Display the number of candles loaded
-            st.sidebar.success(f"Loaded {len(df)} candles")
+                        # If dates aren't datetime objects, convert them
+                        start_date_str = pd.to_datetime(start_date).strftime('%Y-%m-%d')
+                        end_date_str = pd.to_datetime(end_date).strftime('%Y-%m-%d')
+                    
+                    st.sidebar.info(f"Showing data from {start_date_str} to {end_date_str}")
+                else:
+                    df = get_cached_data(symbol, binance_interval, lookback_days)
+                    
+                    # Provide feedback about the date range being shown
+                    if not df.empty:
+                        try:
+                            actual_start = df['timestamp'].min()
+                            actual_end = df['timestamp'].max()
+                            
+                            # Make sure timestamp is a datetime object
+                            if isinstance(actual_start, (str, int, float)):
+                                actual_start = pd.to_datetime(actual_start)
+                                
+                            if isinstance(actual_end, (str, int, float)):
+                                actual_end = pd.to_datetime(actual_end)
+                                
+                            start_date_str = actual_start.strftime('%Y-%m-%d')
+                            end_date_str = actual_end.strftime('%Y-%m-%d')
+                            
+                            date_range_text = f"Showing data from {start_date_str} to {end_date_str}"
+                            st.sidebar.info(date_range_text)
+                        except (AttributeError, TypeError):
+                            # If there's any issue with date formatting, just show a simpler message
+                            st.sidebar.info(f"Loaded {len(df)} data points")
+                
+                if df.empty:
+                    st.error("No data available for the selected pair and timeframe.")
+                    return
+                
+                # Display the number of candles loaded
+                st.sidebar.success(f"Loaded {len(df)} candles")
             
             # Calculate indicators
             try:
@@ -398,6 +387,11 @@ def main():
             
             # Evaluate buy/sell signals
             df = evaluate_buy_sell_signals(df, bb_threshold, rsi_oversold, rsi_overbought)
+        except Exception as e:
+            st.error(f"An error occurred in the Analysis tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+            return
     
         # Create main chart with candlesticks
         # Determine how many subplots we need based on selected indicators
@@ -1400,11 +1394,6 @@ def main():
         if auto_refresh:
             time.sleep(refresh_interval)
             st.rerun()
-
-    except Exception as e:
-        st.error(f"An error occurred in Analysis tab: {str(e)}")
-        import traceback
-        st.text(traceback.format_exc())
 
     # Portfolio Tab
     if selected_tab == "Portfolio":
