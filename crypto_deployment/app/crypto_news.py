@@ -16,8 +16,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
 # Try to import OpenAI if the API key is available
 if OPENAI_API_KEY:
     try:
-        from openai import OpenAI
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        import openai
+        openai.api_key = OPENAI_API_KEY
         OPENAI_AVAILABLE = True
     except ImportError:
         OPENAI_AVAILABLE = False
@@ -125,24 +125,22 @@ def summarize_article(article_text, coin_name):
     """
     Summarize an article using OpenAI or a fallback method
     """
-    # Get current OpenAI API key
-    current_api_key = os.environ.get("OPENAI_API_KEY")
-    
     # If OpenAI is available, use it for summarization
-    if current_api_key:
+    if OPENAI_API_KEY:
         try:
-            # Create a new OpenAI client with the current API key
-            from openai import OpenAI
-            current_client = OpenAI(api_key=current_api_key)
+            # For OpenAI 0.28.0
+            import openai
+            openai.api_key = OPENAI_API_KEY
             
             prompt = f"Summarize this cryptocurrency article about {coin_name} in 2-3 sentences:\n\n{article_text}"
             
-            response = current_client.chat.completions.create(
-                model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
+            # For OpenAI 0.28.0 format
+            response = openai.ChatCompletion.create(
+                model="gpt-4", # Update to use gpt-4 as gpt-4o wasn't available in 0.28.0
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200
             )
-            return response.choices[0].message.content.strip()
+            return response['choices'][0]['message']['content'].strip()
         except Exception as e:
             print(f"Error using OpenAI for summarization: {e}")
     
@@ -215,15 +213,12 @@ def generate_recommendations(articles, coins_of_interest):
     """
     recommendations = []
     
-    # Get current OpenAI API key and check if it's available
-    current_api_key = os.environ.get("OPENAI_API_KEY")
-    
     # If OpenAI is available, use it for more sophisticated recommendations
-    if current_api_key:
+    if OPENAI_API_KEY:
         try:
-            # Create a new OpenAI client with the current API key
-            from openai import OpenAI
-            current_client = OpenAI(api_key=current_api_key)
+            # For OpenAI 0.28.0
+            import openai
+            openai.api_key = OPENAI_API_KEY
             
             # Prepare article data for OpenAI
             article_data = []
@@ -249,16 +244,17 @@ and 'details' (more specific advice or insight).
 Return a JSON array of 3 recommendation objects.
 """
 
-            response = current_client.chat.completions.create(
-                model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
+            # For OpenAI 0.28.0 format - note we don't have response_format parameter in this version
+            response = openai.ChatCompletion.create(
+                model="gpt-4", # Update to use gpt-4 as gpt-4o wasn't available in 0.28.0
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
                 max_tokens=500
             )
             
             try:
                 # Parse the JSON response
-                recommendations_data = json.loads(response.choices[0].message.content)
+                response_text = response['choices'][0]['message']['content']
+                recommendations_data = json.loads(response_text)
                 if isinstance(recommendations_data, dict) and 'recommendations' in recommendations_data:
                     recommendations = recommendations_data['recommendations']
                 elif isinstance(recommendations_data, list):
@@ -272,7 +268,7 @@ Return a JSON array of 3 recommendation objects.
                     ]
             except json.JSONDecodeError:
                 # If parsing fails, extract from text
-                text_response = response.choices[0].message.content
+                text_response = response['choices'][0]['message']['content']
                 recommendations = extract_recommendations_from_text(text_response)
         except Exception as e:
             print(f"Error generating AI recommendations: {e}")
@@ -394,17 +390,19 @@ def get_random_title_suffix():
 def generate_sample_article_content(coin_name):
     """Generate sample article content for testing"""
     paragraphs = [
-        f"{coin_name} has been making headlines this week as investors closely monitor its price movements amid broader market fluctuations. Technical analysts have noted several key resistance levels that could determine the asset's trajectory in the coming weeks.",
+        f"The {coin_name} market has shown significant movement in recent trading sessions, with analysts pointing to several key factors driving the changes. Technical indicators suggest a potential shift in momentum that traders should watch closely in the coming days.",
         
-        f"Market sentiment around {coin_name} remains mixed, with institutional investors continuing to accumulate while retail traders show more caution. Trading volumes have seen notable increases during Asian market hours, suggesting growing interest from markets in the East.",
+        f"Institutional adoption of {coin_name} continues to grow, with several major financial entities announcing new positions in the digital asset. This increased institutional interest may provide more stability to {coin_name} prices and reduce some of the volatility that has historically characterized the market.",
         
-        f"Regulatory developments could impact {coin_name}'s adoption rate, as several countries are finalizing framework proposals that would provide clearer guidelines for cryptocurrency transactions and taxation. Industry experts suggest these developments could ultimately benefit established cryptocurrencies like {coin_name} by providing more legitimacy to the sector.",
+        f"Regulatory developments remain a critical factor for {coin_name} investors to monitor. Recent statements from financial authorities have created both challenges and opportunities in the space, with implications for how {coin_name} will be traded and held by both retail and institutional investors.",
         
-        f"Development activity for {coin_name} has remained robust, with contributor metrics showing steady growth over the past quarter. The upcoming protocol upgrade scheduled for Q3 2024 is expected to address several scaling issues and potentially improve transaction throughput significantly.",
+        f"Development activity on the {coin_name} network has reached new heights, with the team announcing several important protocol upgrades scheduled for implementation in the coming months. These technical improvements aim to address scalability concerns and enhance the overall user experience of the network.",
         
-        f"As always, investors are advised to conduct thorough research and consider their risk tolerance before making decisions regarding {coin_name} investments. The cryptocurrency market continues to demonstrate high volatility compared to traditional asset classes."
+        f"Market analysts have revised their price predictions for {coin_name}, with most indicating a cautiously optimistic outlook for the remainder of the year. These projections are based on a combination of technical analysis, on-chain metrics, and broader market trends that suggest continued interest in the digital asset space."
     ]
     
-    # Select 2-4 paragraphs randomly
-    selected_paragraphs = random.sample(paragraphs, random.randint(2, 4))
-    return "\n\n".join(selected_paragraphs)
+    # Randomly select 3-5 paragraphs
+    num_paragraphs = random.randint(3, 5)
+    selected = random.sample(paragraphs, num_paragraphs)
+    
+    return "\n\n".join(selected)
