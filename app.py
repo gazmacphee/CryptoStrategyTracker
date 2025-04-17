@@ -165,6 +165,20 @@ def main():
             lookback_days = lookback_days * 3
         
         st.sidebar.success(f"Loading {lookback_days} days of historical data...")
+    
+    # Backfill Database button
+    if st.sidebar.button("Backfill Database with Optimized Strategies"):
+        st.sidebar.info("Running backfill to calculate and store optimized trading strategies...")
+        import subprocess
+        try:
+            process = subprocess.Popen(["python", "backfill_database.py"], 
+                                      stdout=subprocess.PIPE, 
+                                      stderr=subprocess.PIPE,
+                                      text=True)
+            # Display first update 
+            st.sidebar.success("Backfill process started in the background. Check the server logs for progress.")
+        except Exception as e:
+            st.sidebar.error(f"Error starting backfill process: {e}")
             
     # Get data from API or database
     try:

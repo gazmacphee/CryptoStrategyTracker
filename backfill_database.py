@@ -39,16 +39,19 @@ def process_symbol_timeframe(symbol, interval, lookback_days=365):
         # Get klines data
         klines_data = get_klines_data(symbol, interval, start_timestamp, end_timestamp)
         
-        if not klines_data:
+        # Check if klines_data is a DataFrame or list
+        if isinstance(klines_data, pd.DataFrame):
+            df = klines_data
+        elif isinstance(klines_data, list) and klines_data:
+            # Create DataFrame from klines data list
+            df = pd.DataFrame(klines_data, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_asset_volume', 'number_of_trades',
+                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+            ])
+        else:
             print(f"No data available for {symbol} on {interval} timeframe")
             return
-        
-        # Create DataFrame from klines data
-        df = pd.DataFrame(klines_data, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-        ])
         
         # Convert timestamp to datetime
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -194,7 +197,7 @@ def process_symbol_timeframe(symbol, interval, lookback_days=365):
                 best_trades = backtest_results['trades']
     
     # Save the best strategy's indicators and signals to the database
-    if best_strategy and best_backtest_df is not None:
+    if best_strategy is not None and best_backtest_df is not None and best_metrics is not None:
         print(f"Best strategy found: {best_strategy}")
         print(f"Total return: {best_metrics['total_return_pct']:.2f}%")
         

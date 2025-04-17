@@ -152,7 +152,15 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
             coins_to_buy = cash_to_use / current_price
             
             # Update position and cash
-            # Convert to float explicitly to avoid dtype warnings
+            # Ensure dataframe columns have the right dtype before assignment
+            if backtest_df['position'].dtype != float:
+                backtest_df['position'] = backtest_df['position'].astype(float)
+            if backtest_df['cash'].dtype != float:
+                backtest_df['cash'] = backtest_df['cash'].astype(float)
+            if backtest_df['holdings'].dtype != float:
+                backtest_df['holdings'] = backtest_df['holdings'].astype(float)
+                
+            # Now assign the values
             backtest_df.iloc[i, backtest_df.columns.get_loc('position')] = float(coins_to_buy)
             backtest_df.iloc[i, backtest_df.columns.get_loc('cash')] = float(backtest_df.iloc[i-1]['cash'] - cash_to_use)
             backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = float(coins_to_buy * current_price)
@@ -216,8 +224,14 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
         
         # Update holdings value and portfolio value
         if backtest_df.iloc[i]['position'] > 0:
+            # Ensure holdings has float dtype
+            if backtest_df['holdings'].dtype != float:
+                backtest_df['holdings'] = backtest_df['holdings'].astype(float)
             backtest_df.iloc[i, backtest_df.columns.get_loc('holdings')] = float(backtest_df.iloc[i]['position'] * current_price)
         
+        # Ensure portfolio_value has float dtype
+        if backtest_df['portfolio_value'].dtype != float:
+            backtest_df['portfolio_value'] = backtest_df['portfolio_value'].astype(float)
         # Use float for all numeric values to avoid dtype warnings
         backtest_df.iloc[i, backtest_df.columns.get_loc('portfolio_value')] = float(backtest_df.iloc[i]['cash'] + backtest_df.iloc[i]['holdings'])
     
