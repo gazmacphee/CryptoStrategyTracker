@@ -291,7 +291,7 @@ def get_current_prices(symbols=None):
 
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
     """
-    Fetch klines (candlestick) data from Binance API.
+    Fetch klines (candlestick) data from Binance Data Vision.
     Never falls back to synthetic data.
     Returns empty DataFrame if real data cannot be retrieved.
     """
@@ -300,63 +300,69 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
         print(f"Skipping {interval} interval as requested")
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     
-    # If no API credentials, return empty DataFrame
-    if not API_KEY or not API_SECRET:
-        print(f"ERROR: No API credentials available. Cannot retrieve real data for {symbol} ({interval})")
-        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    # Create empty DataFrame
+    empty_df = pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    
+    # Parse timestamps
+    if start_time:
+        if isinstance(start_time, str):
+            # Parse string to datetime
+            start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+    else:
+        # Default to 30 days ago
+        start_time = datetime.now() - timedelta(days=30)
+        
+    if end_time:
+        if isinstance(end_time, str):
+            # Parse string to datetime
+            end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+    else:
+        # Default to now
+        end_time = datetime.now()
+    
+    print(f"Not enough data in database, fetching from API...")
     
     try:
-        # Build request parameters
-        params = {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit,
-        }
+        # Import from our download module
+        import sys
+        import os
         
-        # Add start and end time if provided
-        if start_time:
-            if isinstance(start_time, datetime):
-                params["startTime"] = int(start_time.timestamp() * 1000)
-            else:
-                params["startTime"] = start_time
+        # Check if the script exists
+        if not os.path.exists("download_binance_data.py"):
+            print("Error: download_binance_data.py not found")
+            return empty_df
+            
+        sys.path.append('.')
+        
+        try:
+            from download_binance_data import download_symbol_interval_data
+            
+            # Get data from Binance Data Vision
+            print(f"Attempting to download {symbol} {interval} data from {start_time.date()} to {end_time.date()}")
+            
+            df = download_symbol_interval_data(symbol, interval, start_time.date(), end_time.date())
+            
+            if df is None or df.empty:
+                print(f"No data available for {symbol} on {interval} timeframe")
+                return empty_df
+            
+            # Filter to requested date range
+            df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
+                    (df['timestamp'] <= pd.Timestamp(end_time))]
+            
+            # Limit rows if needed
+            if limit and len(df) > limit:
+                df = df.tail(limit)
                 
-        if end_time:
-            if isinstance(end_time, datetime):
-                params["endTime"] = int(end_time.timestamp() * 1000)
-            else:
-                params["endTime"] = end_time
-        
-        # Add API key to headers if available
-        headers = {}
-        if API_KEY:
-            headers['X-MBX-APIKEY'] = API_KEY
-        
-        # Make request
-        response = requests.get(f"{BASE_URL}{KLINES_ENDPOINT}", params=params, headers=headers)
-        
-        if response.status_code != 200:
-            print(f"Error fetching klines: {response.text}")
-            # Return empty DataFrame instead of synthetic data
-            return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        
-        # Parse response
-        data = response.json()
-        
-        # Create DataFrame
-        df = pd.DataFrame(data, columns=[
-            'open_time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-        ])
-        
-        # Convert types
-        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-        df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-        df['timestamp'] = df['open_time']  # More intuitive name
-        
-        # Convert string values to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
+            return df
+            
+        except Exception as e:
+            print(f"Error importing download module: {e}")
+            return empty_df
+    
+    except Exception as e:
+        print(f"Error fetching data for {symbol} {interval}: {e}")
+        return empty_df
         
         # If we need more data than the limit allows, make multiple requests
         if limit == 1000 and start_time and end_time:
