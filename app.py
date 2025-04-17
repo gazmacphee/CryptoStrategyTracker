@@ -113,19 +113,55 @@ def run_background_backfill(continuous=True, full=False, interval_minutes=15):
         full: Whether to do a full backfill (more symbols, longer history)
         interval_minutes: How often to update in continuous mode (minutes)
     """
+    # Create a file lock to prevent multiple instances
+    import os, time
+    lock_file = ".backfill_lock"
+    
+    # Check if a backfill process is already running
+    if os.path.exists(lock_file):
+        try:
+            # Check if the lock file is stale (older than 30 minutes)
+            lock_age = time.time() - os.path.getmtime(lock_file)
+            if lock_age < 1800:  # 30 minutes in seconds
+                print("A backfill process is already running. Skipping.")
+                return None
+            else:
+                # Lock file is stale, remove it
+                os.remove(lock_file)
+                print("Removed stale lock file.")
+        except Exception as e:
+            print(f"Error checking lock file: {e}")
+            return None
+    
+    # Create lock file
+    try:
+        with open(lock_file, 'w') as f:
+            f.write(str(time.time()))
+    except Exception as e:
+        print(f"Error creating lock file: {e}")
+        return None
+        
     def backfill_thread():
-        if continuous:
-            # Run the continuous update function with specified interval
-            args = ["python", "backfill_database.py", "--continuous", f"--interval={interval_minutes}"]
-            if full:
-                args.append("--full")
-            subprocess.run(args)
-        else:
-            # Just run a single backfill
-            args = ["python", "backfill_database.py"]
-            if full:
-                args.append("--full")
-            subprocess.run(args)
+        try:
+            if continuous:
+                # Run the continuous update function with specified interval
+                args = ["python", "backfill_database.py", "--continuous", f"--interval={interval_minutes}"]
+                if full:
+                    args.append("--full")
+                subprocess.run(args)
+            else:
+                # Just run a single backfill
+                args = ["python", "backfill_database.py"]
+                if full:
+                    args.append("--full")
+                subprocess.run(args)
+        finally:
+            # Always remove lock file when done
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except Exception as e:
+                    print(f"Error removing lock file: {e}")
     
     # Start backfill in separate thread
     thread = threading.Thread(target=backfill_thread)
