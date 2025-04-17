@@ -139,10 +139,16 @@ def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit
         '12h': 43200, '1d': 86400, '3d': 259200, '1w': 604800, '1M': 2592000
     }
     
+    # Skip 1m interval as requested
+    if interval == '1m':
+        print(f"Skipping 1m interval as requested")
+        # Return empty DataFrame with expected structure
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    
     # Default to 1h if interval not recognized
     seconds_per_candle = interval_seconds.get(interval, 3600)
     
-    # Generate timestamps
+    # Normalize start and end times to interval boundaries
     if isinstance(start_time, datetime):
         start_timestamp = start_time
     else:
@@ -152,6 +158,25 @@ def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit
         end_timestamp = end_time
     else:
         end_timestamp = datetime.fromtimestamp(end_time/1000) if isinstance(end_time, int) else datetime.now()
+    
+    # Normalize timestamps to exact interval boundaries to avoid duplicates
+    # For example, for 1h interval, ensure timestamps are at exact hour boundaries
+    if interval in ['1h', '2h', '4h', '6h', '8h', '12h']:
+        # For hour-based intervals, normalize to exact hours
+        start_timestamp = start_timestamp.replace(minute=0, second=0, microsecond=0)
+        end_timestamp = end_timestamp.replace(minute=0, second=0, microsecond=0)
+    elif interval in ['1d', '3d', '1w']:
+        # For day-based intervals, normalize to midnight
+        start_timestamp = start_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_timestamp = end_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif interval == '1M':
+        # For month interval, normalize to first day of month
+        start_timestamp = start_timestamp.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_timestamp = end_timestamp.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        # For minute-based intervals, ensure timestamps are at exact minute boundaries
+        start_timestamp = start_timestamp.replace(second=0, microsecond=0)
+        end_timestamp = end_timestamp.replace(second=0, microsecond=0)
     
     # Calculate number of candles
     time_diff = (end_timestamp - start_timestamp).total_seconds()
