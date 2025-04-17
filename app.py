@@ -1798,6 +1798,258 @@ def main():
             import traceback
             st.text(traceback.format_exc())
     
+    # Trend Visualizer Tab
+    elif selected_tab == "Trend Visualizer":
+        st.header("Animated Crypto Trend Visualizer")
+        
+        # Create a tool for visualizing crypto trends with animated emojis
+        try:
+            # Sidebar controls for the visualizer
+            st.sidebar.header("Visualizer Settings")
+            
+            # Get available symbols from Binance
+            available_symbols = get_available_symbols()
+            default_symbol = "BTCUSDT"
+            if default_symbol not in available_symbols and available_symbols:
+                default_symbol = available_symbols[0]
+            
+            # Allow selection of multiple cryptos to visualize
+            selected_cryptos = st.sidebar.multiselect(
+                "Select Cryptocurrencies",
+                options=available_symbols,
+                default=[default_symbol, "ETHUSDT"] if "ETHUSDT" in available_symbols else [default_symbol]
+            )
+            
+            # Timeframe selection for trend analysis
+            trend_timeframe = st.sidebar.selectbox(
+                "Trend Timeframe",
+                options=["1h", "4h", "1d", "1w"],
+                index=1  # Default to 4h
+            )
+            
+            # Lookback period
+            trend_lookback = st.sidebar.slider(
+                "Lookback Period (days)",
+                min_value=1,
+                max_value=30,
+                value=7
+            )
+            
+            # Animation speed
+            animation_speed = st.sidebar.slider(
+                "Animation Speed",
+                min_value=0.1,
+                max_value=2.0,
+                value=1.0,
+                step=0.1
+            )
+            
+            # Check if any cryptos were selected
+            if not selected_cryptos:
+                st.warning("Please select at least one cryptocurrency to visualize.")
+            else:
+                # Main content area
+                st.subheader("Crypto Price Trends with Emoji Indicators")
+                
+                # Create columns for displaying each selected crypto
+                if len(selected_cryptos) > 0:
+                    # Set up grid layout based on number of selected cryptos
+                    if len(selected_cryptos) == 1:
+                        cols = st.columns(1)
+                    elif len(selected_cryptos) == 2:
+                        cols = st.columns(2)
+                    else:
+                        cols = st.columns(min(3, len(selected_cryptos)))
+                    
+                    # Dictionary to store data for each crypto
+                    crypto_data = {}
+                    
+                    # Get data for each selected crypto
+                    with st.spinner("Fetching cryptocurrency data..."):
+                        for symbol in selected_cryptos:
+                            # Convert timeframe to interval format
+                            interval = trend_timeframe
+                            
+                            # Calculate date range
+                            end_time = datetime.now()
+                            start_time = end_time - timedelta(days=trend_lookback)
+                            
+                            # Get data from database or API
+                            df = get_cached_data(symbol, interval, trend_lookback)
+                            
+                            if not df.empty:
+                                # Calculate percentage change and other metrics
+                                df['pct_change'] = df['close'].pct_change() * 100
+                                df['cumulative_return'] = (1 + df['pct_change']/100).cumprod() - 1
+                                df['sma_5'] = df['close'].rolling(window=5).mean()
+                                
+                                # Store data
+                                crypto_data[symbol] = df
+                    
+                    # Display each crypto in its column with animated emoji
+                    for i, symbol in enumerate(selected_cryptos):
+                        col_idx = i % len(cols)
+                        with cols[col_idx]:
+                            if symbol in crypto_data and not crypto_data[symbol].empty:
+                                df = crypto_data[symbol]
+                                
+                                # Get latest price data
+                                latest_price = df['close'].iloc[-1]
+                                prev_price = df['close'].iloc[-2] if len(df) > 1 else latest_price
+                                pct_change_24h = ((latest_price - prev_price) / prev_price) * 100
+                                
+                                # Determine emoji based on price movement
+                                if pct_change_24h > 5:
+                                    emoji = "🚀"  # Rocket for big gains
+                                    color = "green"
+                                    trend_text = "Strong Bullish"
+                                elif pct_change_24h > 2:
+                                    emoji = "📈"  # Chart up for gains
+                                    color = "green"
+                                    trend_text = "Bullish"
+                                elif pct_change_24h >= 0:
+                                    emoji = "✅"  # Green check for small gains
+                                    color = "green"
+                                    trend_text = "Slightly Bullish"
+                                elif pct_change_24h > -2:
+                                    emoji = "⚠️"  # Warning for small loss
+                                    color = "orange"
+                                    trend_text = "Slightly Bearish"
+                                elif pct_change_24h > -5:
+                                    emoji = "📉"  # Chart down for losses
+                                    color = "red"
+                                    trend_text = "Bearish"
+                                else:
+                                    emoji = "💥"  # Explosion for big losses
+                                    color = "red"
+                                    trend_text = "Strong Bearish"
+                                
+                                # Create pulsing animation effect with CSS
+                                st.markdown(f"""
+                                <style>
+                                    @keyframes pulse_{i} {{
+                                        0% {{ transform: scale(1); }}
+                                        50% {{ transform: scale(1.2); }}
+                                        100% {{ transform: scale(1); }}
+                                    }}
+                                    .emoji-{i} {{
+                                        font-size: 3em;
+                                        animation: pulse_{i} {3.0/animation_speed}s infinite;
+                                        text-align: center;
+                                    }}
+                                    .crypto-info-{i} {{
+                                        text-align: center;
+                                    }}
+                                    .price-change-{i} {{
+                                        color: {color};
+                                        font-weight: bold;
+                                    }}
+                                </style>
+                                """, unsafe_allow_html=True)
+                                
+                                # Display cryptocurrency info with animated emoji
+                                st.markdown(f"<div class='crypto-info-{i}'><h3>{symbol[:-4] if symbol.endswith('USDT') else symbol}</h3></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='emoji-{i}'>{emoji}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info-{i}'>Current Price: ${latest_price:.2f}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info-{i}'>24h Change: <span class='price-change-{i}'>{pct_change_24h:.2f}%</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info-{i}'>Trend: <span class='price-change-{i}'>{trend_text}</span></div>", unsafe_allow_html=True)
+                                
+                                # Create simple trend line chart
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(
+                                    x=df['timestamp'],
+                                    y=df['close'],
+                                    mode='lines',
+                                    line=dict(color=color, width=2),
+                                    name='Price'
+                                ))
+                                fig.update_layout(
+                                    height=200,
+                                    margin=dict(l=0, r=0, t=0, b=0),
+                                    showlegend=False,
+                                    xaxis=dict(
+                                        showgrid=False,
+                                        zeroline=False,
+                                        showticklabels=False
+                                    ),
+                                    yaxis=dict(
+                                        showgrid=False,
+                                        zeroline=False,
+                                        showticklabels=False
+                                    )
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                                
+                            else:
+                                st.error(f"No data available for {symbol}")
+                
+                # Add global trend insights section
+                st.subheader("Market Trend Insights")
+                if len(crypto_data) > 0:
+                    # Calculate overall market sentiment
+                    positive_count = sum(1 for symbol in crypto_data if not crypto_data[symbol].empty and 
+                                      crypto_data[symbol]['pct_change'].mean() > 0)
+                    total_count = len(crypto_data)
+                    market_sentiment = positive_count / total_count if total_count > 0 else 0
+                    
+                    # Display sentiment gauge
+                    sentiment_fig = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=market_sentiment * 100,
+                        title={'text': "Market Sentiment"},
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        gauge={
+                            'axis': {'range': [0, 100]},
+                            'bar': {'color': "darkblue"},
+                            'steps': [
+                                {'range': [0, 30], 'color': "red"},
+                                {'range': [30, 70], 'color': "yellow"},
+                                {'range': [70, 100], 'color': "green"}
+                            ],
+                        }
+                    ))
+                    sentiment_fig.update_layout(height=300)
+                    st.plotly_chart(sentiment_fig, use_container_width=True)
+                    
+                    # Market trend summary
+                    if market_sentiment > 0.7:
+                        st.success("🌟 **Bullish Market**: Most cryptocurrencies are showing positive trends. Consider looking for buying opportunities.")
+                    elif market_sentiment > 0.3:
+                        st.info("⚖️ **Mixed Market**: The market shows mixed trends. Exercise caution and research before making decisions.")
+                    else:
+                        st.error("🔴 **Bearish Market**: Most cryptocurrencies are trending downward. Consider defensive strategies.")
+                    
+                    # Correlation heatmap if multiple cryptos selected
+                    if len(crypto_data) > 1:
+                        st.subheader("Price Correlation")
+                        # Prepare correlation data
+                        corr_data = pd.DataFrame()
+                        for symbol, df in crypto_data.items():
+                            if not df.empty:
+                                corr_data[symbol.replace('USDT', '')] = df['close']
+                        
+                        if not corr_data.empty:
+                            corr_matrix = corr_data.corr()
+                            
+                            # Create correlation heatmap
+                            heatmap_fig = go.Figure(data=go.Heatmap(
+                                z=corr_matrix.values,
+                                x=corr_matrix.columns,
+                                y=corr_matrix.columns,
+                                colorscale='Viridis',
+                                zmin=-1, zmax=1
+                            ))
+                            heatmap_fig.update_layout(
+                                title='Cryptocurrency Price Correlation',
+                                height=500
+                            )
+                            st.plotly_chart(heatmap_fig, use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"An error occurred in the Trend Visualizer tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+    
     # Portfolio Tab
     elif selected_tab == "Portfolio":
         try:
