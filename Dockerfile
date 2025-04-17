@@ -39,11 +39,30 @@ VOLUME ["/app/data"]
 
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
-# Wait for PostgreSQL if using external database\n\
-if [ ! -z "$DATABASE_URL" ]; then\n\
-  echo "Waiting for PostgreSQL..."\n\
-  python -c "import time, psycopg2; time.sleep(5); print(\"PostgreSQL ready\")"\n\
-fi\n\
+\n\
+# Function to check PostgreSQL connection\n\
+check_postgres() {\n\
+  python -c "import psycopg2; conn = psycopg2.connect(\"$DATABASE_URL\"); conn.close()" 2>/dev/null\n\
+  return $?\n\
+}\n\
+\n\
+# Wait for PostgreSQL to be ready\n\
+wait_for_postgres() {\n\
+  echo "Waiting for PostgreSQL to be ready..."\n\
+  for i in {1..30}; do\n\
+    if check_postgres; then\n\
+      echo "PostgreSQL is ready!"\n\
+      return 0\n\
+    fi\n\
+    echo "Waiting for PostgreSQL... attempt $i/30"\n\
+    sleep 2\n\
+  done\n\
+  echo "Timed out waiting for PostgreSQL"\n\
+  return 1\n\
+}\n\
+\n\
+# Wait for PostgreSQL\n\
+wait_for_postgres\n\
 \n\
 # Run database initialization if requested\n\
 if [ "$RESET_DB" = "true" ]; then\n\
@@ -54,7 +73,7 @@ fi\n\
 # Start application\n\
 if [ "$BACKFILL_ON_START" = "true" ]; then\n\
   echo "Starting application with background data backfill..."\n\
-  python backfill_database.py --continuous --interval=15 &\n\
+  python backfill_database.py &\n\
 else\n\
   echo "Starting application without background data backfill..."\n\
 fi\n\
