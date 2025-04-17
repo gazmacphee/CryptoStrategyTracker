@@ -1088,7 +1088,7 @@ def main():
                                 
                                 # Update progress
                                 combinations_tested += 1
-                                progress_percentage = int(combinations_tested / len(combinations) * 100)
+                                progress_percentage = min(1.0, combinations_tested / len(combinations))
                                 progress_bar.progress(progress_percentage)
                             
                             # Clear status
