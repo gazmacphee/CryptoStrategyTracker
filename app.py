@@ -1726,7 +1726,11 @@ def main():
                         title="Sentiment Score by Source Over Time",
                         xaxis_title="Date",
                         yaxis_title="Sentiment Score (-1 to 1)",
-                        hovermode="x unified"
+                        hovermode="x unified",
+                        yaxis=dict(
+                            exponentformat='none',
+                            separatethousands=True
+                        )
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
@@ -1756,7 +1760,11 @@ def main():
                         title="Daily Mention Volume by Source",
                         xaxis_title="Date",
                         yaxis_title="Volume (mentions)",
-                        hovermode="x unified"
+                        hovermode="x unified",
+                        yaxis=dict(
+                            exponentformat='none',
+                            separatethousands=True
+                        )
                     )
                     
                     st.plotly_chart(fig2, use_container_width=True)
