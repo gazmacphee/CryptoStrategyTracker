@@ -86,6 +86,12 @@ except Exception as e:
     print(f"Error checking Binance API: {e}")
     print("Using alternative data source.")
 
+# Force use of Binance API if we have API keys, regardless of location restrictions
+if API_KEY and API_SECRET:
+    print("API keys found - forcing use of real Binance API data")
+    BINANCE_API_ACCESSIBLE = True
+    BINANCE_API_AUTH = True
+
 def get_available_symbols(quote_asset="USDT", limit=30):
     """Get available trading pairs from Binance"""
     # Default popular symbols to return if API is not accessible
@@ -139,9 +145,9 @@ def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit
         '12h': 43200, '1d': 86400, '3d': 259200, '1w': 604800, '1M': 2592000
     }
     
-    # Skip 1m interval as requested
-    if interval == '1m':
-        print(f"Skipping 1m interval as requested")
+    # Skip excluded intervals as requested
+    if interval in ['1m', '3m', '5m']:
+        print(f"Skipping {interval} interval as requested")
         # Return empty DataFrame with expected structure
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     

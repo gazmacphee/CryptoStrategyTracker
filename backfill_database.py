@@ -313,14 +313,14 @@ def backfill_database(full_backfill=False):
     tier2_symbols = ["XRPUSDT", "ADAUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "MATICUSDT"]
     tier3_symbols = [s for s in all_symbols if s not in tier1_symbols and s not in tier2_symbols][:10]  # Next 10 by volume
     
-    # Define timeframes by importance
+    # Define timeframes by importance (excluding 1m, 3m, 5m as requested)
     primary_timeframes = ["1h", "4h", "12h"]
-    secondary_timeframes = ["3m", "5m", "15m", "30m", "2h", "6h", "8h", "1d", "3d", "1w", "1M"]
+    secondary_timeframes = ["15m", "30m", "2h", "6h", "8h", "1d", "3d", "1w", "1M"]
     
-    # Determine lookback based on backfill type
-    full_lookback = 365 if full_backfill else 30
-    quick_lookback = 30 if full_backfill else 7
-    daily_lookback = 30 if full_backfill else 3
+    # Determine lookback based on backfill type (3 years = 1095 days)
+    full_lookback = 1095  # 3 full years as requested
+    quick_lookback = 365 if full_backfill else 30
+    daily_lookback = 180 if full_backfill else 7
     
     # Process tier 1 symbols (high priority)
     for symbol in tier1_symbols:
