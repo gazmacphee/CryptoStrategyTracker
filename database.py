@@ -207,6 +207,26 @@ def create_tables():
         ON benchmarks(name, timestamp);
         """)
         
+        # Create sentiment data table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS sentiment_data (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            source VARCHAR(50) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            sentiment_score NUMERIC NOT NULL,
+            volume INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, source, timestamp)
+        );
+        """)
+        
+        # Create index for sentiment data
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_sentiment_symbol_source_timestamp
+        ON sentiment_data(symbol, source, timestamp);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
@@ -646,7 +666,7 @@ def get_portfolio():
     """Get all portfolio items"""
     conn = get_db_connection()
     if not conn:
-        return []
+        return pd.DataFrame(columns=['id', 'symbol', 'quantity', 'purchase_price', 'purchase_date', 'notes', 'created_at'])
     
     try:
         query = """
@@ -656,6 +676,9 @@ def get_portfolio():
         """
         
         df = pd.read_sql_query(query, conn)
+        if df.empty:
+            # Return empty DataFrame with correct columns
+            return pd.DataFrame(columns=['id', 'symbol', 'quantity', 'purchase_price', 'purchase_date', 'notes', 'created_at'])
         return df
     except psycopg2.Error as e:
         print(f"Error fetching portfolio: {e}")
@@ -735,6 +758,99 @@ def get_benchmark_data(name, start_time, end_time):
         return df
     except psycopg2.Error as e:
         print(f"Error fetching benchmark data: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def save_sentiment_data(symbol, source, timestamp, sentiment_score, volume):
+    """Save sentiment data to database"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert or update sentiment data
+        insert_query = """
+        INSERT INTO sentiment_data 
+        (symbol, source, timestamp, sentiment_score, volume)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (symbol, source, timestamp) 
+        DO UPDATE SET
+            sentiment_score = EXCLUDED.sentiment_score,
+            volume = EXCLUDED.volume,
+            created_at = CURRENT_TIMESTAMP
+        """
+        
+        # Convert timestamp to datetime if it's a string
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            
+        cur.execute(insert_query, (
+            symbol,
+            source,
+            timestamp,
+            sentiment_score,
+            volume
+        ))
+        
+        conn.commit()
+        return True
+    except psycopg2.Error as e:
+        print(f"Error saving sentiment data: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_sentiment_data(symbol, sources=None, start_time=None, end_time=None):
+    """Get sentiment data from database"""
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Build query based on parameters
+        query = """
+        SELECT symbol, source, timestamp, sentiment_score, volume
+        FROM sentiment_data
+        WHERE symbol = %s
+        """
+        
+        params = [symbol]
+        
+        # Add source filter if specified
+        if sources:
+            source_placeholders = ', '.join(['%s'] * len(sources))
+            query += f" AND source IN ({source_placeholders})"
+            params.extend(sources)
+        
+        # Add time filters if specified
+        if start_time:
+            # Convert to datetime if it's a string
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            query += " AND timestamp >= %s"
+            params.append(start_time)
+            
+        if end_time:
+            # Convert to datetime if it's a string
+            if isinstance(end_time, str):
+                end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            query += " AND timestamp <= %s"
+            params.append(end_time)
+        
+        # Order by timestamp
+        query += " ORDER BY timestamp ASC"
+        
+        # Execute query
+        df = pd.read_sql_query(query, conn, params=params)
+        
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching sentiment data: {e}")
         return pd.DataFrame()
     finally:
         if conn:

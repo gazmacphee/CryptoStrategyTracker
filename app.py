@@ -193,7 +193,7 @@ def main():
         else:
             st.warning("Database not yet populated. Initial backfill in progress...")
             
-    # Display either the Analysis or Portfolio view based on selection
+    # Display based on selected tab
     if selected_tab == "Analysis":
         # Sidebar for controls
         st.sidebar.header("Settings")
@@ -1395,8 +1395,186 @@ def main():
             time.sleep(refresh_interval)
             st.rerun()
 
+    # Sentiment Tab
+    elif selected_tab == "Sentiment":
+        try:
+            from sentiment_scraper import get_combined_sentiment, get_sentiment_summary
+            
+            st.header("Cryptocurrency Sentiment Analysis")
+            
+            # Sidebar for controls
+            st.sidebar.header("Sentiment Settings")
+            
+            # Symbol selection
+            available_symbols = get_available_symbols()
+            default_symbol = "BTCUSDT"
+            if default_symbol not in available_symbols and available_symbols:
+                default_symbol = available_symbols[0]
+            
+            symbol = st.sidebar.selectbox(
+                "Select Cryptocurrency",
+                options=available_symbols,
+                index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0
+            )
+            
+            # Date range for sentiment
+            days_back = st.sidebar.slider(
+                "Historical Data (days)",
+                min_value=1,
+                max_value=30,
+                value=7
+            )
+            
+            # Source types to include
+            st.sidebar.subheader("Data Sources")
+            include_news = st.sidebar.checkbox("News Media", value=True)
+            include_social = st.sidebar.checkbox("Social Media", value=True)
+            
+            # Get sentiment data
+            with st.spinner("Fetching sentiment data..."):
+                sentiment_data = get_combined_sentiment(symbol, days_back)
+                
+                # Filter by selected sources
+                if not include_news:
+                    sentiment_data = sentiment_data[~sentiment_data['source'].isin(["CoinDesk", "CryptoNews", "CoinTelegraph"])]
+                if not include_social:
+                    sentiment_data = sentiment_data[~sentiment_data['source'].isin(["Twitter", "Reddit"])]
+                
+                # If we still have data after filtering
+                if not sentiment_data.empty:
+                    # Get summary metrics
+                    summary = get_sentiment_summary(sentiment_data)
+                    
+                    # Dashboard layout with metrics and charts
+                    col1, col2, col3 = st.columns(3)
+                    
+                    # Format the sentiment score for display
+                    sentiment_score = summary['average_sentiment']
+                    sentiment_color = "green" if sentiment_score > 0.05 else "red" if sentiment_score < -0.05 else "gray"
+                    sentiment_label = "Positive" if sentiment_score > 0.05 else "Negative" if sentiment_score < -0.05 else "Neutral"
+                    
+                    with col1:
+                        st.metric(
+                            "Overall Sentiment", 
+                            f"{sentiment_label} ({sentiment_score:.2f})",
+                            delta=None
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            "Sentiment Trend",
+                            summary['sentiment_trend'].title()
+                        )
+                    
+                    with col3:
+                        st.metric(
+                            "Volume Trend",
+                            summary['volume_trend'].title()
+                        )
+                    
+                    # Show sentiment over time chart
+                    st.subheader("Sentiment Over Time")
+                    
+                    # Create a time series of sentiment
+                    fig = go.Figure()
+                    
+                    # Group by source and timestamp to create time series
+                    for source, group in sentiment_data.groupby('source'):
+                        # Sort by timestamp
+                        group = group.sort_values('timestamp')
+                        
+                        # Add line for this source
+                        fig.add_trace(
+                            go.Scatter(
+                                x=group['timestamp'],
+                                y=group['sentiment_score'],
+                                mode='lines+markers',
+                                name=source,
+                                hovertemplate='%{y:.2f}'
+                            )
+                        )
+                    
+                    # Add a reference line at 0
+                    fig.add_shape(
+                        type="line",
+                        x0=sentiment_data['timestamp'].min(),
+                        y0=0,
+                        x1=sentiment_data['timestamp'].max(),
+                        y1=0,
+                        line=dict(color="gray", width=1, dash="dash"),
+                    )
+                    
+                    # Set axis labels and title
+                    fig.update_layout(
+                        title="Sentiment Score by Source Over Time",
+                        xaxis_title="Date",
+                        yaxis_title="Sentiment Score (-1 to 1)",
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Volume chart
+                    st.subheader("Mention Volume by Source")
+                    
+                    # Group by source and date to show daily volumes
+                    sentiment_data['date'] = sentiment_data['timestamp'].dt.date
+                    volume_data = sentiment_data.groupby(['source', 'date'])['volume'].sum().reset_index()
+                    
+                    # Create stacked bar chart for volumes
+                    fig2 = go.Figure()
+                    
+                    for source, group in volume_data.groupby('source'):
+                        fig2.add_trace(
+                            go.Bar(
+                                x=group['date'],
+                                y=group['volume'],
+                                name=source
+                            )
+                        )
+                    
+                    # Stack the bars
+                    fig2.update_layout(
+                        barmode='stack',
+                        title="Daily Mention Volume by Source",
+                        xaxis_title="Date",
+                        yaxis_title="Volume (mentions)",
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
+                    # Source analysis
+                    st.subheader("Source Analysis")
+                    
+                    source_data = []
+                    for source, details in summary['source_breakdown'].items():
+                        source_data.append({
+                            "Source": source,
+                            "Average Sentiment": f"{details['average_sentiment']:.2f}",
+                            "Total Volume": details['volume'],
+                            "Sentiment": "Positive" if details['average_sentiment'] > 0.05 else 
+                                        "Negative" if details['average_sentiment'] < -0.05 else "Neutral"
+                        })
+                    
+                    source_df = pd.DataFrame(source_data)
+                    st.dataframe(source_df, use_container_width=True)
+                    
+                    # Sentiment word cloud (placeholder)
+                    st.subheader("Common Topics")
+                    st.info("This feature will show a word cloud of common topics mentioned alongside " + 
+                           f"{symbol.replace('USDT', '')}. Web scraping integration in progress.")
+                    
+                else:
+                    st.warning(f"No sentiment data available for {symbol} with the selected filters.")
+                    st.info("Please try a different cryptocurrency or adjust your filter settings.")
+        except Exception as e:
+            st.error(f"An error occurred in the Sentiment tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+    
     # Portfolio Tab
-    if selected_tab == "Portfolio":
+    elif selected_tab == "Portfolio":
         try:
             # Portfolio Management Section
             st.header("Cryptocurrency Portfolio Tracker")
