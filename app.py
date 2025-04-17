@@ -234,7 +234,6 @@ def main():
     if not st.session_state.backfill_started or time_diff > 300:
         # Kill any existing backfill processes before starting a new one
         if st.session_state.backfill_started:
-            import subprocess
             try:
                 # Find and kill any running backfill_database.py processes
                 subprocess.run(["pkill", "-f", "backfill_database.py"], 
@@ -380,6 +379,7 @@ def main():
     if backfill_col1.button("Quick Update"):
         st.sidebar.info("Running quick update for recent data...")
         try:
+            # Ensure subprocess module is used correctly
             process = subprocess.Popen(["python", "backfill_database.py"], 
                                      stdout=subprocess.PIPE, 
                                      stderr=subprocess.PIPE,
@@ -392,6 +392,7 @@ def main():
     if backfill_col2.button("Full Backfill"):
         st.sidebar.info("Running full backfill to calculate and store optimized trading strategies for all available symbols...")
         try:
+            # Ensure subprocess module is used correctly
             process = subprocess.Popen(["python", "backfill_database.py", "--full"], 
                                      stdout=subprocess.PIPE, 
                                      stderr=subprocess.PIPE,
