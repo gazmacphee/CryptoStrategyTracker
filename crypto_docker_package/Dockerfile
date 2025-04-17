@@ -39,10 +39,26 @@ VOLUME ["/app/data"]
 
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
-# Wait for PostgreSQL if using external database\n\
-if [ ! -z "$DATABASE_URL" ]; then\n\
-  echo "Waiting for PostgreSQL..."\n\
-  python -c "import time, psycopg2; time.sleep(5); print(\"PostgreSQL ready\")"\n\
+# Wait for PostgreSQL\n\
+echo "Waiting for PostgreSQL connection..."\n\
+max_attempts=30\n\
+attempt=0\n\
+db_ready=false\n\
+\n\
+while [ $attempt -lt $max_attempts ] && [ "$db_ready" = false ]; do\n\
+  attempt=$((attempt+1))\n\
+  echo "Attempt $attempt/$max_attempts to connect to database..."\n\
+  if python -c "import psycopg2; conn = psycopg2.connect(host=\"${PGHOST:-db}\", port=\"${PGPORT:-5432}\", user=\"${PGUSER:-postgres}\", password=\"${PGPASSWORD:-postgres}\", dbname=\"${PGDATABASE:-crypto}\"); conn.close()" 2>/dev/null; then\n\
+    echo "Database connection successful!"\n\
+    db_ready=true\n\
+  else\n\
+    echo "Database not ready yet..."\n\
+    sleep $((attempt < 5 ? 2 : 5))\n\
+  fi\n\
+done\n\
+\n\
+if [ "$db_ready" = false ]; then\n\
+  echo "ERROR: Could not connect to database after $max_attempts attempts! The application will still attempt to start."\n\
 fi\n\
 \n\
 # Run database initialization if requested\n\

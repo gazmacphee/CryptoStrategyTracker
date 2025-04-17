@@ -30,10 +30,11 @@ cp .env.example .env
 
 Edit the `.env` file and update the following:
 
-- Database connection details (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, DATABASE_URL)
 - Binance API credentials (BINANCE_API_KEY, BINANCE_API_SECRET)
 - OpenAI API key (OPENAI_API_KEY)
 - Application settings (RESET_DB, BACKFILL_ON_START)
+
+**Note**: With the updated docker-compose.yml, a PostgreSQL database will be automatically set up for you. You don't need to configure any database credentials unless you want to use an external database.
 
 ### 3. Build and Start the Docker Container
 
@@ -106,7 +107,7 @@ You can modify the following files to customize your deployment:
 If you encounter any issues:
 
 1. Check the container logs: `docker-compose logs`
-2. Verify database connection in your `.env` file
+2. Verify containers are running with `docker-compose ps`
 3. Ensure your API keys are valid
 4. Make sure the required ports (5001) are not being used by other applications. If you encounter port conflicts, you can change the port mapping in the docker-compose.yml file, for example: `"5002:5000"` to use port 5002 instead
 
