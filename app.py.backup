@@ -780,229 +780,229 @@ def main():
                 The optimization process will test multiple combinations of parameters to find the most profitable trading strategy.
                 This process may take some time depending on the amount of data and parameter combinations.
                 """)
-                
-                # Allow user to select which strategies to optimize
-                st.write("### Strategy Selection")
-                
-                # Strategy selection
-                strategy_cols = st.columns(3)
-                
-                # Column 1 - Bollinger Bands
-                with strategy_cols[0]:
-                    st.subheader("Bollinger Bands")
-                    use_bb = st.checkbox("Enable Bollinger Bands", value=True)
-                    
-                    # Only show parameters if enabled
-                    if use_bb:
-                        bb_min = st.slider("BB Threshold Min", 0.0, 0.5, 0.1, 0.1)
-                        bb_max = st.slider("BB Threshold Max", 0.1, 0.9, 0.5, 0.1)
-                        bb_step = 0.1
-                        bb_values = [round(x, 1) for x in np.arange(bb_min, bb_max + bb_step, bb_step)]
                         
-                        # Bollinger Band window size
-                        bb_window_options = [10, 20, 30, 40, 50]
-                        bb_window = st.selectbox("BB Window Size", options=bb_window_options, index=1)
-                    else:
-                        # Default values if disabled
-                        bb_values = [0.2]  # Use a neutral value
-                        bb_window = 20
+                        # Allow user to select which strategies to optimize
+                        st.write("### Strategy Selection")
+                        
+                        # Strategy selection
+                        strategy_cols = st.columns(3)
+                        
+                        # Column 1 - Bollinger Bands
+                        with strategy_cols[0]:
+                            st.subheader("Bollinger Bands")
+                            use_bb = st.checkbox("Enable Bollinger Bands", value=True)
                             
-                # Column 2 - RSI
-                with strategy_cols[1]:
-                    st.subheader("RSI")
-                    use_rsi = st.checkbox("Enable RSI", value=True)
-                    
-                    # Only show parameters if enabled
-                    if use_rsi:
-                        rsi_o_min = st.slider("RSI Oversold Min", 10, 40, 20, 5)
-                        rsi_o_max = st.slider("RSI Oversold Max", 20, 45, 35, 5)
-                        rsi_o_step = 5
-                        rsi_o_values = list(range(rsi_o_min, rsi_o_max + rsi_o_step, rsi_o_step))
-                        
-                        rsi_ob_min = st.slider("RSI Overbought Min", 55, 85, 65, 5)
-                        rsi_ob_max = st.slider("RSI Overbought Max", 65, 90, 85, 5)
-                        rsi_ob_step = 5
-                        rsi_ob_values = list(range(rsi_ob_min, rsi_ob_max + rsi_ob_step, rsi_ob_step))
-                        
-                        # RSI window size
-                        rsi_window_options = [7, 14, 21, 28]
-                        rsi_window = st.selectbox("RSI Window", options=rsi_window_options, index=1)
-                    else:
-                        # Default values if disabled
-                        rsi_o_values = [30]  # Default values that won't affect the strategy
-                        rsi_ob_values = [70]
-                        rsi_window = 14
+                            # Only show parameters if enabled
+                            if use_bb:
+                                bb_min = st.slider("BB Threshold Min", 0.0, 0.5, 0.1, 0.1)
+                                bb_max = st.slider("BB Threshold Max", 0.1, 0.9, 0.5, 0.1)
+                                bb_step = 0.1
+                                bb_values = [round(x, 1) for x in np.arange(bb_min, bb_max + bb_step, bb_step)]
+                                
+                                # Bollinger Band window size
+                                bb_window_options = [10, 20, 30, 40, 50]
+                                bb_window = st.selectbox("BB Window Size", options=bb_window_options, index=1)
+                            else:
+                                # Default values if disabled
+                                bb_values = [0.2]  # Use a neutral value
+                                bb_window = 20
                             
-                # Column 3 - MACD
-                with strategy_cols[2]:
-                    st.subheader("MACD")
-                    use_macd = st.checkbox("Enable MACD", value=True)
-                    
-                    # Only show parameters if enabled
-                    if use_macd:
-                        # MACD strategy type
-                        macd_strategies = ['MACD Crossover', 'MACD Histogram', 'Both']
-                        macd_strategy_type = st.radio("MACD Strategy Type", options=macd_strategies)
-                        
-                        if macd_strategy_type == 'Both':
-                            selected_strategies = [True, False]
-                        elif macd_strategy_type == 'MACD Crossover':
-                            selected_strategies = [True]
-                        else:
-                            selected_strategies = [False]
-                        
-                        # MACD parameters
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            macd_fast_options = [8, 12, 16]
-                            macd_fast = st.selectbox("MACD Fast Period", options=macd_fast_options, index=1)
+                        # Column 2 - RSI
+                        with strategy_cols[1]:
+                            st.subheader("RSI")
+                            use_rsi = st.checkbox("Enable RSI", value=True)
                             
-                        with col2:
-                            macd_slow_options = [21, 26, 30]
-                            macd_slow = st.selectbox("MACD Slow Period", options=macd_slow_options, index=1)
-                        
-                        macd_signal_options = [7, 9, 12]
-                        macd_signal = st.selectbox("MACD Signal Period", options=macd_signal_options, index=1)
-                    else:
-                        # Default values if disabled
-                        selected_strategies = [True]  # Default to crossover
-                        macd_fast = 12
-                        macd_slow = 26
-                        macd_signal = 9
+                            # Only show parameters if enabled
+                            if use_rsi:
+                                rsi_o_min = st.slider("RSI Oversold Min", 10, 40, 20, 5)
+                                rsi_o_max = st.slider("RSI Oversold Max", 20, 45, 35, 5)
+                                rsi_o_step = 5
+                                rsi_o_values = list(range(rsi_o_min, rsi_o_max + rsi_o_step, rsi_o_step))
+                                
+                                rsi_ob_min = st.slider("RSI Overbought Min", 55, 85, 65, 5)
+                                rsi_ob_max = st.slider("RSI Overbought Max", 65, 90, 85, 5)
+                                rsi_ob_step = 5
+                                rsi_ob_values = list(range(rsi_ob_min, rsi_ob_max + rsi_ob_step, rsi_ob_step))
+                                
+                                # RSI window size
+                                rsi_window_options = [7, 14, 21, 28]
+                                rsi_window = st.selectbox("RSI Window", options=rsi_window_options, index=1)
+                            else:
+                                # Default values if disabled
+                                rsi_o_values = [30]  # Default values that won't affect the strategy
+                                rsi_ob_values = [70]
+                                rsi_window = 14
                             
-                # Calculate combinations based on enabled strategies
-                active_strategies = 0
-                strategy_combinations = 1
-                
-                if use_bb:
-                    active_strategies += 1
-                    strategy_combinations *= len(bb_values)
-                    
-                if use_rsi:
-                    active_strategies += 1
-                    strategy_combinations *= len(rsi_o_values) * len(rsi_ob_values)
-                    
-                if use_macd:
-                    active_strategies += 1
-                    strategy_combinations *= len(selected_strategies)
-                
-                st.write("### Active Parameters")
-                st.write(f"Strategies enabled: {active_strategies}")
-                st.info(f"Total parameter combinations to test: {strategy_combinations}")
-                        
-                # Run optimization button
-                if st.button("Run Optimization"):
-                    # Define parameter ranges from user input
-                    parameter_ranges = {}
-                    
-                    if use_bb:
-                        parameter_ranges['bb_threshold'] = bb_values
-                        
-                    if use_rsi:
-                        parameter_ranges['rsi_oversold'] = rsi_o_values
-                        parameter_ranges['rsi_overbought'] = rsi_ob_values
-                        
-                    if use_macd:
-                        parameter_ranges['use_macd_crossover'] = selected_strategies
-                    
-                    # Store fixed parameters
-                    fixed_params = {
-                        'use_bb': use_bb,
-                        'use_rsi': use_rsi,
-                        'use_macd': use_macd,
-                        'bb_window': bb_window,
-                        'rsi_window': rsi_window,
-                        'macd_fast': macd_fast,
-                        'macd_slow': macd_slow,
-                        'macd_signal': macd_signal
-                    }
-                    
-                    # Create a progress bar
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # Run optimization with progress updates
-                    status_text.text("Starting optimization process...")
-                    
-                    # Create a placeholder for intermediate results
-                    interim_results = st.empty()
-                    
-                    # Track number of combinations tested
-                    combinations_tested = 0
-                    
-                    # Rather than passing the full optimization to find_optimal_strategy,
-                    # we'll run each combination individually to show progress
-                    results = []
-                    base_df = df.copy()
-                    
-                    # Make sure all needed indicators are calculated
-                    # Make sure we're accessing the indicator functions properly
-                    # These are already imported at the top of the file
-                    try:
-                        if 'bb_lower' not in base_df.columns:
-                            st.text("Adding Bollinger Bands...")
-                            from indicators import add_bollinger_bands
-                            base_df = add_bollinger_bands(base_df)
-                        
-                        if 'rsi' not in base_df.columns:
-                            st.text("Adding RSI...")
-                            from indicators import add_rsi
-                            base_df = add_rsi(base_df)
-                        
-                        if 'macd' not in base_df.columns:
-                            st.text("Adding MACD...")
-                            from indicators import add_macd
-                            base_df = add_macd(base_df)
+                        # Column 3 - MACD
+                        with strategy_cols[2]:
+                            st.subheader("MACD")
+                            use_macd = st.checkbox("Enable MACD", value=True)
                             
-                    except Exception as e:
-                        st.error(f"Error calculating indicators: {str(e)}")
-                        import traceback
-                        st.text(traceback.format_exc())
+                            # Only show parameters if enabled
+                            if use_macd:
+                                # MACD strategy type
+                                macd_strategies = ['MACD Crossover', 'MACD Histogram', 'Both']
+                                macd_strategy_type = st.radio("MACD Strategy Type", options=macd_strategies)
+                                
+                                if macd_strategy_type == 'Both':
+                                    selected_strategies = [True, False]
+                                elif macd_strategy_type == 'MACD Crossover':
+                                    selected_strategies = [True]
+                                else:
+                                    selected_strategies = [False]
+                                
+                                # MACD parameters
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    macd_fast_options = [8, 12, 16]
+                                    macd_fast = st.selectbox("MACD Fast Period", options=macd_fast_options, index=1)
+                                    
+                                with col2:
+                                    macd_slow_options = [21, 26, 30]
+                                    macd_slow = st.selectbox("MACD Slow Period", options=macd_slow_options, index=1)
+                                
+                                macd_signal_options = [7, 9, 12]
+                                macd_signal = st.selectbox("MACD Signal Period", options=macd_signal_options, index=1)
+                            else:
+                                # Default values if disabled
+                                selected_strategies = [True]  # Default to crossover
+                                macd_fast = 12
+                                macd_slow = 26
+                                macd_signal = 9
                             
-                    # Create parameter combinations based on enabled strategies
-                    param_combinations = []
-                    
-                    # Start with a base parameter set with single values
-                    base_params = {
-                        'bb_threshold': parameter_ranges.get('bb_threshold', [0.2])[0],
-                        'rsi_oversold': parameter_ranges.get('rsi_oversold', [30])[0],
-                        'rsi_overbought': parameter_ranges.get('rsi_overbought', [70])[0],
-                        'use_macd_crossover': parameter_ranges.get('use_macd_crossover', [True])[0]
-                    }
+                        # Calculate combinations based on enabled strategies
+                        active_strategies = 0
+                        strategy_combinations = 1
+                        
+                        if use_bb:
+                            active_strategies += 1
+                            strategy_combinations *= len(bb_values)
                             
-                    # Function to add all combinations of a parameter to existing combinations
-                    def add_parameter_combinations(combinations, param_name, values):
-                        if not combinations:
-                            return [{param_name: value} for value in values]
+                        if use_rsi:
+                            active_strategies += 1
+                            strategy_combinations *= len(rsi_o_values) * len(rsi_ob_values)
+                            
+                        if use_macd:
+                            active_strategies += 1
+                            strategy_combinations *= len(selected_strategies)
                         
-                        new_combinations = []
-                        for combo in combinations:
-                            for value in values:
-                                new_combo = combo.copy()
-                                new_combo[param_name] = value
-                                new_combinations.append(new_combo)
-                        return new_combinations
-                    
-                    # Add enabled parameters to combinations
-                    combinations = [{}]
-                    
-                    if 'bb_threshold' in parameter_ranges and use_bb:
-                        combinations = add_parameter_combinations(combinations, 'bb_threshold', parameter_ranges['bb_threshold'])
+                        st.write("### Active Parameters")
+                        st.write(f"Strategies enabled: {active_strategies}")
+                        st.info(f"Total parameter combinations to test: {strategy_combinations}")
                         
-                    if 'rsi_oversold' in parameter_ranges and 'rsi_overbought' in parameter_ranges and use_rsi:
-                        # First add oversold values
-                        combinations = add_parameter_combinations(combinations, 'rsi_oversold', parameter_ranges['rsi_oversold'])
-                        # Then add overbought values to each combination
-                        combinations = add_parameter_combinations(combinations, 'rsi_overbought', parameter_ranges['rsi_overbought'])
-                        
-                    if 'use_macd_crossover' in parameter_ranges and use_macd:
-                        combinations = add_parameter_combinations(combinations, 'use_macd_crossover', parameter_ranges['use_macd_crossover'])
-                    
-                    # Fill in defaults for any parameter that wasn't added
-                    for combo in combinations:
-                        for param, default_value in base_params.items():
-                            if param not in combo:
-                                combo[param] = default_value
+                        # Run optimization button
+                        if st.button("Run Optimization"):
+                            # Define parameter ranges from user input
+                            parameter_ranges = {}
+                            
+                            if use_bb:
+                                parameter_ranges['bb_threshold'] = bb_values
+                                
+                            if use_rsi:
+                                parameter_ranges['rsi_oversold'] = rsi_o_values
+                                parameter_ranges['rsi_overbought'] = rsi_ob_values
+                                
+                            if use_macd:
+                                parameter_ranges['use_macd_crossover'] = selected_strategies
+                            
+                            # Store fixed parameters
+                            fixed_params = {
+                                'use_bb': use_bb,
+                                'use_rsi': use_rsi,
+                                'use_macd': use_macd,
+                                'bb_window': bb_window,
+                                'rsi_window': rsi_window,
+                                'macd_fast': macd_fast,
+                                'macd_slow': macd_slow,
+                                'macd_signal': macd_signal
+                            }
+                            
+                            # Create a progress bar
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            # Run optimization with progress updates
+                            status_text.text("Starting optimization process...")
+                            
+                            # Create a placeholder for intermediate results
+                            interim_results = st.empty()
+                            
+                            # Track number of combinations tested
+                            combinations_tested = 0
+                            
+                            # Rather than passing the full optimization to find_optimal_strategy,
+                            # we'll run each combination individually to show progress
+                            results = []
+                            base_df = df.copy()
+                            
+                            # Make sure all needed indicators are calculated
+                            # Make sure we're accessing the indicator functions properly
+                            # These are already imported at the top of the file
+                            try:
+                                if 'bb_lower' not in base_df.columns:
+                                    st.text("Adding Bollinger Bands...")
+                                    from indicators import add_bollinger_bands
+                                    base_df = add_bollinger_bands(base_df)
+                                
+                                if 'rsi' not in base_df.columns:
+                                    st.text("Adding RSI...")
+                                    from indicators import add_rsi
+                                    base_df = add_rsi(base_df)
+                                
+                                if 'macd' not in base_df.columns:
+                                    st.text("Adding MACD...")
+                                    from indicators import add_macd
+                                    base_df = add_macd(base_df)
+                                    
+                            except Exception as e:
+                                st.error(f"Error calculating indicators: {str(e)}")
+                                import traceback
+                                st.text(traceback.format_exc())
+                            
+                            # Create parameter combinations based on enabled strategies
+                            param_combinations = []
+                            
+                            # Start with a base parameter set with single values
+                            base_params = {
+                                'bb_threshold': parameter_ranges.get('bb_threshold', [0.2])[0],
+                                'rsi_oversold': parameter_ranges.get('rsi_oversold', [30])[0],
+                                'rsi_overbought': parameter_ranges.get('rsi_overbought', [70])[0],
+                                'use_macd_crossover': parameter_ranges.get('use_macd_crossover', [True])[0]
+                            }
+                            
+                            # Function to add all combinations of a parameter to existing combinations
+                            def add_parameter_combinations(combinations, param_name, values):
+                                if not combinations:
+                                    return [{param_name: value} for value in values]
+                                
+                                new_combinations = []
+                                for combo in combinations:
+                                    for value in values:
+                                        new_combo = combo.copy()
+                                        new_combo[param_name] = value
+                                        new_combinations.append(new_combo)
+                                return new_combinations
+                            
+                            # Add enabled parameters to combinations
+                            combinations = [{}]
+                            
+                            if 'bb_threshold' in parameter_ranges and use_bb:
+                                combinations = add_parameter_combinations(combinations, 'bb_threshold', parameter_ranges['bb_threshold'])
+                                
+                            if 'rsi_oversold' in parameter_ranges and 'rsi_overbought' in parameter_ranges and use_rsi:
+                                # First add oversold values
+                                combinations = add_parameter_combinations(combinations, 'rsi_oversold', parameter_ranges['rsi_oversold'])
+                                # Then add overbought values to each combination
+                                combinations = add_parameter_combinations(combinations, 'rsi_overbought', parameter_ranges['rsi_overbought'])
+                                
+                            if 'use_macd_crossover' in parameter_ranges and use_macd:
+                                combinations = add_parameter_combinations(combinations, 'use_macd_crossover', parameter_ranges['use_macd_crossover'])
+                            
+                            # Fill in defaults for any parameter that wasn't added
+                            for combo in combinations:
+                                for param, default_value in base_params.items():
+                                    if param not in combo:
+                                        combo[param] = default_value
                             
                             st.write(f"Testing {len(combinations)} parameter combinations")
                             
@@ -1232,10 +1232,10 @@ def main():
                                     )
                                     
                                     st.plotly_chart(fig, use_container_width=True)
-                                else:
-                                    st.warning("Could not find an optimal strategy. Try adjusting parameter ranges or using a different dataset.")
-                else:
-                    st.info("No completed trades to analyze. The strategy didn't generate any signals during this period or there wasn't enough data for backtesting.")
+                            else:
+                                st.warning("Could not find an optimal strategy. Try adjusting parameter ranges or using a different dataset.")
+            else:
+                st.info("No completed trades to analyze. The strategy didn't generate any signals during this period or there wasn't enough data for backtesting.")
         
         # Auto-refresh logic
         if auto_refresh:
