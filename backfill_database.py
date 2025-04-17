@@ -314,8 +314,8 @@ def backfill_database(full_backfill=False):
     tier3_symbols = [s for s in all_symbols if s not in tier1_symbols and s not in tier2_symbols][:10]  # Next 10 by volume
     
     # Define timeframes by importance
-    primary_timeframes = ["1h", "4h"]
-    secondary_timeframes = ["15m", "1d"]
+    primary_timeframes = ["1h", "4h", "12h"]
+    secondary_timeframes = ["3m", "5m", "15m", "30m", "2h", "6h", "8h", "1d", "3d", "1w", "1M"]
     
     # Determine lookback based on backfill type
     full_lookback = 365 if full_backfill else 30
@@ -339,16 +339,32 @@ def backfill_database(full_backfill=False):
     # Process tier 2 symbols (medium priority)
     for symbol in tier2_symbols:
         if symbol in all_symbols:
+            # Process primary timeframes with longer lookback
             for timeframe in primary_timeframes:
                 interval = timeframe_to_interval(timeframe)
                 process_symbol_timeframe(symbol, interval, lookback_days=quick_lookback)
+                time.sleep(1)
+            
+            # Also process secondary timeframes for tier 2 with shorter lookback
+            for timeframe in secondary_timeframes:
+                interval = timeframe_to_interval(timeframe)
+                process_symbol_timeframe(symbol, interval, lookback_days=daily_lookback)
                 time.sleep(1)
     
     # If doing a full backfill, also process tier 3 symbols
     if full_backfill:
         for symbol in tier3_symbols:
             if symbol in all_symbols:
+                # Process primary timeframes
                 for timeframe in primary_timeframes:
+                    interval = timeframe_to_interval(timeframe)
+                    process_symbol_timeframe(symbol, interval, lookback_days=daily_lookback)
+                    time.sleep(1)
+                
+                # Also process a subset of secondary timeframes for tier 3
+                # Using only the most important secondary timeframes to avoid too much data
+                important_secondary = ["15m", "1d"]
+                for timeframe in important_secondary:
                     interval = timeframe_to_interval(timeframe)
                     process_symbol_timeframe(symbol, interval, lookback_days=daily_lookback)
                     time.sleep(1)
