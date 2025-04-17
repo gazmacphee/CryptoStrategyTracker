@@ -61,8 +61,10 @@ docker-compose logs -f
 Once the containers are running, you can access your cryptocurrency trading platform at:
 
 ```
-http://localhost:5000
+http://localhost:5001
 ```
+
+Note: The application runs on port 5000 inside the container, but it's mapped to port 5001 on your host machine to avoid conflicts with other applications.
 
 ## Docker Commands Reference
 
@@ -106,7 +108,7 @@ If you encounter any issues:
 1. Check the container logs: `docker-compose logs`
 2. Verify database connection in your `.env` file
 3. Ensure your API keys are valid
-4. Make sure the required ports (5000) are not being used by other applications
+4. Make sure the required ports (5001) are not being used by other applications. If you encounter port conflicts, you can change the port mapping in the docker-compose.yml file, for example: `"5002:5000"` to use port 5002 instead
 
 ## Data Management
 
