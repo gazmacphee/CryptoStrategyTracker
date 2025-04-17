@@ -34,7 +34,7 @@
 
 3. **Install Dependencies**
    ```bash
-   pip install -r requirements.txt
+   pip install numpy pandas pandas-ta plotly psycopg2-binary python-dotenv requests streamlit trafilatura
    ```
 
 4. **Configure Environment Variables**
@@ -71,7 +71,7 @@
 ## Troubleshooting
 
 - **Database Connection Issues**: Ensure PostgreSQL is running and credentials are correct
-- **Package Import Errors**: Make sure all dependencies are installed with `pip install -r requirements.txt`
+- **Package Import Errors**: Make sure all dependencies are installed with the pip command listed in the installation steps
 - **Binance API Restrictions**: If you're in a restricted region, the app will fall back to alternative data sources
 
 ## Auto-Updating Data

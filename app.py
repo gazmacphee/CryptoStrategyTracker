@@ -87,7 +87,7 @@ def get_database_stats():
             trade_count = 0
         
         # Get count of unique symbol/interval combinations
-        cursor.execute("SELECT COUNT(DISTINCT symbol, interval) FROM historical_data")
+        cursor.execute("SELECT COUNT(*) FROM (SELECT DISTINCT symbol, interval FROM historical_data) AS temp")
         symbol_interval_count = cursor.fetchone()[0]
     except Exception as e:
         print(f"Error getting database stats: {e}")
