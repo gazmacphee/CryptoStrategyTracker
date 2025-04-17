@@ -92,11 +92,47 @@ def get_database_stats():
         cursor = conn.cursor()
         
         # Get count of records in each table
-        cursor.execute("SELECT COUNT(*) FROM historical_data")
-        price_count = cursor.fetchone()[0]
+        # Check if historical_data table exists before querying
+        try:
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'historical_data'
+                )
+            """)
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT COUNT(*) FROM historical_data")
+                price_count = cursor.fetchone()[0]
+        except Exception as e:
+            print(f"Error checking historical_data table: {e}")
         
-        cursor.execute("SELECT COUNT(*) FROM technical_indicators")
-        indicator_count = cursor.fetchone()[0]
+        # Try indicators table, then technical_indicators, with existence check
+        try:
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'indicators'
+                )
+            """)
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT COUNT(*) FROM indicators")
+                indicator_count = cursor.fetchone()[0]
+            else:
+                # Check if technical_indicators exists
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'technical_indicators'
+                    )
+                """)
+                if cursor.fetchone()[0]:
+                    cursor.execute("SELECT COUNT(*) FROM technical_indicators")
+                    indicator_count = cursor.fetchone()[0]
+        except Exception as e:
+            print(f"Error checking indicators tables: {e}")
         
         try:
             cursor.execute("SELECT COUNT(*) FROM trades")
@@ -105,9 +141,22 @@ def get_database_stats():
             # Trades table might not exist yet
             trade_count = 0
         
-        # Get count of unique symbol/interval combinations
-        cursor.execute("SELECT COUNT(*) FROM (SELECT DISTINCT symbol, interval FROM historical_data) AS temp")
-        symbol_interval_count = cursor.fetchone()[0]
+        # Get count of unique symbol/interval combinations - only if historical_data exists
+        try:
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'historical_data'
+                )
+            """)
+            if cursor.fetchone()[0]:
+                cursor.execute("SELECT COUNT(*) FROM (SELECT DISTINCT symbol, interval FROM historical_data) AS temp")
+                result = cursor.fetchone()
+                if result:
+                    symbol_interval_count = result[0]
+        except Exception as e:
+            print(f"Error getting symbol/interval count: {e}")
     except Exception as e:
         print(f"Error getting database stats: {e}")
     finally:
