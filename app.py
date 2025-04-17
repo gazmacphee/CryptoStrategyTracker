@@ -309,6 +309,19 @@ def main():
             
     # Get data from API or database
     try:
+        # Get the selected symbol first
+        available_symbols = get_available_symbols()
+        default_symbol = "BTCUSDT"
+        
+        if available_symbols:
+            default_symbol = available_symbols[0]
+        
+        symbol = st.sidebar.selectbox(
+            "Select Cryptocurrency Pair",
+            options=available_symbols,
+            index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0
+        )
+        
         # Show last update time for this specific symbol/interval
         last_update_for_interval = get_last_update_time(symbol, binance_interval)
         if last_update_for_interval:
