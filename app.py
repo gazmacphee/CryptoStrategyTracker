@@ -189,7 +189,7 @@ def main():
         # Show last update time
         last_update = get_last_update_time()
         if last_update:
-            st.info(f"Database last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.info(f"Database last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} GMT")
         else:
             st.warning("Database not yet populated. Initial backfill in progress...")
             
@@ -314,7 +314,7 @@ def main():
             # Show last update time for this specific symbol/interval
             last_update_for_interval = get_last_update_time(symbol, binance_interval)
             if last_update_for_interval:
-                st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')}")
+                st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')} GMT")
             
             with st.spinner(f"Fetching {symbol} data..."):
                 # Use the cached data function with appropriate parameters
@@ -1525,8 +1525,8 @@ def main():
                 
                 for i, (tab, article) in enumerate(zip(tabs, digest['articles'])):
                     with tab:
-                        # Format date nicely
-                        date_str = article['date'].strftime("%Y-%m-%d %H:%M")
+                        # Format date nicely with GMT/UTC indicator
+                        date_str = article['date'].strftime("%Y-%m-%d %H:%M") + " GMT"
                         
                         # Display article metadata
                         st.markdown(f"**{article['title']}**")
@@ -1575,8 +1575,8 @@ def main():
                 if coin_news:
                     for article in coin_news:
                         with st.expander(f"{article['title']} ({article['source']})"):
-                            # Format date nicely
-                            date_str = article['date'].strftime("%Y-%m-%d %H:%M")
+                            # Format date nicely with GMT/UTC indicator
+                            date_str = article['date'].strftime("%Y-%m-%d %H:%M") + " GMT"
                             
                             # Display article metadata
                             st.markdown(f"*Source: {article['source']} | Date: {date_str}*")
