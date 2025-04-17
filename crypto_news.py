@@ -125,12 +125,19 @@ def summarize_article(article_text, coin_name):
     """
     Summarize an article using OpenAI or a fallback method
     """
+    # Get current OpenAI API key
+    current_api_key = os.environ.get("OPENAI_API_KEY")
+    
     # If OpenAI is available, use it for summarization
-    if OPENAI_AVAILABLE:
+    if current_api_key:
         try:
+            # Create a new OpenAI client with the current API key
+            from openai import OpenAI
+            current_client = OpenAI(api_key=current_api_key)
+            
             prompt = f"Summarize this cryptocurrency article about {coin_name} in 2-3 sentences:\n\n{article_text}"
             
-            response = openai_client.chat.completions.create(
+            response = current_client.chat.completions.create(
                 model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200
@@ -185,7 +192,13 @@ def generate_personalized_digest(portfolio_symbols, interests=None, max_articles
     # Generate summaries if they don't exist
     for article in all_articles:
         if article['summary'] is None:
-            article['summary'] = summarize_article(article['content'], coin)
+            # Use the coin name from the article URL or title if available
+            coin_name = "cryptocurrency"
+            for c in coins_of_interest:
+                if c.lower() in article['title'].lower() or (article['url'] and c.lower() in article['url'].lower()):
+                    coin_name = c
+                    break
+            article['summary'] = summarize_article(article['content'], coin_name)
     
     # Generate recommendations
     recommendations = generate_recommendations(all_articles, coins_of_interest)
@@ -202,9 +215,16 @@ def generate_recommendations(articles, coins_of_interest):
     """
     recommendations = []
     
+    # Get current OpenAI API key and check if it's available
+    current_api_key = os.environ.get("OPENAI_API_KEY")
+    
     # If OpenAI is available, use it for more sophisticated recommendations
-    if OPENAI_AVAILABLE:
+    if current_api_key:
         try:
+            # Create a new OpenAI client with the current API key
+            from openai import OpenAI
+            current_client = OpenAI(api_key=current_api_key)
+            
             # Prepare article data for OpenAI
             article_data = []
             for article in articles[:5]:  # Use only top 5 articles for analysis
@@ -229,7 +249,7 @@ and 'details' (more specific advice or insight).
 Return a JSON array of 3 recommendation objects.
 """
 
-            response = openai_client.chat.completions.create(
+            response = current_client.chat.completions.create(
                 model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
