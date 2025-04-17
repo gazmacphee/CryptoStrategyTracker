@@ -1924,35 +1924,29 @@ def main():
                                     color = "red"
                                     trend_text = "Strong Bearish"
                                 
-                                # Create pulsing animation effect with CSS
+                                # Create static styling for emoji and text
                                 st.markdown(f"""
                                 <style>
-                                    @keyframes pulse_{i} {{
-                                        0% {{ transform: scale(1); }}
-                                        50% {{ transform: scale(1.2); }}
-                                        100% {{ transform: scale(1); }}
-                                    }}
-                                    .emoji-{i} {{
+                                    .emoji-container {{
                                         font-size: 3em;
-                                        animation: pulse_{i} {3.0/animation_speed}s infinite;
                                         text-align: center;
                                     }}
-                                    .crypto-info-{i} {{
+                                    .crypto-info {{
                                         text-align: center;
                                     }}
-                                    .price-change-{i} {{
+                                    .price-change-{color} {{
                                         color: {color};
                                         font-weight: bold;
                                     }}
                                 </style>
                                 """, unsafe_allow_html=True)
                                 
-                                # Display cryptocurrency info with animated emoji
-                                st.markdown(f"<div class='crypto-info-{i}'><h3>{symbol[:-4] if symbol.endswith('USDT') else symbol}</h3></div>", unsafe_allow_html=True)
-                                st.markdown(f"<div class='emoji-{i}'>{emoji}</div>", unsafe_allow_html=True)
-                                st.markdown(f"<div class='crypto-info-{i}'>Current Price: ${latest_price:.2f}</div>", unsafe_allow_html=True)
-                                st.markdown(f"<div class='crypto-info-{i}'>24h Change: <span class='price-change-{i}'>{pct_change_24h:.2f}%</span></div>", unsafe_allow_html=True)
-                                st.markdown(f"<div class='crypto-info-{i}'>Trend: <span class='price-change-{i}'>{trend_text}</span></div>", unsafe_allow_html=True)
+                                # Display cryptocurrency info with emoji
+                                st.markdown(f"<div class='crypto-info'><h3>{symbol[:-4] if symbol.endswith('USDT') else symbol}</h3></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='emoji-container'>{emoji}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info'>Current Price: ${latest_price:.2f}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info'>24h Change: <span class='price-change-{color}'>{pct_change_24h:.2f}%</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='crypto-info'>Trend: <span class='price-change-{color}'>{trend_text}</span></div>", unsafe_allow_html=True)
                                 
                                 # Create simple trend line chart
                                 fig = go.Figure()
