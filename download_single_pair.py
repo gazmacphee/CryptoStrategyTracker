@@ -137,11 +137,11 @@ if __name__ == "__main__":
     # Verify the database tables exist
     create_tables()
     
-    # Download a single pair's data
+    # Download a single pair's data - use 2023 data which should exist
     symbol = "BTCUSDT"
     interval = "1d"
-    year = 2024
-    month = 3  # March
+    year = 2023
+    month = 12  # December
     
     print(f"Downloading {symbol} {interval} data for {year}-{month:02d}...")
     
