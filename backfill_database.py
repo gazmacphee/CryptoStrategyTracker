@@ -74,11 +74,12 @@ def process_symbol_timeframe(symbol, interval, lookback_days=365):
     df = add_ema(df, 200)
     
     # Create parameter combinations for strategies to test
+    # Using a smaller set of parameters to speed up processing 
     parameter_ranges = {
-        'bb_threshold': [0.1, 0.2, 0.3, 0.4, 0.5],
-        'rsi_oversold': [20, 25, 30, 35],
-        'rsi_overbought': [65, 70, 75, 80],
-        'use_macd_crossover': [True, False]
+        'bb_threshold': [0.2, 0.4],
+        'rsi_oversold': [25, 30],
+        'rsi_overbought': [70, 75],
+        'use_macd_crossover': [True]
     }
     
     # Process different strategy combinations
@@ -304,17 +305,20 @@ def backfill_database():
     # Get available symbols
     symbols = get_available_symbols()
     
-    # Use just the top 5 symbols for testing
-    top_symbols = symbols[:5]
+    # Focus on just Bitcoin initially to ensure we have data
+    # We'll add more after confirming this works
+    top_symbols = ["BTCUSDT"]
     
-    # Get timeframe options
-    timeframes = list(get_timeframe_options().keys())
+    # Get timeframe options but limit to just a few important ones for initial processing
+    # 1h and 4h are most commonly used for trading analysis
+    important_timeframes = ["1h", "4h"]
     
     # Process each symbol-timeframe combination
     for symbol in top_symbols:
-        for timeframe in timeframes:
+        for timeframe in important_timeframes:
             interval = timeframe_to_interval(timeframe)
-            process_symbol_timeframe(symbol, interval)
+            # Use a smaller lookback to speed up processing
+            process_symbol_timeframe(symbol, interval, lookback_days=30)
             time.sleep(1)  # Avoid API rate limits
 
 if __name__ == "__main__":
