@@ -1425,6 +1425,15 @@ def main():
                 except Exception as e:
                     st.warning(f"Could not fetch all current prices: {e}")
             
+            # Initialize portfolio_data as an empty dict with necessary structure
+            portfolio_data = {
+                'total_value': 0.0,
+                'total_cost': 0.0,
+                'total_profit_loss': 0.0,
+                'total_profit_loss_percent': 0.0,
+                'assets': []
+            }
+            
             # Tab 1: Portfolio Overview
             with portfolio_tabs[0]:
                 if portfolio_df.empty:
