@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
 
-def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbought=70, use_macd_crossover=True):
+def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbought=70, use_macd_crossover=True,
+                         use_bb=True, use_rsi=True, use_macd=True, bb_window=20, rsi_window=14,
+                         macd_fast=12, macd_slow=26, macd_signal=9):
     """Evaluate buy/sell signals based on technical indicators
     
     Args:
@@ -10,6 +12,14 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         rsi_oversold: RSI level considered oversold
         rsi_overbought: RSI level considered overbought
         use_macd_crossover: Whether to use MACD crossover signals
+        use_bb: Whether to use Bollinger Bands in the strategy
+        use_rsi: Whether to use RSI in the strategy
+        use_macd: Whether to use MACD in the strategy
+        bb_window: Window size for Bollinger Bands
+        rsi_window: Window size for RSI
+        macd_fast: Fast period for MACD
+        macd_slow: Slow period for MACD
+        macd_signal: Signal period for MACD
     """
     if df.empty:
         return df
@@ -32,9 +42,12 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         # Skip first few rows to have enough data for indicators
         buy_signals = []
         sell_signals = []
+        active_indicators = 0
+        min_signals = 1  # Default to 1 since we might only have 1 strategy active
         
         # Bollinger Bands strategy - price crosses below lower band
-        if has_bb:
+        if has_bb and use_bb:
+            active_indicators += 1
             # Buy signal: Price near lower Bollinger Band
             if result_df.iloc[i]['bb_percent'] < bb_threshold and result_df.iloc[i-1]['bb_percent'] >= bb_threshold:
                 buy_signals.append(True)
@@ -44,7 +57,8 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
                 sell_signals.append(True)
         
         # RSI strategy
-        if has_rsi:
+        if has_rsi and use_rsi:
+            active_indicators += 1
             # Buy signal: RSI crosses above oversold level
             if result_df.iloc[i]['rsi'] > rsi_oversold and result_df.iloc[i-1]['rsi'] <= rsi_oversold:
                 buy_signals.append(True)
@@ -54,7 +68,8 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
                 sell_signals.append(True)
         
         # MACD strategy
-        if has_macd:
+        if has_macd and use_macd:
+            active_indicators += 1
             if use_macd_crossover:
                 # Buy signal: MACD crosses above signal line
                 if (result_df.iloc[i]['macd'] > result_df.iloc[i]['macd_signal'] and 
@@ -85,11 +100,15 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
                 result_df.iloc[i-1]['ema_9'] >= result_df.iloc[i-1]['ema_21']):
                 sell_signals.append(True)
         
+        # If we have multiple active indicators, require at least 2 for confirmation
+        if active_indicators >= 2:
+            min_signals = 2
+        
         # Set final signals based on indicator combinations
-        if len(buy_signals) >= 2:  # At least 2 indicators confirm buy
+        if len(buy_signals) >= min_signals:  # At least min_signals indicators confirm buy
             result_df.iloc[i, result_df.columns.get_loc('buy_signal')] = True
             
-        if len(sell_signals) >= 2:  # At least 2 indicators confirm sell
+        if len(sell_signals) >= min_signals:  # At least min_signals indicators confirm sell
             result_df.iloc[i, result_df.columns.get_loc('sell_signal')] = True
     
     return result_df
