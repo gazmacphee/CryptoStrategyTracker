@@ -4,6 +4,8 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 import time
+import database
+from utils import calculate_portfolio_value, get_portfolio_performance_history, normalize_comparison_data
 from datetime import datetime, timedelta
 import os
 import threading
@@ -190,23 +192,25 @@ def main():
             st.info(f"Database last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
         else:
             st.warning("Database not yet populated. Initial backfill in progress...")
-    
-    # Sidebar for controls
-    st.sidebar.header("Settings")
-    
-    # Get available symbols from Binance
-    available_symbols = get_available_symbols()
-    default_symbol = "BTCUSDT"
-    if default_symbol not in available_symbols and available_symbols:
-        default_symbol = available_symbols[0]
-    
-    symbol = st.sidebar.selectbox(
-        "Select Cryptocurrency Pair",
-        options=available_symbols,
-        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0
-    )
-    
-    # Timeframe selection
+            
+    # Display either the Analysis or Portfolio view based on selection
+    if selected_tab == "Analysis":
+        # Sidebar for controls
+        st.sidebar.header("Settings")
+        
+        # Get available symbols from Binance
+        available_symbols = get_available_symbols()
+        default_symbol = "BTCUSDT"
+        if default_symbol not in available_symbols and available_symbols:
+            default_symbol = available_symbols[0]
+        
+        symbol = st.sidebar.selectbox(
+            "Select Cryptocurrency Pair",
+            options=available_symbols,
+            index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0
+        )
+        
+        # Timeframe selection
     timeframe_options = get_timeframe_options()
     interval = st.sidebar.selectbox(
         "Select Timeframe",
@@ -1385,7 +1389,350 @@ def main():
             st.rerun()
 
     except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
+        st.error(f"An error occurred in Analysis tab: {str(e)}")
+        import traceback
+        st.text(traceback.format_exc())
+
+    # Portfolio Tab
+    if selected_tab == "Portfolio":
+        try:
+            # Portfolio Management Section
+            st.header("Cryptocurrency Portfolio Tracker")
+            
+            # Initialize session state for portfolio management
+            if 'portfolio_add_form_submitted' not in st.session_state:
+                st.session_state.portfolio_add_form_submitted = False
+            
+            # Create tabs for portfolio views
+            portfolio_tabs = st.tabs(["Portfolio Overview", "Add/Edit Holdings", "Performance Analysis"])
+            
+            # Get current portfolio data
+            portfolio_df = database.get_portfolio()
+            
+            # Get current prices
+            available_symbols = get_available_symbols()
+            current_prices = {}
+            
+            with st.spinner("Fetching current crypto prices..."):
+                try:
+                    for symbol in available_symbols:
+                        # Get most recent price from database
+                        price_data = get_data(symbol, "1h", 1)
+                        if not price_data.empty:
+                            current_prices[symbol] = float(price_data['close'].iloc[-1])
+                except Exception as e:
+                    st.warning(f"Could not fetch all current prices: {e}")
+            
+            # Tab 1: Portfolio Overview
+            with portfolio_tabs[0]:
+                if portfolio_df.empty:
+                    st.info("Your portfolio is empty. Go to the 'Add/Edit Holdings' tab to add crypto assets.")
+                else:
+                    # Calculate portfolio metrics
+                    portfolio_data = calculate_portfolio_value(portfolio_df, current_prices)
+                    
+                    # Display portfolio overview
+                    st.subheader("Portfolio Summary")
+                    
+                    # Top-level metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total Value", f"${portfolio_data['total_value']:,.2f}")
+                    col2.metric("Total Cost", f"${portfolio_data['total_cost']:,.2f}")
+                    col3.metric("Total Profit/Loss", f"${portfolio_data['total_profit_loss']:,.2f}")
+                    col4.metric("Return", f"{portfolio_data['total_profit_loss_percent']:,.2f}%")
+                
+                # Portfolio allocation chart
+                if portfolio_data['assets']:
+                    st.subheader("Portfolio Allocation")
+                    
+                    # Prepare data for pie chart
+                    labels = [asset['symbol'] for asset in portfolio_data['assets']]
+                    values = [asset['current_value'] for asset in portfolio_data['assets']]
+                    
+                    # Create pie chart
+                    fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4)])
+                    fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Holdings table
+                st.subheader("Current Holdings")
+                holdings_data = []
+                
+                for asset in portfolio_data['assets']:
+                    holdings_data.append({
+                        "ID": asset['id'],
+                        "Symbol": asset['symbol'],
+                        "Quantity": f"{asset['quantity']:,.8f}",
+                        "Purchase Price": f"${asset['purchase_price']:,.2f}",
+                        "Current Price": f"${asset['current_price']:,.2f}",
+                        "Value": f"${asset['current_value']:,.2f}",
+                        "Cost": f"${asset['cost_basis']:,.2f}",
+                        "Profit/Loss": f"${asset['profit_loss']:,.2f}",
+                        "Return": f"{asset['profit_loss_percent']:,.2f}%",
+                        "Days Held": asset['days_held']
+                    })
+                
+                st.dataframe(holdings_data, use_container_width=True)
+        
+            # Tab 2: Add/Edit Holdings
+            with portfolio_tabs[1]:
+                st.subheader("Add New Cryptocurrency")
+                
+                with st.form("add_crypto_form"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        symbol = st.selectbox("Symbol", options=available_symbols)
+                        quantity = st.number_input("Quantity", min_value=0.0, format="%.8f")
+                    
+                    with col2:
+                        purchase_price = st.number_input("Purchase Price ($)", min_value=0.0, format="%.2f")
+                        purchase_date = st.date_input("Purchase Date", value=datetime.now())
+                    
+                    notes = st.text_area("Notes (optional)")
+                    
+                    submitted = st.form_submit_button("Add to Portfolio")
+                    
+                    if submitted:
+                        try:
+                            # Convert purchase date to datetime
+                            purchase_datetime = datetime.combine(purchase_date, datetime.min.time())
+                            
+                            # Add to database
+                            result = database.add_portfolio_item(
+                                symbol, 
+                                quantity, 
+                                purchase_price, 
+                                purchase_datetime, 
+                                notes
+                            )
+                            
+                            if result:
+                                st.success(f"Added {quantity} {symbol} to your portfolio!")
+                                st.session_state.portfolio_add_form_submitted = True
+                                # Force a rerun to refresh the data
+                                st.rerun()
+                            else:
+                                st.error("Failed to add item to portfolio.")
+                        except Exception as e:
+                            st.error(f"Error adding portfolio item: {e}")
+                
+                # Display current holdings for editing/deletion
+                if not portfolio_df.empty:
+                    st.subheader("Edit/Delete Holdings")
+                
+                    for _, row in portfolio_df.iterrows():
+                        with st.expander(f"{row['symbol']} - {row['quantity']} (Purchased: {row['purchase_date'].strftime('%Y-%m-%d')})"):
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                        
+                            with col1:
+                                new_quantity = st.number_input(
+                                    "Update Quantity", 
+                                    min_value=0.0, 
+                                    value=float(row['quantity']), 
+                                    key=f"qty_{row['id']}",
+                                    format="%.8f"
+                                )
+                                
+                                new_price = st.number_input(
+                                    "Update Purchase Price", 
+                                    min_value=0.0, 
+                                    value=float(row['purchase_price']), 
+                                    key=f"price_{row['id']}",
+                                    format="%.2f"
+                                )
+                            
+                            with col2:
+                                new_date = st.date_input(
+                                    "Update Purchase Date", 
+                                    value=row['purchase_date'], 
+                                    key=f"date_{row['id']}"
+                                )
+                                
+                                new_notes = st.text_area(
+                                    "Update Notes", 
+                                    value=row.get('notes', ''), 
+                                    key=f"notes_{row['id']}"
+                                )
+                            
+                            with col3:
+                                update_button = st.button("Update", key=f"update_{row['id']}")
+                                delete_button = st.button("Delete", key=f"delete_{row['id']}")
+                            
+                            if update_button:
+                                try:
+                                    # Convert date to datetime
+                                    update_datetime = datetime.combine(new_date, datetime.min.time())
+                                    
+                                    # Update in database
+                                    result = database.update_portfolio_item(
+                                        row['id'], 
+                                        new_quantity, 
+                                        new_price, 
+                                        update_datetime, 
+                                        new_notes
+                                    )
+                                    
+                                    if result:
+                                        st.success(f"Updated {row['symbol']} in your portfolio!")
+                                        # Force a rerun to refresh the data
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update portfolio item.")
+                                except Exception as e:
+                                    st.error(f"Error updating portfolio item: {e}")
+                            
+                            if delete_button:
+                                try:
+                                    result = database.delete_portfolio_item(row['id'])
+                                    
+                                    if result:
+                                        st.success(f"Deleted {row['symbol']} from your portfolio!")
+                                        # Force a rerun to refresh the data
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to delete portfolio item.")
+                                except Exception as e:
+                                    st.error(f"Error deleting portfolio item: {e}")
+        
+            # Tab 3: Performance Analysis
+            with portfolio_tabs[2]:
+                st.subheader("Portfolio Performance")
+            
+                if portfolio_df.empty:
+                    st.info("Add assets to your portfolio to see performance analysis.")
+                else:
+                    # Time period selector
+                    time_periods = {
+                        "1w": "1 Week",
+                        "1m": "1 Month", 
+                        "3m": "3 Months", 
+                        "6m": "6 Months",
+                        "1y": "1 Year", 
+                        "all": "All Time"
+                    }
+                
+                selected_period = st.selectbox("Select Time Period", options=list(time_periods.keys()), format_func=lambda x: time_periods[x])
+                
+                # Calculate date range
+                end_date = datetime.now()
+                
+                if selected_period == "1w":
+                    start_date = end_date - timedelta(days=7)
+                elif selected_period == "1m":
+                    start_date = end_date - timedelta(days=30)
+                elif selected_period == "3m":
+                    start_date = end_date - timedelta(days=90)
+                elif selected_period == "6m":
+                    start_date = end_date - timedelta(days=180)
+                elif selected_period == "1y":
+                    start_date = end_date - timedelta(days=365)
+                else:
+                    # All time - use earliest purchase date
+                    start_date = portfolio_df['purchase_date'].min()
+                
+                # Get historical price data for each symbol in portfolio
+                symbol_price_history = {}
+                
+                with st.spinner("Fetching historical price data..."):
+                    for symbol in portfolio_df['symbol'].unique():
+                        try:
+                            # Get data from database
+                            interval = "1d"  # Daily data is best for portfolio tracking
+                            price_df = get_data(symbol, interval, (end_date - start_date).days, start_date, end_date)
+                            
+                            if not price_df.empty:
+                                symbol_price_history[symbol] = price_df
+                        except Exception as e:
+                            st.warning(f"Could not fetch history for {symbol}: {e}")
+                
+                # Calculate portfolio performance over time
+                portfolio_performance = get_portfolio_performance_history(portfolio_df, symbol_price_history)
+                
+                # Get benchmark data (Bitcoin as the default benchmark)
+                benchmark_symbol = "BTCUSDT"
+                benchmark_interval = "1d"
+                
+                benchmark_df = get_data(benchmark_symbol, benchmark_interval, (end_date - start_date).days, start_date, end_date)
+                
+                if not benchmark_df.empty:
+                    # Rename 'close' to 'value' for consistency
+                    benchmark_df = benchmark_df.rename(columns={'close': 'value'})
+                    
+                    # Calculate normalized comparison data
+                    comparison_data = normalize_comparison_data(portfolio_performance, benchmark_df)
+                    
+                    # Portfolio performance metrics
+                    if not portfolio_performance.empty and len(portfolio_performance) > 1:
+                        start_value = portfolio_performance['value'].iloc[0]
+                        end_value = portfolio_performance['value'].iloc[-1]
+                        portfolio_change_pct = ((end_value / start_value) - 1) * 100 if start_value > 0 else 0
+                        
+                        # Benchmark metrics
+                        benchmark_start = benchmark_df['value'].iloc[0]
+                        benchmark_end = benchmark_df['value'].iloc[-1]
+                        benchmark_change_pct = ((benchmark_end / benchmark_start) - 1) * 100 if benchmark_start > 0 else 0
+                        
+                        # Display metrics
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Portfolio Performance", f"{portfolio_change_pct:.2f}%")
+                        col2.metric("BTC Performance", f"{benchmark_change_pct:.2f}%")
+                        col3.metric("Difference", f"{(portfolio_change_pct - benchmark_change_pct):.2f}%")
+                        
+                        # Create performance comparison chart
+                        st.subheader("Performance Comparison")
+                        
+                        # Extract normalized data
+                        portfolio_norm = comparison_data['portfolio']
+                        benchmark_norm = comparison_data['benchmark']
+                        
+                        # Create traces
+                        fig = go.Figure()
+                        
+                        if portfolio_norm:
+                            timestamps = [entry['timestamp'] for entry in portfolio_norm]
+                            values = [entry['normalized'] for entry in portfolio_norm]
+                            
+                            fig.add_trace(go.Scatter(
+                                x=timestamps,
+                                y=values,
+                                mode='lines',
+                                name='Your Portfolio',
+                                line=dict(color='#5DADEC', width=2)
+                            ))
+                        
+                        if benchmark_norm:
+                            timestamps = [entry['timestamp'] for entry in benchmark_norm]
+                            values = [entry['normalized'] for entry in benchmark_norm]
+                            
+                            fig.add_trace(go.Scatter(
+                                x=timestamps,
+                                y=values,
+                                mode='lines',
+                                name='Bitcoin (BTC)',
+                                line=dict(color='#FF9900', width=2, dash='dot')
+                            ))
+                        
+                        # Update layout
+                        fig.update_layout(
+                            title="Normalized Performance (Starting Value = 100)",
+                            xaxis_title="Date",
+                            yaxis_title="Value",
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                            margin=dict(l=20, r=20, t=60, b=20),
+                            height=500
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("Not enough performance data for the selected time period. Try extending the time range or add more historical assets.")
+                else:
+                    st.warning(f"Could not fetch benchmark data for {benchmark_symbol}. Try a different time period.")
+
+    except Exception as e:
+        st.error(f"An error occurred in Portfolio tab: {str(e)}")
+        import traceback
+        st.text(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
