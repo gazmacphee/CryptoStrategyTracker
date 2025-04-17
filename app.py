@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import os
 import threading
 import subprocess
+import logging
 
 # Import local modules
 from database import create_tables, save_historical_data, get_historical_data
@@ -17,6 +18,10 @@ from binance_api import get_klines_data, get_available_symbols
 from indicators import add_bollinger_bands, add_macd, add_rsi, add_ema, add_stochastic, add_atr, add_adx
 from strategy import evaluate_buy_sell_signals, backtest_strategy, find_optimal_strategy
 from utils import timeframe_to_seconds, timeframe_to_interval, get_timeframe_options, calculate_trade_statistics
+from data_loader import get_backfill_progress, start_backfill_thread, run_backfill_process
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Set page config
 st.set_page_config(
@@ -213,7 +218,7 @@ def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
-    tab_options = ["Analysis", "Portfolio", "Sentiment", "News Digest", "Trend Visualizer"]
+    tab_options = ["Analysis", "Portfolio", "Sentiment", "News Digest", "Trend Visualizer", "Data Progress"]
     selected_tab = st.sidebar.radio("Navigation", tab_options)
     
     # Initialize session state for backfill tracking
