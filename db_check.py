@@ -65,7 +65,7 @@ def count_records():
         cur.execute("""
             SELECT ti.symbol, ti.interval, COUNT(ti.*)
             FROM technical_indicators ti
-            LEFT JOIN historical_prices hp 
+            LEFT JOIN historical_data hp 
                 ON ti.symbol = hp.symbol 
                 AND ti.interval = hp.interval 
                 AND ti.timestamp = hp.timestamp
@@ -84,7 +84,7 @@ def count_records():
         # Check for price data with no indicators
         cur.execute("""
             SELECT hp.symbol, hp.interval, COUNT(hp.*)
-            FROM historical_prices hp
+            FROM historical_data hp
             LEFT JOIN technical_indicators ti 
                 ON hp.symbol = ti.symbol 
                 AND hp.interval = ti.interval 
@@ -118,7 +118,7 @@ def manually_add_indicator_records():
         cur = conn.cursor()
         
         # First check if we have price data
-        cur.execute("SELECT COUNT(*) FROM historical_prices WHERE symbol = 'BTCUSDT' AND interval = '4h'")
+        cur.execute("SELECT COUNT(*) FROM historical_data WHERE symbol = 'BTCUSDT' AND interval = '4h'")
         price_count = cur.fetchone()[0]
         
         if price_count == 0:
@@ -130,7 +130,7 @@ def manually_add_indicator_records():
             
             for timestamp in timestamps:
                 cur.execute("""
-                    INSERT INTO historical_prices 
+                    INSERT INTO historical_data 
                     (symbol, interval, timestamp, open, high, low, close, volume)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, interval, timestamp) DO NOTHING
@@ -141,7 +141,7 @@ def manually_add_indicator_records():
         # Get some timestamp values from the price data
         cur.execute("""
             SELECT timestamp 
-            FROM historical_prices 
+            FROM historical_data 
             WHERE symbol = 'BTCUSDT' AND interval = '4h'
             ORDER BY timestamp DESC
             LIMIT 10
