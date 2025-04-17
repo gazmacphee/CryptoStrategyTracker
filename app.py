@@ -159,7 +159,7 @@ def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
-    tab_options = ["Analysis", "Portfolio", "Sentiment"]
+    tab_options = ["Analysis", "Portfolio", "Sentiment", "News Digest"]
     selected_tab = st.sidebar.radio("Navigation", tab_options)
     
     # Initialize session state for backfill tracking
@@ -1395,6 +1395,203 @@ def main():
             time.sleep(refresh_interval)
             st.rerun()
 
+    # News Digest Tab
+    elif selected_tab == "News Digest":
+        try:
+            from crypto_news import generate_personalized_digest, get_crypto_news
+            import os
+            
+            st.header("AI-Curated Crypto News Digest")
+            
+            # Check for OpenAI API key for enhanced features
+            OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+            if not OPENAI_API_KEY:
+                st.warning("⚠️ For enhanced AI summarization and personalized recommendations, please add your OpenAI API key in the secrets.")
+                st.info("The news digest will work with basic functionality without an API key.")
+            
+            # Sidebar for controls
+            st.sidebar.header("News Settings")
+            
+            # Get portfolio data for personalization
+            portfolio_df = database.get_portfolio()
+            portfolio_symbols = list(portfolio_df['symbol'].unique()) if not portfolio_df.empty else []
+            
+            # Allow user to select additional interests beyond portfolio
+            available_symbols = get_available_symbols()
+            
+            # Remove portfolio symbols from available symbols to avoid duplicates
+            additional_symbols = [s for s in available_symbols if s not in portfolio_symbols]
+            
+            # Default selected interests (if no portfolio)
+            if not portfolio_symbols:
+                default_interests = ["BTCUSDT", "ETHUSDT"]
+            else:
+                default_interests = []
+            
+            interests = st.sidebar.multiselect(
+                "Additional Interests",
+                options=additional_symbols,
+                default=default_interests
+            )
+            
+            # Number of articles to display
+            articles_count = st.sidebar.slider(
+                "Number of Articles",
+                min_value=3,
+                max_value=20,
+                value=8
+            )
+            
+            # Days of news to include
+            days_range = st.sidebar.slider(
+                "News Timeframe (days)",
+                min_value=1,
+                max_value=14,
+                value=5
+            )
+            
+            # Sources to include (all by default)
+            st.sidebar.subheader("News Sources")
+            include_coindesk = st.sidebar.checkbox("CoinDesk", value=True)
+            include_cryptonews = st.sidebar.checkbox("CryptoNews", value=True)
+            include_cointelegraph = st.sidebar.checkbox("CoinTelegraph", value=True)
+            
+            # Refresh button
+            if st.sidebar.button("Refresh News"):
+                st.rerun()
+            
+            # Generate personalized digest
+            with st.spinner("Generating your personalized news digest..."):
+                # Combine portfolio symbols and additional interests
+                all_interests = portfolio_symbols + interests
+                
+                # Get personalized digest
+                digest = generate_personalized_digest(
+                    portfolio_symbols=all_interests, 
+                    max_articles=articles_count
+                )
+                
+                # Filter articles by selected sources
+                selected_sources = []
+                if include_coindesk:
+                    selected_sources.append("CoinDesk")
+                if include_cryptonews:
+                    selected_sources.append("CryptoNews")
+                if include_cointelegraph:
+                    selected_sources.append("CoinTelegraph")
+                
+                filtered_articles = [a for a in digest['articles'] 
+                                    if a['source'] in selected_sources]
+                
+                # Handle case where no articles match the filter
+                if not filtered_articles:
+                    st.error("No articles match your selected sources. Please select at least one news source.")
+                else:
+                    # Replace the articles in the digest with filtered ones
+                    digest['articles'] = filtered_articles[:articles_count]
+            
+            # Display personalized recommendations
+            st.subheader("Personalized Recommendations")
+            
+            # Create three columns for recommendations
+            if digest['recommendations']:
+                cols = st.columns(min(3, len(digest['recommendations'])))
+                
+                for i, (col, rec) in enumerate(zip(cols, digest['recommendations'])):
+                    with col:
+                        st.markdown(f"**{rec['title']}**")
+                        st.markdown(f"_{rec['details']}_")
+            else:
+                st.info("No personalized recommendations available.")
+            
+            # Display news articles
+            st.subheader("Latest Cryptocurrency News")
+            
+            if not digest['articles']:
+                st.warning("No news articles found matching your criteria.")
+            else:
+                # Create tabs for each article
+                article_titles = [f"{a['source']}: {a['title'][:40]}..." for a in digest['articles']]
+                tabs = st.tabs(article_titles)
+                
+                for i, (tab, article) in enumerate(zip(tabs, digest['articles'])):
+                    with tab:
+                        # Format date nicely
+                        date_str = article['date'].strftime("%Y-%m-%d %H:%M")
+                        
+                        # Display article metadata
+                        st.markdown(f"**{article['title']}**")
+                        st.markdown(f"*Source: {article['source']} | Date: {date_str}*")
+                        
+                        # Display sentiment with appropriate color
+                        sentiment = article.get('sentiment', 0)
+                        sentiment_color = "green" if sentiment > 0.05 else "red" if sentiment < -0.05 else "gray"
+                        st.markdown(f"Sentiment: <span style='color:{sentiment_color}'>{sentiment:.2f}</span>", unsafe_allow_html=True)
+                        
+                        # Display summary if available, otherwise show content
+                        if article.get('summary'):
+                            st.markdown("### Summary")
+                            st.markdown(article['summary'])
+                            
+                            # Option to view full article
+                            with st.expander("View Full Article"):
+                                st.markdown(article['content'])
+                        else:
+                            st.markdown(article['content'])
+                        
+                        # Link to original article
+                        st.markdown(f"[Read full article on {article['source']}]({article['url']})")
+            
+            # Display focused news for specific coin (if not in portfolio/interests)
+            st.subheader("Explore News by Cryptocurrency")
+            
+            # All available symbols for direct lookup
+            coin_to_explore = st.selectbox(
+                "Select Cryptocurrency",
+                options=available_symbols,
+                index=0
+            )
+            
+            if coin_to_explore:
+                coin_name = coin_to_explore.replace('USDT', '')
+                
+                # Check if this coin is already included in the digest
+                if coin_to_explore in all_interests:
+                    st.info(f"{coin_name} news is already included in your personalized digest above.")
+                
+                # Fetch specific news for this coin
+                with st.spinner(f"Fetching latest news for {coin_name}..."):
+                    coin_news = get_crypto_news(coin_name, max_articles=3, days_back=days_range)
+                
+                if coin_news:
+                    for article in coin_news:
+                        with st.expander(f"{article['title']} ({article['source']})"):
+                            # Format date nicely
+                            date_str = article['date'].strftime("%Y-%m-%d %H:%M")
+                            
+                            # Display article metadata
+                            st.markdown(f"*Source: {article['source']} | Date: {date_str}*")
+                            
+                            # Display sentiment
+                            sentiment = article.get('sentiment', 0)
+                            sentiment_color = "green" if sentiment > 0.05 else "red" if sentiment < -0.05 else "gray"
+                            st.markdown(f"Sentiment: <span style='color:{sentiment_color}'>{sentiment:.2f}</span>", unsafe_allow_html=True)
+                            
+                            # Display content
+                            if article.get('summary'):
+                                st.markdown(article['summary'])
+                            else:
+                                st.markdown(article['content'][:300] + "...")
+                            
+                            # Link to original article
+                            st.markdown(f"[Read full article on {article['source']}]({article['url']})")
+                else:
+                    st.info(f"No recent news found for {coin_name}.")
+        except Exception as e:
+            st.error(f"An error occurred in the News Digest tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+            
     # Sentiment Tab
     elif selected_tab == "Sentiment":
         try:
