@@ -6,24 +6,80 @@ import time
 import numpy as np
 import json
 import random
+import hmac
+import hashlib
+from urllib.parse import urlencode
 
 # Binance API endpoints
 BASE_URL = "https://api.binance.com/api/v3"
 KLINES_ENDPOINT = "/klines"
 EXCHANGE_INFO_ENDPOINT = "/exchangeInfo"
+TICKER_PRICE_ENDPOINT = "/ticker/price"
+TICKER_24HR_ENDPOINT = "/ticker/24hr"
 
-# Optional API keys for higher rate limits
+# Get API keys from environment variables
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 
 # Flag to check if we can access Binance API
 BINANCE_API_ACCESSIBLE = False
+# Flag to check if we have valid API credentials
+BINANCE_API_AUTH = False
+
+# Helper function to generate API signatures for authenticated requests
+def get_binance_signature(data, secret):
+    """Generate signature for Binance API authentication"""
+    signature = hmac.new(
+        bytes(secret, 'utf-8'),
+        msg=bytes(data, 'utf-8'),
+        digestmod=hashlib.sha256
+    ).hexdigest()
+    return signature
 
 # Try to access Binance API to check if it's accessible
 try:
     response = requests.get(f"{BASE_URL}/ping")
+    
     if response.status_code == 200:
         BINANCE_API_ACCESSIBLE = True
+        print("Successfully connected to Binance API")
+        
+        # Check if API credentials are valid by making an authenticated request
+        if API_KEY and API_SECRET:
+            # Current timestamp for the request
+            timestamp = int(time.time() * 1000)
+            
+            # Request parameters
+            params = {
+                'timestamp': timestamp
+            }
+            
+            # Generate signature
+            query_string = urlencode(params)
+            signature = get_binance_signature(query_string, API_SECRET)
+            params['signature'] = signature
+            
+            # Add API key to headers
+            headers = {
+                'X-MBX-APIKEY': API_KEY
+            }
+            
+            # Make a simple authenticated request to test credentials
+            # We're using account endpoint which requires authentication
+            try:
+                auth_response = requests.get(
+                    f"{BASE_URL}/account",
+                    params=params,
+                    headers=headers
+                )
+                
+                if auth_response.status_code == 200:
+                    BINANCE_API_AUTH = True
+                    print("API credentials are valid")
+                else:
+                    print(f"API credentials could not be verified: {auth_response.text}")
+            except Exception as auth_err:
+                print(f"Error checking API credentials: {auth_err}")
     else:
         print("Binance API is restricted in this location. Using alternative data source.")
 except Exception as e:
@@ -144,6 +200,81 @@ def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit
     df = pd.DataFrame(data)
     return df
 
+def get_current_prices(symbols=None):
+    """
+    Get current prices for one or multiple symbols
+    
+    Args:
+        symbols: Single symbol (string) or list of symbols. If None, fetches all available prices.
+    
+    Returns:
+        Dictionary with symbol as key and current price as value
+    """
+    if not BINANCE_API_ACCESSIBLE:
+        # Create synthetic prices for requested symbols or popular ones
+        if symbols is None:
+            symbols = get_available_symbols(limit=30)
+        elif isinstance(symbols, str):
+            symbols = [symbols]
+            
+        prices = {}
+        for symbol in symbols:
+            # Use the base prices from synthetic data generation with small random variations
+            base_prices = {
+                'BTCUSDT': 30000.0, 'ETHUSDT': 2000.0, 'BNBUSDT': 300.0, 'ADAUSDT': 0.5,
+                'DOGEUSDT': 0.1, 'XRPUSDT': 0.5, 'SOLUSDT': 70.0, 'DOTUSDT': 8.0
+            }
+            base = base_prices.get(symbol, 10.0)
+            prices[symbol] = round(base * (1 + random.uniform(-0.02, 0.02)), 2)  # ±2% random variation
+            
+        return prices
+    
+    try:
+        params = {}
+        # If specific symbols are requested, format them for the API
+        if symbols:
+            if isinstance(symbols, str):
+                # Single symbol
+                params["symbol"] = symbols
+            else:
+                # Multiple symbols - use the price endpoint for a specific symbol to avoid rate limits
+                prices = {}
+                for symbol in symbols:
+                    # Get price for each symbol with individual API calls
+                    single_response = requests.get(f"{BASE_URL}{TICKER_PRICE_ENDPOINT}", params={"symbol": symbol})
+                    if single_response.status_code == 200:
+                        price_data = single_response.json()
+                        prices[price_data["symbol"]] = float(price_data["price"])
+                    else:
+                        print(f"Error fetching price for {symbol}: {single_response.text}")
+                    
+                    # Add small delay to avoid rate limiting
+                    time.sleep(0.05)
+                    
+                return prices
+        
+        # Get all prices
+        response = requests.get(f"{BASE_URL}{TICKER_PRICE_ENDPOINT}", params=params)
+        
+        if response.status_code != 200:
+            print(f"Error fetching prices: {response.text}")
+            return get_current_prices(symbols) if symbols else {}
+        
+        price_data = response.json()
+        
+        # Format response based on whether it's a single symbol or multiple
+        if isinstance(price_data, dict):
+            # Single symbol
+            return {price_data["symbol"]: float(price_data["price"])}
+        else:
+            # Multiple symbols
+            return {item["symbol"]: float(item["price"]) for item in price_data}
+            
+    except Exception as e:
+        print(f"Error in get_current_prices: {e}")
+        # Return synthetic prices on error
+        return get_current_prices(symbols) if symbols else {}
+
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
     """Fetch klines (candlestick) data from Binance API or generate synthetic data if API not accessible"""
     # Check if we can access the Binance API
@@ -172,8 +303,13 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
             else:
                 params["endTime"] = end_time
         
+        # Add API key to headers if available
+        headers = {}
+        if API_KEY:
+            headers['X-MBX-APIKEY'] = API_KEY
+        
         # Make request
-        response = requests.get(f"{BASE_URL}{KLINES_ENDPOINT}", params=params)
+        response = requests.get(f"{BASE_URL}{KLINES_ENDPOINT}", params=params, headers=headers)
         
         if response.status_code != 200:
             print(f"Error fetching klines: {response.text}")

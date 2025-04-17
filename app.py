@@ -104,10 +104,28 @@ def get_database_stats():
         "symbol_interval_count": symbol_interval_count
     }
 
-def run_background_backfill():
-    """Run a background thread to backfill database without blocking the UI"""
+def run_background_backfill(continuous=True, full=False, interval_minutes=15):
+    """
+    Run a background thread to backfill database without blocking the UI
+    
+    Args:
+        continuous: Whether to run continuously in background or just once
+        full: Whether to do a full backfill (more symbols, longer history)
+        interval_minutes: How often to update in continuous mode (minutes)
+    """
     def backfill_thread():
-        subprocess.run(["python", "backfill_database.py"])
+        if continuous:
+            # Run the continuous update function with specified interval
+            args = ["python", "backfill_database.py", "--continuous", f"--interval={interval_minutes}"]
+            if full:
+                args.append("--full")
+            subprocess.run(args)
+        else:
+            # Just run a single backfill
+            args = ["python", "backfill_database.py"]
+            if full:
+                args.append("--full")
+            subprocess.run(args)
     
     # Start backfill in separate thread
     thread = threading.Thread(target=backfill_thread)
@@ -169,9 +187,14 @@ def main():
     
     # Start background backfill automatically on first load
     if not st.session_state.backfill_started:
-        st.session_state.backfill_thread = run_background_backfill()
+        # Start a continuous background update with specified interval
+        st.session_state.backfill_thread = run_background_backfill(
+            continuous=True,  # Run continuously
+            full=False,       # Start with quick update
+            interval_minutes=10  # Update every 10 minutes
+        )
         st.session_state.backfill_started = True
-        st.info("Initial database backfill started in the background. This will populate your database with historical data, indicators, and trading signals.")
+        st.info("Continuous database updates started in the background. The database will be regularly updated with the latest prices, indicators, and trading signals.")
     
     # Show database status in expandable section
     with st.expander("Database Status"):
@@ -294,16 +317,29 @@ def main():
         st.sidebar.success(f"Loading {lookback_days} days of historical data...")
     
     # Backfill Database button
-    if st.sidebar.button("Backfill Database with Optimized Strategies"):
-        st.sidebar.info("Running backfill to calculate and store optimized trading strategies...")
-        import subprocess
+    backfill_col1, backfill_col2 = st.sidebar.columns(2)
+    
+    # Quick update button
+    if backfill_col1.button("Quick Update"):
+        st.sidebar.info("Running quick update for recent data...")
         try:
             process = subprocess.Popen(["python", "backfill_database.py"], 
-                                      stdout=subprocess.PIPE, 
-                                      stderr=subprocess.PIPE,
-                                      text=True)
-            # Display first update 
-            st.sidebar.success("Backfill process started in the background. Check the server logs for progress.")
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+            st.sidebar.success("Quick update started in the background. Check the server logs for progress.")
+        except Exception as e:
+            st.sidebar.error(f"Error starting backfill process: {e}")
+    
+    # Full backfill button
+    if backfill_col2.button("Full Backfill"):
+        st.sidebar.info("Running full backfill to calculate and store optimized trading strategies for all available symbols...")
+        try:
+            process = subprocess.Popen(["python", "backfill_database.py", "--full"], 
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.PIPE,
+                                     text=True)
+            st.sidebar.success("Full backfill process started in the background. This may take several minutes to complete.")
         except Exception as e:
             st.sidebar.error(f"Error starting backfill process: {e}")
             

@@ -295,31 +295,102 @@ def process_symbol_timeframe(symbol, interval, lookback_days=365):
     
     print(f"Completed processing {symbol} on {interval} timeframe.")
 
-def backfill_database():
+def backfill_database(full_backfill=False):
     """
     Backfill the database with historical data, indicators, and trading signals for all symbols and timeframes
+    
+    Args:
+        full_backfill: If True, performs a full backfill of data. If False, does a quicker refresh.
     """
     # Create database tables if they don't exist
     create_tables()
     
-    # Get available symbols
-    symbols = get_available_symbols()
+    # Get available symbols - limited to top by volume
+    all_symbols = get_available_symbols(limit=30)
     
-    # Focus on just Bitcoin initially to ensure we have data
-    # We'll add more after confirming this works
-    top_symbols = ["BTCUSDT"]
+    # Define symbol tiers for backfilling
+    tier1_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]  # Most important
+    tier2_symbols = ["XRPUSDT", "ADAUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "MATICUSDT"]
+    tier3_symbols = [s for s in all_symbols if s not in tier1_symbols and s not in tier2_symbols][:10]  # Next 10 by volume
     
-    # Get timeframe options but limit to just a few important ones for initial processing
-    # 1h and 4h are most commonly used for trading analysis
-    important_timeframes = ["1h", "4h"]
+    # Define timeframes by importance
+    primary_timeframes = ["1h", "4h"]
+    secondary_timeframes = ["15m", "1d"]
     
-    # Process each symbol-timeframe combination
-    for symbol in top_symbols:
-        for timeframe in important_timeframes:
-            interval = timeframe_to_interval(timeframe)
-            # Use a smaller lookback to speed up processing
-            process_symbol_timeframe(symbol, interval, lookback_days=30)
-            time.sleep(1)  # Avoid API rate limits
+    # Determine lookback based on backfill type
+    full_lookback = 365 if full_backfill else 30
+    quick_lookback = 30 if full_backfill else 7
+    daily_lookback = 30 if full_backfill else 3
+    
+    # Process tier 1 symbols (high priority)
+    for symbol in tier1_symbols:
+        if symbol in all_symbols:  # Make sure it exists
+            for timeframe in primary_timeframes:
+                interval = timeframe_to_interval(timeframe)
+                process_symbol_timeframe(symbol, interval, lookback_days=full_lookback)
+                time.sleep(1)  # Avoid API rate limits
+            
+            # Also process secondary timeframes for tier 1
+            for timeframe in secondary_timeframes:
+                interval = timeframe_to_interval(timeframe)
+                process_symbol_timeframe(symbol, interval, lookback_days=quick_lookback)
+                time.sleep(1)
+    
+    # Process tier 2 symbols (medium priority)
+    for symbol in tier2_symbols:
+        if symbol in all_symbols:
+            for timeframe in primary_timeframes:
+                interval = timeframe_to_interval(timeframe)
+                process_symbol_timeframe(symbol, interval, lookback_days=quick_lookback)
+                time.sleep(1)
+    
+    # If doing a full backfill, also process tier 3 symbols
+    if full_backfill:
+        for symbol in tier3_symbols:
+            if symbol in all_symbols:
+                for timeframe in primary_timeframes:
+                    interval = timeframe_to_interval(timeframe)
+                    process_symbol_timeframe(symbol, interval, lookback_days=daily_lookback)
+                    time.sleep(1)
+
+def continuous_update(update_interval_minutes=15):
+    """
+    Continuously update the database with the latest data at a specified interval
+    
+    Args:
+        update_interval_minutes: How often to update the database in minutes
+    """
+    while True:
+        print(f"\n=== Starting database update at {datetime.now()} ===")
+        try:
+            # Run a quick backfill to update recent data
+            backfill_database(full_backfill=False)
+            
+            # Every 24 hours, run a more comprehensive update
+            current_hour = datetime.now().hour
+            if current_hour == 0:  # Run at midnight
+                print("Running daily comprehensive update...")
+                backfill_database(full_backfill=True)
+                
+        except Exception as e:
+            print(f"Error in continuous update: {e}")
+        
+        print(f"Update completed. Sleeping for {update_interval_minutes} minutes...")
+        # Sleep until next update
+        time.sleep(update_interval_minutes * 60)
 
 if __name__ == "__main__":
-    backfill_database()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Database backfill utility')
+    parser.add_argument('--continuous', action='store_true', help='Run continuous updates')
+    parser.add_argument('--full', action='store_true', help='Perform a full backfill')
+    parser.add_argument('--interval', type=int, default=15, help='Update interval in minutes (for continuous mode)')
+    
+    args = parser.parse_args()
+    
+    if args.continuous:
+        print(f"Starting continuous updates every {args.interval} minutes...")
+        continuous_update(update_interval_minutes=args.interval)
+    else:
+        backfill_database(full_backfill=args.full)
