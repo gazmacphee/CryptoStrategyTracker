@@ -779,7 +779,7 @@ def main():
                         
                         # Allow user to adjust parameter ranges
                         st.write("### Parameter Ranges to Test")
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
                             bb_min = st.slider("BB Threshold Min", 0.0, 0.5, 0.1, 0.1)
@@ -798,9 +798,23 @@ def main():
                             rsi_ob_max = st.slider("RSI Overbought Max", 65, 90, 85, 5)
                             rsi_ob_step = 5
                             rsi_ob_values = list(range(rsi_ob_min, rsi_ob_max + rsi_ob_step, rsi_ob_step))
+                            
+                        with col4:
+                            st.subheader("MACD Strategy")
+                            macd_strategies = ['MACD Crossover', 'MACD Histogram']
+                            default_strategies = [True, False]
+                            selected_strategies = []
+                            
+                            for strat, default in zip(macd_strategies, default_strategies):
+                                if st.checkbox(strat, value=default):
+                                    selected_strategies.append(strat == 'MACD Crossover')
+                            
+                            # If none selected, default to MACD Crossover
+                            if not selected_strategies:
+                                selected_strategies = [True]
                         
                         # Display the number of combinations that will be tested
-                        total_combinations = len(bb_values) * len(rsi_o_values) * len(rsi_ob_values)
+                        total_combinations = len(bb_values) * len(rsi_o_values) * len(rsi_ob_values) * len(selected_strategies)
                         st.info(f"Total parameter combinations to test: {total_combinations}")
                         
                         # Run optimization button
@@ -809,7 +823,8 @@ def main():
                             parameter_ranges = {
                                 'bb_threshold': bb_values,
                                 'rsi_oversold': rsi_o_values,
-                                'rsi_overbought': rsi_ob_values
+                                'rsi_overbought': rsi_ob_values,
+                                'use_macd_crossover': selected_strategies
                             }
                             
                             # Create a progress bar
@@ -858,38 +873,48 @@ def main():
                             for bb in parameter_ranges['bb_threshold']:
                                 for rsi_o in parameter_ranges['rsi_oversold']:
                                     for rsi_ob in parameter_ranges['rsi_overbought']:
-                                        # Update status
-                                        params = {
-                                            'bb_threshold': bb,
-                                            'rsi_oversold': rsi_o,
-                                            'rsi_overbought': rsi_ob
-                                        }
-                                        
-                                        status_text.text(f"Testing parameters: BB={bb}, RSI Oversold={rsi_o}, RSI Overbought={rsi_ob}")
-                                        
-                                        # Generate signals and backtest
-                                        signals_df = evaluate_buy_sell_signals(base_df, bb_threshold=bb, rsi_oversold=rsi_o, rsi_overbought=rsi_ob)
-                                        backtest_result = backtest_strategy(signals_df)
-                                        
-                                        if backtest_result and backtest_result['metrics']['num_trades'] > 0:
-                                            results.append({
-                                                'parameters': params,
-                                                'metrics': backtest_result['metrics'],
-                                                'trades': backtest_result['trades']
-                                            })
+                                        for macd_cross in parameter_ranges['use_macd_crossover']:
+                                            # Update status
+                                            params = {
+                                                'bb_threshold': bb,
+                                                'rsi_oversold': rsi_o,
+                                                'rsi_overbought': rsi_ob,
+                                                'use_macd_crossover': macd_cross
+                                            }
                                             
-                                            # Show interim best result
-                                            if results:
-                                                best_so_far = sorted(results, key=lambda x: x['metrics']['total_return_pct'], reverse=True)[0]
-                                                interim_results.info(f"Best strategy so far: BB={best_so_far['parameters']['bb_threshold']}, "
-                                                                   f"RSI Oversold={best_so_far['parameters']['rsi_oversold']}, "
-                                                                   f"RSI Overbought={best_so_far['parameters']['rsi_overbought']} - "
-                                                                   f"Return: {best_so_far['metrics']['total_return_pct']:.2f}%")
-                                        
-                                        # Update progress
-                                        combinations_tested += 1
-                                        progress_percentage = int(combinations_tested / total_combinations * 100)
-                                        progress_bar.progress(progress_percentage)
+                                            macd_type = "MACD Crossover" if macd_cross else "MACD Histogram"
+                                            status_text.text(f"Testing parameters: BB={bb}, RSI Oversold={rsi_o}, RSI Overbought={rsi_ob}, MACD={macd_type}")
+                                            
+                                            # Generate signals and backtest
+                                            signals_df = evaluate_buy_sell_signals(
+                                                base_df, 
+                                                bb_threshold=bb, 
+                                                rsi_oversold=rsi_o, 
+                                                rsi_overbought=rsi_ob,
+                                                use_macd_crossover=macd_cross
+                                            )
+                                            backtest_result = backtest_strategy(signals_df)
+                                            
+                                            if backtest_result and backtest_result['metrics']['num_trades'] > 0:
+                                                results.append({
+                                                    'parameters': params,
+                                                    'metrics': backtest_result['metrics'],
+                                                    'trades': backtest_result['trades']
+                                                })
+                                                
+                                                # Show interim best result
+                                                if results:
+                                                    best_so_far = sorted(results, key=lambda x: x['metrics']['total_return_pct'], reverse=True)[0]
+                                                    interim_results.info(f"Best strategy so far: BB={best_so_far['parameters']['bb_threshold']}, "
+                                                                       f"RSI Oversold={best_so_far['parameters']['rsi_oversold']}, "
+                                                                       f"RSI Overbought={best_so_far['parameters']['rsi_overbought']}, "
+                                                                       f"MACD Type={'Crossover' if best_so_far['parameters'].get('use_macd_crossover', True) else 'Histogram'} - "
+                                                                       f"Return: {best_so_far['metrics']['total_return_pct']:.2f}%")
+                                            
+                                            # Update progress
+                                            combinations_tested += 1
+                                            progress_percentage = int(combinations_tested / total_combinations * 100)
+                                            progress_bar.progress(progress_percentage)
                             
                             # Clear status
                             status_text.empty()
@@ -911,13 +936,16 @@ def main():
                                 opt_metrics = optimization_results['metrics']
                                 
                                 # Create side-by-side columns
-                                p1, p2, p3 = st.columns(3)
+                                p1, p2, p3, p4 = st.columns(4)
                                 with p1:
                                     st.metric("Bollinger Band Threshold", f"{params['bb_threshold']:.2f}")
                                 with p2:
                                     st.metric("RSI Oversold", f"{params['rsi_oversold']}")
                                 with p3:
                                     st.metric("RSI Overbought", f"{params['rsi_overbought']}")
+                                with p4:
+                                    macd_strategy = "MACD Crossover" if params.get('use_macd_crossover', True) else "MACD Histogram"
+                                    st.metric("MACD Strategy", macd_strategy)
                                 
                                 # Performance metrics for optimal strategy
                                 st.write("### Optimal Strategy Performance")
