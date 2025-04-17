@@ -299,6 +299,7 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
     Never falls back to synthetic data.
     Returns empty DataFrame if real data cannot be retrieved.
     """
+    import pandas as pd
     # Skip excluded intervals as requested
     if interval in ['1m', '3m', '5m']:
         print(f"Skipping {interval} interval as requested")
