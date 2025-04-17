@@ -6,6 +6,8 @@ import numpy as np
 import time
 from datetime import datetime, timedelta
 import os
+import threading
+import subprocess
 
 # Import local modules
 from database import create_tables, save_historical_data, get_historical_data
@@ -24,6 +26,92 @@ st.set_page_config(
 
 # Initialize database
 create_tables()
+
+# Helper functions for database status and auto-backfill
+def get_last_update_time(symbol=None, interval=None):
+    """Get the last update time for data in the database"""
+    from database import get_db_connection
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    last_update = None
+    
+    try:
+        if symbol and interval:
+            # Get specific symbol/interval update time
+            cursor.execute(
+                "SELECT MAX(timestamp) FROM historical_data WHERE symbol = %s AND interval = %s",
+                (symbol, interval)
+            )
+        else:
+            # Get overall latest update
+            cursor.execute("SELECT MAX(timestamp) FROM historical_data")
+            
+        result = cursor.fetchone()
+        if result and result[0]:
+            last_update = result[0]
+    except Exception as e:
+        print(f"Error getting last update time: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return last_update
+
+def get_database_stats():
+    """Get statistics about database population"""
+    from database import get_db_connection
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Initialize with zeros in case tables don't exist yet
+    price_count = 0
+    indicator_count = 0
+    trade_count = 0
+    symbol_interval_count = 0
+    
+    try:
+        # Get count of records in each table
+        cursor.execute("SELECT COUNT(*) FROM historical_data")
+        price_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM technical_indicators")
+        indicator_count = cursor.fetchone()[0]
+        
+        try:
+            cursor.execute("SELECT COUNT(*) FROM trades")
+            trade_count = cursor.fetchone()[0]
+        except:
+            # Trades table might not exist yet
+            trade_count = 0
+        
+        # Get count of unique symbol/interval combinations
+        cursor.execute("SELECT COUNT(DISTINCT symbol, interval) FROM historical_data")
+        symbol_interval_count = cursor.fetchone()[0]
+    except Exception as e:
+        print(f"Error getting database stats: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return {
+        "price_count": price_count,
+        "indicator_count": indicator_count,
+        "trade_count": trade_count,
+        "symbol_interval_count": symbol_interval_count
+    }
+
+def run_background_backfill():
+    """Run a background thread to backfill database without blocking the UI"""
+    def backfill_thread():
+        subprocess.run(["python", "backfill_database.py"])
+    
+    # Start backfill in separate thread
+    thread = threading.Thread(target=backfill_thread)
+    thread.daemon = True  # Thread will exit when main program exits
+    thread.start()
+    return thread
 
 # Function to fetch data from Binance API or Database
 def get_data(symbol, interval, lookback_days, start_date=None, end_date=None):
@@ -67,6 +155,37 @@ def get_cached_data(symbol, interval, lookback_days, start_date=None, end_date=N
 
 def main():
     st.title("Cryptocurrency Trading Analysis Platform")
+    
+    # Initialize session state for backfill tracking
+    if 'backfill_started' not in st.session_state:
+        st.session_state.backfill_started = False
+        st.session_state.backfill_thread = None
+    
+    # Start background backfill automatically on first load
+    if not st.session_state.backfill_started:
+        st.session_state.backfill_thread = run_background_backfill()
+        st.session_state.backfill_started = True
+        st.info("Initial database backfill started in the background. This will populate your database with historical data, indicators, and trading signals.")
+    
+    # Show database status in expandable section
+    with st.expander("Database Status"):
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # Get database statistics
+        stats = get_database_stats()
+        
+        # Display database population metrics
+        col1.metric("Symbols/Intervals", stats["symbol_interval_count"])
+        col2.metric("Price Records", f"{stats['price_count']:,}")
+        col3.metric("Indicator Records", f"{stats['indicator_count']:,}")
+        col4.metric("Trade Signals", f"{stats['trade_count']:,}")
+        
+        # Show last update time
+        last_update = get_last_update_time()
+        if last_update:
+            st.info(f"Database last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            st.warning("Database not yet populated. Initial backfill in progress...")
     
     # Sidebar for controls
     st.sidebar.header("Settings")
@@ -182,6 +301,11 @@ def main():
             
     # Get data from API or database
     try:
+        # Show last update time for this specific symbol/interval
+        last_update_for_interval = get_last_update_time(symbol, binance_interval)
+        if last_update_for_interval:
+            st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')}")
+        
         with st.spinner(f"Fetching {symbol} data..."):
             # Use the cached data function with appropriate parameters
             if use_custom_dates:
