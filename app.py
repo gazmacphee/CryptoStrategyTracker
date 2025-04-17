@@ -700,7 +700,10 @@ def main():
                 spikemode='across',
                 spikesnap='cursor',
                 spikecolor="rgba(255, 255, 255, 0.5)",
-                spikethickness=1
+                spikethickness=1,
+                # Disable abbreviated numbers like 'k' for thousands
+                exponentformat='none',
+                separatethousands=True
             )
         
         # Add dynamic events for chart relayouts (zooming/panning)
@@ -909,6 +912,10 @@ def main():
                         template="plotly_dark",
                         height=400,
                         margin=dict(l=50, r=50, t=50, b=50),
+                        yaxis=dict(
+                            exponentformat='none',
+                            separatethousands=True
+                        )
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
@@ -1382,6 +1389,10 @@ def main():
                                         height=500,
                                         xaxis_rangeslider_visible=False,
                                         margin=dict(l=50, r=50, t=50, b=50),
+                                        yaxis=dict(
+                                            exponentformat='none',
+                                            separatethousands=True
+                                        )
                                     )
                                     
                                     st.plotly_chart(fig, use_container_width=True)
