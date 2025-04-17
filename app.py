@@ -2134,7 +2134,11 @@ def main():
                                 yaxis_title="Value",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                 margin=dict(l=20, r=20, t=60, b=20),
-                                height=500
+                                height=500,
+                                yaxis=dict(
+                                    exponentformat='none',
+                                    separatethousands=True
+                                )
                             )
                             
                             st.plotly_chart(fig, use_container_width=True)
