@@ -15,7 +15,8 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 
 ## Prerequisites
 
-- Docker and Docker Compose
+- Python 3.11 or higher
+- PostgreSQL database
 - Binance API key and secret (optional but recommended for real data)
 - OpenAI API key (optional, for news and sentiment features)
 
@@ -27,21 +28,34 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
    cd cryptocurrency-trading-platform
    ```
 
-2. Create a `.env` file from the example:
+2. Install dependencies:
    ```
-   cp .env.example .env
+   pip install -e .
    ```
-
-3. Edit the `.env` file to add your API keys:
+   
+   Or install from dependencies.txt:
    ```
-   BINANCE_API_KEY=your_binance_api_key
-   BINANCE_API_SECRET=your_binance_api_secret
-   OPENAI_API_KEY=your_openai_api_key
+   pip install -r dependencies.txt
    ```
 
-4. Build and run the Docker containers:
+3. Set up environment variables:
    ```
-   docker-compose up -d
+   # Database configuration
+   export DATABASE_URL=postgresql://username:password@hostname:port/database
+   
+   # API Keys (optional but recommended)
+   export BINANCE_API_KEY=your_binance_api_key
+   export BINANCE_API_SECRET=your_binance_api_secret
+   export OPENAI_API_KEY=your_openai_api_key
+   
+   # Application settings
+   export RESET_DB=false
+   export BACKFILL_ON_START=true
+   ```
+
+4. Run the application:
+   ```
+   streamlit run app.py
    ```
 
 5. Access the application in your browser:
@@ -51,57 +65,11 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 
 ## Environment Variables
 
-- `RESET_DB`: Set to `true` to reset the database on startup (default: `true`)
+- `RESET_DB`: Set to `true` to reset the database on startup (default: `false`)
 - `BACKFILL_ON_START`: Set to `true` to start data backfill on startup (default: `true`)
 - `BINANCE_API_KEY`: Your Binance API key
 - `BINANCE_API_SECRET`: Your Binance API secret
 - `OPENAI_API_KEY`: Your OpenAI API key
-
-## Deployment Options
-
-### Local Development
-
-```
-docker-compose up
-```
-
-### Production Deployment
-
-1. Create a `.env` file with your production configuration
-2. Run:
-   ```
-   docker-compose -f docker-compose.yml up -d
-   ```
-
-### Manual Docker Build
-
-If you prefer to build and run the Docker image manually:
-
-```
-docker build -t crypto-trading-platform .
-docker run -p 5000:5000 --env-file .env crypto-trading-platform
-```
-
-## Accessing the Database
-
-The PostgreSQL database is exposed on port 5432. You can connect to it using any PostgreSQL client:
-
-```
-Host: localhost
-Port: 5432
-User: postgres
-Password: postgres
-Database: crypto
-```
-
-## Building a Custom Image
-
-To build and publish your own custom Docker image:
-
-```
-docker build -t yourusername/crypto-trading-platform:latest .
-docker push yourusername/crypto-trading-platform:latest
-```
 
 ## Architecture
 
@@ -119,6 +87,6 @@ docker push yourusername/crypto-trading-platform:latest
 
 ## Data Management
 
-- Database is persisted in Docker volumes
-- You can reset the database by setting `RESET_DB=true`
+- Historical cryptocurrency data is stored in your PostgreSQL database
+- You can reset the database by setting `RESET_DB=true` in your environment variables
 - Background updates run every 15 minutes to keep data current
