@@ -1008,10 +1008,10 @@ def main():
                             # Test each parameter combination
                             for params in combinations:
                                 # Update status
-                                bb_threshold = params.get('bb_threshold', 0.2)
-                                rsi_oversold = params.get('rsi_oversold', 30)
-                                rsi_overbought = params.get('rsi_overbought', 70)
-                                use_macd_crossover = params.get('use_macd_crossover', True)
+                                bb_threshold = float(params.get('bb_threshold', 0.2))
+                                rsi_oversold = int(params.get('rsi_oversold', 30))
+                                rsi_overbought = int(params.get('rsi_overbought', 70))
+                                use_macd_crossover = bool(params.get('use_macd_crossover', True))
                                 
                                 # Display parameter info
                                 param_info = []
@@ -1070,7 +1070,7 @@ def main():
                                 
                                 # Update progress
                                 combinations_tested += 1
-                                progress_percentage = int(combinations_tested / total_combinations * 100)
+                                progress_percentage = int(combinations_tested / len(combinations) * 100)
                                 progress_bar.progress(progress_percentage)
                             
                             # Clear status
@@ -1092,17 +1092,30 @@ def main():
                                 params = optimization_results['parameters']
                                 opt_metrics = optimization_results['metrics']
                                 
-                                # Create side-by-side columns
-                                p1, p2, p3, p4 = st.columns(4)
-                                with p1:
-                                    st.metric("Bollinger Band Threshold", f"{params['bb_threshold']:.2f}")
-                                with p2:
-                                    st.metric("RSI Oversold", f"{params['rsi_oversold']}")
-                                with p3:
-                                    st.metric("RSI Overbought", f"{params['rsi_overbought']}")
-                                with p4:
-                                    macd_strategy = "MACD Crossover" if params.get('use_macd_crossover', True) else "MACD Histogram"
-                                    st.metric("MACD Strategy", macd_strategy)
+                                # Determine how many active strategies we have
+                                active_strategy_count = sum([use_bb, use_rsi, use_macd])
+                                
+                                # Create columns based on active strategies
+                                param_cols = st.columns(active_strategy_count)
+                                
+                                # Counter for selecting the right column
+                                col_idx = 0
+                                
+                                # Add metrics for each active strategy
+                                if use_bb:
+                                    with param_cols[col_idx]:
+                                        st.metric("Bollinger Band Threshold", f"{params['bb_threshold']:.2f}")
+                                    col_idx += 1
+                                
+                                if use_rsi:
+                                    with param_cols[col_idx]:
+                                        st.metric("RSI Levels", f"{params['rsi_oversold']}/{params['rsi_overbought']}")
+                                    col_idx += 1
+                                
+                                if use_macd:
+                                    with param_cols[col_idx]:
+                                        macd_strategy = "MACD Crossover" if params.get('use_macd_crossover', True) else "MACD Histogram"
+                                        st.metric("MACD Strategy", macd_strategy)
                                 
                                 # Performance metrics for optimal strategy
                                 st.write("### Optimal Strategy Performance")
