@@ -159,7 +159,7 @@ def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
-    tab_options = ["Analysis", "Portfolio"]
+    tab_options = ["Analysis", "Portfolio", "Sentiment"]
     selected_tab = st.sidebar.radio("Navigation", tab_options)
     
     # Initialize session state for backfill tracking
