@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 import numpy as np
 import json
@@ -9,6 +9,10 @@ import random
 import hmac
 import hashlib
 from urllib.parse import urlencode
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Binance API endpoints
 BASE_URL = "https://api.binance.com/api/v3"
@@ -308,6 +312,11 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
         if isinstance(start_time, str):
             # Parse string to datetime
             start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+        # Convert milliseconds to datetime if needed
+        elif isinstance(start_time, int) and start_time > 1000000000000:  # Likely a millisecond timestamp
+            start_time = datetime.fromtimestamp(start_time / 1000)
+        elif isinstance(start_time, int):  # Likely a second timestamp
+            start_time = datetime.fromtimestamp(start_time)
     else:
         # Default to 30 days ago
         start_time = datetime.now() - timedelta(days=30)
@@ -316,89 +325,119 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
         if isinstance(end_time, str):
             # Parse string to datetime
             end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+        # Convert milliseconds to datetime if needed
+        elif isinstance(end_time, int) and end_time > 1000000000000:  # Likely a millisecond timestamp
+            end_time = datetime.fromtimestamp(end_time / 1000)
+        elif isinstance(end_time, int):  # Likely a second timestamp
+            end_time = datetime.fromtimestamp(end_time)
     else:
         # Default to now
         end_time = datetime.now()
     
     print(f"Not enough data in database, fetching from API...")
     
-    try:
-        # Import from our download module
-        import sys
-        import os
-        
-        # Check if the script exists
-        if not os.path.exists("download_binance_data.py"):
-            print("Error: download_binance_data.py not found")
-            return empty_df
-            
-        sys.path.append('.')
-        
-        try:
-            from download_binance_data import download_symbol_interval_data
-            
-            # Get data from Binance Data Vision
-            print(f"Attempting to download {symbol} {interval} data from {start_time.date()} to {end_time.date()}")
-            
-            df = download_symbol_interval_data(symbol, interval, start_time.date(), end_time.date())
-            
-            if df is None or df.empty:
-                print(f"No data available for {symbol} on {interval} timeframe")
-                return empty_df
-            
-            # Filter to requested date range
-            df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
-                    (df['timestamp'] <= pd.Timestamp(end_time))]
-            
-            # Limit rows if needed
-            if limit and len(df) > limit:
-                df = df.tail(limit)
-                
-            return df
-            
-        except Exception as e:
-            print(f"Error importing download module: {e}")
-            return empty_df
+    # Adjust dates for API
+    # Data on Binance is only available up to 2024-04-17 (as of testing time)
+    MAX_AVAILABLE_DATE = date(2024, 4, 17)
     
+    # Ensure we're not requesting future data
+    start_date = start_time.date()
+    end_date = end_time.date()
+    
+    if start_date > MAX_AVAILABLE_DATE:
+        start_date = date(MAX_AVAILABLE_DATE.year - 1, MAX_AVAILABLE_DATE.month, MAX_AVAILABLE_DATE.day)
+    
+    if end_date > MAX_AVAILABLE_DATE:
+        end_date = MAX_AVAILABLE_DATE
+    
+    try:
+        # Try to use our database data first (direct query)
+        from database import get_db_connection
+        import pandas as pd
+        
+        conn = get_db_connection()
+        if conn:
+            try:
+                query = """
+                SELECT timestamp, open, high, low, close, volume 
+                FROM historical_data 
+                WHERE symbol = %s AND interval = %s
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp
+                """
+                
+                df = pd.read_sql_query(
+                    query, 
+                    conn, 
+                    params=(symbol, interval, start_time, end_time)
+                )
+                
+                if not df.empty and len(df) > 10:  # If we have some reasonable amount of data
+                    print(f"Using {len(df)} records from database for {symbol} {interval}")
+                    return df
+            except Exception as db_err:
+                print(f"Error querying database: {db_err}")
+            finally:
+                conn.close()
+        
+        # Database didn't have data, try downloading from Binance Data Vision
+        # Import our data download function directly
+        print(f"Trying to download from Binance Data Vision for {symbol} {interval}")
+        
+        # Use the single pair download function which we know works
+        from download_single_pair import download_and_process
+        all_dfs = []
+        
+        # Download month by month
+        current_date = start_date
+        while current_date <= end_date:
+            year = current_date.year
+            month = current_date.month
+            
+            print(f"Downloading {symbol} {interval} for {year}-{month}")
+            
+            # Get data for this month
+            download_and_process(symbol, interval, year, month)
+            
+            # Move to next month
+            if month == 12:
+                year += 1
+                month = 1
+            else:
+                month += 1
+            
+            current_date = date(year, month, 1)
+        
+        # Now get the data from the database
+        conn = get_db_connection()
+        if conn:
+            try:
+                query = """
+                SELECT timestamp, open, high, low, close, volume 
+                FROM historical_data 
+                WHERE symbol = %s AND interval = %s
+                AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp
+                """
+                
+                df = pd.read_sql_query(
+                    query, 
+                    conn, 
+                    params=(symbol, interval, start_time, end_time)
+                )
+                
+                if not df.empty:
+                    print(f"Successfully retrieved {len(df)} records for {symbol} {interval}")
+                    return df
+            except Exception as db_err:
+                print(f"Error querying database after download: {db_err}")
+            finally:
+                conn.close()
+        
+        # If we get here, we couldn't get data
+        print(f"No data available for {symbol} on {interval} timeframe")
+        return empty_df
+            
     except Exception as e:
         print(f"Error fetching data for {symbol} {interval}: {e}")
         return empty_df
-        
-        # If we need more data than the limit allows, make multiple requests
-        if limit == 1000 and start_time and end_time:
-            start_dt = start_time if isinstance(start_time, datetime) else datetime.fromtimestamp(start_time/1000)
-            end_dt = end_time if isinstance(end_time, datetime) else datetime.fromtimestamp(end_time/1000)
-            
-            # If time range is greater than what a single request can provide, fetch in chunks
-            time_delta = end_dt - start_dt
-            if time_delta.days > 30:  # Approximate limit for 1000 candles at 1h interval
-                all_data = []
-                current_start = start_dt
-                
-                while current_start < end_dt:
-                    current_end = min(current_start + timedelta(days=30), end_dt)
-                    chunk_df = get_klines_data(
-                        symbol, interval, current_start, current_end, limit=1000
-                    )
-                    if not chunk_df.empty:
-                        all_data.append(chunk_df)
-                    current_start = current_end
-                    
-                    # Rate limiting to avoid API errors
-                    time.sleep(0.5)
-                
-                if all_data:
-                    df = pd.concat(all_data, ignore_index=True)
-                    # Remove duplicates
-                    df = df.drop_duplicates(subset=['timestamp'])
-                    df = df.sort_values('timestamp')
-        
-        # Select relevant columns
-        result_df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-        
-        return result_df
-    
-    except Exception as e:
-        print(f"Error in get_klines_data: {e}")
-        # Return empty DataFrame, never use synthetic data
-        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
