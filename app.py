@@ -1499,8 +1499,17 @@ def main():
                 
                 for i, (col, rec) in enumerate(zip(cols, digest['recommendations'])):
                     with col:
-                        st.markdown(f"**{rec['title']}**")
-                        st.markdown(f"_{rec['details']}_")
+                        # Check if rec is a dictionary with the expected keys
+                        if isinstance(rec, dict) and 'title' in rec and 'details' in rec:
+                            st.markdown(f"**{rec['title']}**")
+                            st.markdown(f"_{rec['details']}_")
+                        # Handle case where rec might be a string
+                        elif isinstance(rec, str):
+                            st.markdown(f"**Recommendation {i+1}**")
+                            st.markdown(f"_{rec}_")
+                        else:
+                            st.markdown(f"**Recommendation {i+1}**")
+                            st.markdown("_Unable to display this recommendation._")
             else:
                 st.info("No personalized recommendations available.")
             

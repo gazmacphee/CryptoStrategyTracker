@@ -239,10 +239,17 @@ Return a JSON array of 3 recommendation objects.
             try:
                 # Parse the JSON response
                 recommendations_data = json.loads(response.choices[0].message.content)
-                if 'recommendations' in recommendations_data:
+                if isinstance(recommendations_data, dict) and 'recommendations' in recommendations_data:
                     recommendations = recommendations_data['recommendations']
-                else:
+                elif isinstance(recommendations_data, list):
                     recommendations = recommendations_data
+                else:
+                    # If it's not a proper format, create structured recommendations
+                    recommendations = [
+                        {'title': 'Market Analysis', 'details': 'Consider technical indicators alongside news sentiment for a more complete market view.'},
+                        {'title': 'Portfolio Diversification', 'details': 'Recent news suggests diversifying across multiple cryptocurrency assets may reduce risk.'},
+                        {'title': 'Stay Informed', 'details': 'Continue monitoring news from multiple sources to spot emerging trends early.'}
+                    ]
             except json.JSONDecodeError:
                 # If parsing fails, extract from text
                 text_response = response.choices[0].message.content
