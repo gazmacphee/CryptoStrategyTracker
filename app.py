@@ -156,6 +156,10 @@ def get_cached_data(symbol, interval, lookback_days, start_date=None, end_date=N
 def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
+    # Create a sidebar tab selector
+    tab_options = ["Analysis", "Portfolio"]
+    selected_tab = st.sidebar.radio("Navigation", tab_options)
+    
     # Initialize session state for backfill tracking
     if 'backfill_started' not in st.session_state:
         st.session_state.backfill_started = False

@@ -168,6 +168,45 @@ def create_tables():
         ON trades(symbol, interval);
         """)
         
+        # Create portfolio table for tracking crypto holdings
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            quantity NUMERIC NOT NULL,
+            purchase_price NUMERIC NOT NULL,
+            purchase_date TIMESTAMP NOT NULL,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, purchase_date)
+        );
+        """)
+        
+        # Create index for portfolio table
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_portfolio_symbol 
+        ON portfolio(symbol);
+        """)
+        
+        # Create benchmark data table for tracking comparative indices
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS benchmarks (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(50) NOT NULL,
+            symbol VARCHAR(20) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            value NUMERIC NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(name, timestamp)
+        );
+        """)
+        
+        # Create index for benchmarks table
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_benchmarks_name_timestamp 
+        ON benchmarks(name, timestamp);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
@@ -481,6 +520,222 @@ def get_open_trade(symbol, interval):
     except psycopg2.Error as e:
         print(f"Error fetching open trade: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+def add_portfolio_item(symbol, quantity, purchase_price, purchase_date, notes=None):
+    """Add a new cryptocurrency to the portfolio"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert a new portfolio item
+        insert_query = """
+        INSERT INTO portfolio 
+        (symbol, quantity, purchase_price, purchase_date, notes)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+        """
+        
+        # Convert purchase_date to datetime if it's a string
+        if isinstance(purchase_date, str):
+            purchase_date = datetime.fromisoformat(purchase_date.replace('Z', '+00:00'))
+            
+        cur.execute(insert_query, (
+            symbol,
+            quantity,
+            purchase_price,
+            purchase_date,
+            notes
+        ))
+        
+        # Get the ID of the inserted item
+        item_id = cur.fetchone()[0]
+        conn.commit()
+        return item_id
+            
+    except psycopg2.Error as e:
+        print(f"Error adding portfolio item: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def update_portfolio_item(item_id, quantity=None, purchase_price=None, purchase_date=None, notes=None):
+    """Update an existing portfolio item"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # First, get the current item to preserve any values not being updated
+        cur.execute("SELECT * FROM portfolio WHERE id = %s", (item_id,))
+        current_item = cur.fetchone()
+        
+        if not current_item:
+            print(f"Portfolio item with ID {item_id} not found")
+            return False
+            
+        # Build update query based on which fields are provided
+        update_parts = []
+        params = []
+        
+        if quantity is not None:
+            update_parts.append("quantity = %s")
+            params.append(quantity)
+            
+        if purchase_price is not None:
+            update_parts.append("purchase_price = %s")
+            params.append(purchase_price)
+            
+        if purchase_date is not None:
+            # Convert purchase_date to datetime if it's a string
+            if isinstance(purchase_date, str):
+                purchase_date = datetime.fromisoformat(purchase_date.replace('Z', '+00:00'))
+            update_parts.append("purchase_date = %s")
+            params.append(purchase_date)
+            
+        if notes is not None:
+            update_parts.append("notes = %s")
+            params.append(notes)
+            
+        if not update_parts:
+            # Nothing to update
+            return True
+            
+        # Complete the query and add the ID parameter
+        update_query = f"UPDATE portfolio SET {', '.join(update_parts)} WHERE id = %s"
+        params.append(item_id)
+        
+        cur.execute(update_query, params)
+        conn.commit()
+        return True
+            
+    except psycopg2.Error as e:
+        print(f"Error updating portfolio item: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def delete_portfolio_item(item_id):
+    """Delete a portfolio item"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM portfolio WHERE id = %s", (item_id,))
+        conn.commit()
+        return True
+    except psycopg2.Error as e:
+        print(f"Error deleting portfolio item: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_portfolio():
+    """Get all portfolio items"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        query = """
+        SELECT id, symbol, quantity, purchase_price, purchase_date, notes, created_at
+        FROM portfolio
+        ORDER BY symbol, purchase_date
+        """
+        
+        df = pd.read_sql_query(query, conn)
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching portfolio: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def save_benchmark_data(name, symbol, timestamp, value):
+    """Save benchmark data point"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert or update benchmark data point
+        insert_query = """
+        INSERT INTO benchmarks 
+        (name, symbol, timestamp, value)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (name, timestamp) 
+        DO UPDATE SET
+            value = EXCLUDED.value,
+            created_at = CURRENT_TIMESTAMP
+        """
+        
+        # Convert timestamp to datetime if it's a string
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            
+        cur.execute(insert_query, (
+            name,
+            symbol,
+            timestamp,
+            value
+        ))
+        
+        conn.commit()
+        return True
+            
+    except psycopg2.Error as e:
+        print(f"Error saving benchmark data: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_benchmark_data(name, start_time, end_time):
+    """Get benchmark data"""
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        query = """
+        SELECT timestamp, value
+        FROM benchmarks
+        WHERE name = %s
+        AND timestamp BETWEEN %s AND %s
+        ORDER BY timestamp ASC
+        """
+        
+        # Convert timestamps to datetime objects if they're not already
+        if isinstance(start_time, str):
+            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        if isinstance(end_time, str):
+            end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+        
+        df = pd.read_sql_query(
+            query, 
+            conn, 
+            params=(name, start_time, end_time)
+        )
+        
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching benchmark data: {e}")
+        return pd.DataFrame()
     finally:
         if conn:
             conn.close()
