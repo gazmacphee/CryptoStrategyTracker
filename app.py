@@ -69,16 +69,28 @@ def get_database_stats():
     """Get statistics about database population"""
     from database import get_db_connection
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
     # Initialize with zeros in case tables don't exist yet
     price_count = 0
     indicator_count = 0
     trade_count = 0
     symbol_interval_count = 0
     
+    conn = None
+    cursor = None
+    
     try:
+        conn = get_db_connection()
+        if conn is None:
+            print("Warning: Could not establish database connection")
+            return {
+                "price_count": price_count,
+                "indicator_count": indicator_count,
+                "trade_count": trade_count,
+                "symbol_interval_count": symbol_interval_count
+            }
+        
+        cursor = conn.cursor()
+        
         # Get count of records in each table
         cursor.execute("SELECT COUNT(*) FROM historical_data")
         price_count = cursor.fetchone()[0]
@@ -99,8 +111,10 @@ def get_database_stats():
     except Exception as e:
         print(f"Error getting database stats: {e}")
     finally:
-        cursor.close()
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
     
     return {
         "price_count": price_count,

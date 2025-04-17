@@ -56,25 +56,44 @@ else:
     DB_PASS = os.getenv("PGPASSWORD", "postgres")
 
 def get_db_connection():
-    """Create a database connection"""
-    try:
-        # Try connecting using DATABASE_URL directly first if available
-        if DATABASE_URL:
-            conn = psycopg2.connect(DATABASE_URL)
-            return conn
-        else:
-            # Fall back to individual parameters
-            conn = psycopg2.connect(
-                host=DB_HOST,
-                port=DB_PORT,
-                database=DB_NAME,
-                user=DB_USER,
-                password=DB_PASS
-            )
-            return conn
-    except psycopg2.Error as e:
-        print(f"Error connecting to database: {e}")
-        return None
+    """Create a database connection with retry capability for Docker environment"""
+    import time
+    
+    # Maximum number of connection attempts
+    max_attempts = 5
+    attempt = 0
+    
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            # Try connecting using DATABASE_URL directly first if available
+            if DATABASE_URL:
+                print(f"Connecting to database using DATABASE_URL: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'custom-url'}")
+                conn = psycopg2.connect(DATABASE_URL)
+                print("Successfully connected using DATABASE_URL")
+                return conn
+            else:
+                # Fall back to individual parameters
+                print(f"Connecting to database at {DB_HOST}:{DB_PORT}/{DB_NAME} with user {DB_USER}")
+                conn = psycopg2.connect(
+                    host=DB_HOST,
+                    port=DB_PORT,
+                    database=DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASS
+                )
+                print("Successfully connected using individual parameters")
+                return conn
+        except psycopg2.Error as e:
+            print(f"Attempt {attempt}/{max_attempts} - Error connecting to database: {e}")
+            if attempt < max_attempts:
+                # Wait before retrying (exponential backoff)
+                wait_time = 2 ** attempt
+                print(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                print("Maximum connection attempts reached. Could not connect to database.")
+                return None
 
 def create_tables():
     """Create tables if they don't exist"""
