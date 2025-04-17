@@ -136,22 +136,16 @@ def get_available_symbols(quote_asset="USDT", limit=30):
         return popular_symbols[:limit]
 
 def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit=1000):
-    """Generate synthetic candle data for testing when API is not accessible"""
-    # Use an arbitrary but consistent seed based on the symbol name for reproducibility
-    random.seed(sum(ord(c) for c in symbol))
+    """
+    This function is deprecated and will not be used.
+    We now only use real data from Binance API.
     
-    # Calculate number of candles based on interval and time range
-    interval_seconds = {
-        '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
-        '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '8h': 28800,
-        '12h': 43200, '1d': 86400, '3d': 259200, '1w': 604800, '1M': 2592000
-    }
+    Returns an empty DataFrame to prevent any synthetic data from being generated.
+    """
+    print(f"WARNING: Synthetic data generation requested but disabled. Only real API data will be used.")
     
-    # Skip excluded intervals as requested
-    if interval in ['1m', '3m', '5m']:
-        print(f"Skipping {interval} interval as requested")
-        # Return empty DataFrame with expected structure
-        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    # Return empty DataFrame with expected structure
+    return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     
     # Default to 1h if interval not recognized
     seconds_per_candle = interval_seconds.get(interval, 3600)
@@ -241,26 +235,12 @@ def get_current_prices(symbols=None):
         symbols: Single symbol (string) or list of symbols. If None, fetches all available prices.
     
     Returns:
-        Dictionary with symbol as key and current price as value
+        Dictionary with symbol as key and current price as value or empty dict if data cannot be fetched
     """
-    if not BINANCE_API_ACCESSIBLE:
-        # Create synthetic prices for requested symbols or popular ones
-        if symbols is None:
-            symbols = get_available_symbols(limit=30)
-        elif isinstance(symbols, str):
-            symbols = [symbols]
-            
-        prices = {}
-        for symbol in symbols:
-            # Use the base prices from synthetic data generation with small random variations
-            base_prices = {
-                'BTCUSDT': 30000.0, 'ETHUSDT': 2000.0, 'BNBUSDT': 300.0, 'ADAUSDT': 0.5,
-                'DOGEUSDT': 0.1, 'XRPUSDT': 0.5, 'SOLUSDT': 70.0, 'DOTUSDT': 8.0
-            }
-            base = base_prices.get(symbol, 10.0)
-            prices[symbol] = round(base * (1 + random.uniform(-0.02, 0.02)), 2)  # ±2% random variation
-            
-        return prices
+    # Check if we have API credentials - if not, return empty dict
+    if not API_KEY or not API_SECRET:
+        print("ERROR: No API credentials available. Cannot retrieve current prices.")
+        return {}
     
     try:
         params = {}
@@ -291,7 +271,8 @@ def get_current_prices(symbols=None):
         
         if response.status_code != 200:
             print(f"Error fetching prices: {response.text}")
-            return get_current_prices(symbols) if symbols else {}
+            # Return empty dict, never use synthetic data
+            return {}
         
         price_data = response.json()
         
@@ -305,23 +286,24 @@ def get_current_prices(symbols=None):
             
     except Exception as e:
         print(f"Error in get_current_prices: {e}")
-        # Return synthetic prices on error
-        return get_current_prices(symbols) if symbols else {}
+        # Return empty dict, never use synthetic data
+        return {}
 
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
-    """Fetch klines (candlestick) data from Binance API or generate synthetic data if API not accessible"""
-    # Skip excluded intervals regardless of API access
+    """
+    Fetch klines (candlestick) data from Binance API.
+    Never falls back to synthetic data.
+    Returns empty DataFrame if real data cannot be retrieved.
+    """
+    # Skip excluded intervals as requested
     if interval in ['1m', '3m', '5m']:
         print(f"Skipping {interval} interval as requested")
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     
-    # Force API access if we have credentials, regardless of location checks
-    FORCE_API = API_KEY and API_SECRET
-    
-    # Only generate synthetic data if API is inaccessible AND we don't have credentials
-    if not BINANCE_API_ACCESSIBLE and not FORCE_API:
-        print(f"Generating synthetic data for {symbol} ({interval})")
-        return generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit)
+    # If no API credentials, return empty DataFrame
+    if not API_KEY or not API_SECRET:
+        print(f"ERROR: No API credentials available. Cannot retrieve real data for {symbol} ({interval})")
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     
     try:
         # Build request parameters
@@ -354,7 +336,8 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
         
         if response.status_code != 200:
             print(f"Error fetching klines: {response.text}")
-            return generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit)
+            # Return empty DataFrame instead of synthetic data
+            return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
         # Parse response
         data = response.json()
@@ -411,4 +394,5 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
     
     except Exception as e:
         print(f"Error in get_klines_data: {e}")
-        return generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit)
+        # Return empty DataFrame, never use synthetic data
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
