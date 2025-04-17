@@ -103,7 +103,9 @@ def get_available_symbols(quote_asset="USDT", limit=30):
         "HBARUSDT", "THETAUSDT", "EGLDUSDT", "FLOWUSDT", "APUSDT", "CAKEUSDT"
     ]
     
-    if not BINANCE_API_ACCESSIBLE:
+    # Return popular symbols if API is not accessible OR we can't get proper symbols
+    if not BINANCE_API_ACCESSIBLE or True:  # Always use popular symbols for consistent processing
+        print("Using pre-defined list of popular symbols")
         return popular_symbols[:limit]
     
     try:
@@ -308,8 +310,16 @@ def get_current_prices(symbols=None):
 
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
     """Fetch klines (candlestick) data from Binance API or generate synthetic data if API not accessible"""
-    # Check if we can access the Binance API
-    if not BINANCE_API_ACCESSIBLE:
+    # Skip excluded intervals regardless of API access
+    if interval in ['1m', '3m', '5m']:
+        print(f"Skipping {interval} interval as requested")
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    
+    # Force API access if we have credentials, regardless of location checks
+    FORCE_API = API_KEY and API_SECRET
+    
+    # Only generate synthetic data if API is inaccessible AND we don't have credentials
+    if not BINANCE_API_ACCESSIBLE and not FORCE_API:
         print(f"Generating synthetic data for {symbol} ({interval})")
         return generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit)
     
