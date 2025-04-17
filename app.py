@@ -88,7 +88,7 @@ def main():
     interval = st.sidebar.selectbox(
         "Select Timeframe",
         options=list(timeframe_options.keys()),
-        index=3  # Default to 1h
+        index=5  # Default to 4h
     )
     binance_interval = timeframe_to_interval(interval)
     

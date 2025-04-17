@@ -109,6 +109,65 @@ def create_tables():
         ON historical_data(symbol, interval, timestamp);
         """)
         
+        # Create indicators table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS technical_indicators (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            rsi NUMERIC,
+            macd NUMERIC,
+            macd_signal NUMERIC,
+            macd_histogram NUMERIC,
+            bb_upper NUMERIC,
+            bb_middle NUMERIC,
+            bb_lower NUMERIC,
+            bb_percent NUMERIC,
+            ema_9 NUMERIC,
+            ema_21 NUMERIC,
+            ema_50 NUMERIC,
+            ema_200 NUMERIC,
+            buy_signal BOOLEAN DEFAULT FALSE,
+            sell_signal BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, interval, timestamp)
+        );
+        """)
+        
+        # Create index for indicators table
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_indicators_symbol_interval_timestamp 
+        ON technical_indicators(symbol, interval, timestamp);
+        """)
+        
+        # Create trades table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            type VARCHAR(10) NOT NULL,  -- BUY, SELL, SELL (EOT)
+            entry_timestamp TIMESTAMP,
+            exit_timestamp TIMESTAMP,
+            entry_price NUMERIC,
+            exit_price NUMERIC,
+            quantity NUMERIC,
+            profit NUMERIC,
+            profit_pct NUMERIC,
+            holding_time_hours NUMERIC,
+            trade_status VARCHAR(10) NOT NULL, -- OPEN, CLOSED
+            strategy_params JSONB,  -- Stores the strategy parameters used
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # Create index for trades table
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_trades_symbol_interval 
+        ON trades(symbol, interval);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
@@ -200,6 +259,280 @@ def get_historical_data(symbol, interval, start_time, end_time):
     except psycopg2.Error as e:
         print(f"Error fetching historical data: {e}")
         return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def save_indicators(df, symbol, interval):
+    """Save technical indicators to database"""
+    if df.empty:
+        return False
+    
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert or update indicators
+        insert_query = """
+        INSERT INTO technical_indicators 
+        (symbol, interval, timestamp, rsi, macd, macd_signal, macd_histogram, 
+         bb_upper, bb_middle, bb_lower, bb_percent, ema_9, ema_21, ema_50, ema_200,
+         buy_signal, sell_signal)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (symbol, interval, timestamp) 
+        DO UPDATE SET
+            rsi = EXCLUDED.rsi,
+            macd = EXCLUDED.macd,
+            macd_signal = EXCLUDED.macd_signal,
+            macd_histogram = EXCLUDED.macd_histogram,
+            bb_upper = EXCLUDED.bb_upper,
+            bb_middle = EXCLUDED.bb_middle,
+            bb_lower = EXCLUDED.bb_lower,
+            bb_percent = EXCLUDED.bb_percent,
+            ema_9 = EXCLUDED.ema_9,
+            ema_21 = EXCLUDED.ema_21,
+            ema_50 = EXCLUDED.ema_50,
+            ema_200 = EXCLUDED.ema_200,
+            buy_signal = EXCLUDED.buy_signal,
+            sell_signal = EXCLUDED.sell_signal,
+            created_at = CURRENT_TIMESTAMP
+        """
+        
+        data_tuples = []
+        for _, row in df.iterrows():
+            data_tuples.append((
+                symbol,
+                interval,
+                row['timestamp'],
+                float(row.get('rsi', None)) if 'rsi' in row and pd.notna(row['rsi']) else None,
+                float(row.get('macd', None)) if 'macd' in row and pd.notna(row['macd']) else None,
+                float(row.get('macd_signal', None)) if 'macd_signal' in row and pd.notna(row['macd_signal']) else None,
+                float(row.get('macd_histogram', None)) if 'macd_histogram' in row and pd.notna(row['macd_histogram']) else None,
+                float(row.get('bb_upper', None)) if 'bb_upper' in row and pd.notna(row['bb_upper']) else None,
+                float(row.get('bb_middle', None)) if 'bb_middle' in row and pd.notna(row['bb_middle']) else None,
+                float(row.get('bb_lower', None)) if 'bb_lower' in row and pd.notna(row['bb_lower']) else None,
+                float(row.get('bb_percent', None)) if 'bb_percent' in row and pd.notna(row['bb_percent']) else None,
+                float(row.get('ema_9', None)) if 'ema_9' in row and pd.notna(row['ema_9']) else None,
+                float(row.get('ema_21', None)) if 'ema_21' in row and pd.notna(row['ema_21']) else None,
+                float(row.get('ema_50', None)) if 'ema_50' in row and pd.notna(row['ema_50']) else None,
+                float(row.get('ema_200', None)) if 'ema_200' in row and pd.notna(row['ema_200']) else None,
+                bool(row.get('buy_signal', False)),
+                bool(row.get('sell_signal', False))
+            ))
+        
+        cur.executemany(insert_query, data_tuples)
+        conn.commit()
+        
+        return True
+    except psycopg2.Error as e:
+        print(f"Error saving indicators: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_indicators(symbol, interval, start_time, end_time):
+    """Get indicators from database"""
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        query = """
+        SELECT timestamp, rsi, macd, macd_signal, macd_histogram, 
+               bb_upper, bb_middle, bb_lower, bb_percent, 
+               ema_9, ema_21, ema_50, ema_200,
+               buy_signal, sell_signal
+        FROM technical_indicators
+        WHERE symbol = %s
+        AND interval = %s
+        AND timestamp BETWEEN %s AND %s
+        ORDER BY timestamp ASC
+        """
+        
+        # Convert timestamps to datetime objects if they're not already
+        if isinstance(start_time, str):
+            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        if isinstance(end_time, str):
+            end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+        
+        df = pd.read_sql_query(
+            query, 
+            conn, 
+            params=(symbol, interval, start_time, end_time)
+        )
+        
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching indicators: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def save_trade(trade_data):
+    """Save a trade to the database"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Convert strategy_params to JSON string if present
+        strategy_params = trade_data.get('strategy_params', {})
+        import json
+        strategy_params_json = json.dumps(strategy_params)
+        
+        if trade_data.get('type') == 'BUY':
+            # Insert a new open trade
+            insert_query = """
+            INSERT INTO trades 
+            (symbol, interval, type, entry_timestamp, entry_price, quantity, trade_status, strategy_params)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """
+            
+            cur.execute(insert_query, (
+                trade_data.get('symbol'),
+                trade_data.get('interval'),
+                trade_data.get('type'),
+                trade_data.get('timestamp'),
+                trade_data.get('price'),
+                trade_data.get('coins'),
+                'OPEN',
+                strategy_params_json
+            ))
+            
+            # Get the ID of the inserted trade
+            trade_id = cur.fetchone()[0]
+            conn.commit()
+            return trade_id
+            
+        elif trade_data.get('type') in ['SELL', 'SELL (EOT)']:
+            # Update an existing trade
+            update_query = """
+            UPDATE trades 
+            SET exit_timestamp = %s,
+                exit_price = %s,
+                profit = %s,
+                profit_pct = %s,
+                holding_time_hours = %s,
+                trade_status = 'CLOSED'
+            WHERE id = %s
+            """
+            
+            cur.execute(update_query, (
+                trade_data.get('timestamp'),
+                trade_data.get('price'),
+                trade_data.get('profit'),
+                trade_data.get('profit_pct'),
+                trade_data.get('holding_time'),
+                trade_data.get('trade_id')
+            ))
+            
+            conn.commit()
+            return True
+            
+    except psycopg2.Error as e:
+        print(f"Error saving trade: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_open_trade(symbol, interval):
+    """Get the currently open trade for a symbol/interval if one exists"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
+    try:
+        query = """
+        SELECT id, symbol, interval, type, entry_timestamp, entry_price, quantity, strategy_params
+        FROM trades
+        WHERE symbol = %s
+        AND interval = %s
+        AND trade_status = 'OPEN'
+        ORDER BY entry_timestamp DESC
+        LIMIT 1
+        """
+        
+        cur = conn.cursor()
+        cur.execute(query, (symbol, interval))
+        
+        result = cur.fetchone()
+        if result:
+            # Convert to dictionary
+            columns = ['id', 'symbol', 'interval', 'type', 'entry_timestamp', 'entry_price', 'quantity', 'strategy_params']
+            trade = dict(zip(columns, result))
+            
+            # Parse JSON
+            import json
+            if trade['strategy_params']:
+                trade['strategy_params'] = json.loads(trade['strategy_params'])
+                
+            return trade
+        
+        return None
+    except psycopg2.Error as e:
+        print(f"Error fetching open trade: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_profitable_trades(symbol, interval, min_profit_pct=0, limit=50):
+    """Get the most profitable closed trades"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        query = """
+        SELECT id, symbol, interval, type, 
+               entry_timestamp, exit_timestamp, 
+               entry_price, exit_price, 
+               quantity, profit, profit_pct, holding_time_hours, strategy_params
+        FROM trades
+        WHERE symbol = %s
+        AND interval = %s
+        AND trade_status = 'CLOSED'
+        AND profit_pct >= %s
+        ORDER BY profit_pct DESC
+        LIMIT %s
+        """
+        
+        cur = conn.cursor()
+        cur.execute(query, (symbol, interval, min_profit_pct, limit))
+        
+        rows = cur.fetchall()
+        trades = []
+        
+        if rows:
+            # Convert to dictionaries
+            columns = ['id', 'symbol', 'interval', 'type', 
+                     'entry_timestamp', 'exit_timestamp', 
+                     'entry_price', 'exit_price', 
+                     'quantity', 'profit', 'profit_pct', 'holding_time_hours', 'strategy_params']
+            
+            import json
+            for row in rows:
+                trade = dict(zip(columns, row))
+                
+                # Parse JSON
+                if trade['strategy_params']:
+                    trade['strategy_params'] = json.loads(trade['strategy_params'])
+                    
+                trades.append(trade)
+        
+        return trades
+    except psycopg2.Error as e:
+        print(f"Error fetching profitable trades: {e}")
+        return []
     finally:
         if conn:
             conn.close()
