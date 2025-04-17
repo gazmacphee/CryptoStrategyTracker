@@ -243,11 +243,11 @@ def main():
             except Exception:
                 pass  # Ignore errors with killing process
         
-        # Start a new continuous background update with specified interval
+        # Start a new continuous background update with fixed 15 minute interval
         st.session_state.backfill_thread = run_background_backfill(
             continuous=True,  # Run continuously
             full=False,       # Start with quick update
-            interval_minutes=15  # Update every 15 minutes
+            interval_minutes=15  # Always update every 15 minutes - do not change
         )
         st.session_state.backfill_started = True
         st.session_state.backfill_start_time = current_time
