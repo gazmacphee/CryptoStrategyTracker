@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environments
+.env
+venv/
+ENV/
+
+# Data files
+*.sqlite
+.ipynb_checkpoints
+
+# Logs
+logs/
+*.log
+
+# Replit specific
+.replit
+.pythonlibs/
+.cache/
+.config/
+.upm/
+
+# Local backfill lock files
+*.lock
+
+# Runtime files
+*.pid
+*.pyc
+
+# IDE specific files
+.idea/
+.vscode/
