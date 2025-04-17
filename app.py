@@ -119,7 +119,7 @@ def run_background_backfill(continuous=True, full=False, interval_minutes=15):
         interval_minutes: How often to update in continuous mode (minutes)
     """
     # Create a file lock to prevent multiple instances
-    import os, time
+    # Using global os and time modules
     lock_file = ".backfill_lock"
     
     # Check if a backfill process is already running
@@ -215,6 +215,21 @@ def get_cached_data(symbol, interval, lookback_days, start_date=None, end_date=N
     return get_data(symbol, interval, lookback_days, start_date, end_date)
 
 def main():
+    # Import modules directly here to avoid scope issues
+    import os
+    import logging
+    from data_loader import start_backfill_thread
+    
+    # Start data loading process on app startup
+    if 'initial_backfill_started' not in st.session_state:
+        st.session_state.initial_backfill_started = True
+        # Start the background backfill only if not already running
+        lock_file = ".backfill_lock"
+        if not os.path.exists(lock_file):
+            logging.info("Starting data loading process on app startup")
+            # Start our data loader process
+            start_backfill_thread(full=False)
+    
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
@@ -2140,6 +2155,103 @@ def main():
                 
         except Exception as e:
             st.error(f"An error occurred in the Trend Visualizer tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+    
+    # Data Progress Tab
+    elif selected_tab == "Data Progress":
+        try:
+            # Import necessary modules and functions for this tab
+            import pandas as pd
+            from data_loader import get_backfill_progress, start_backfill_thread
+            
+            st.header("Data Loading Progress")
+            
+            # Get the latest progress data
+            progress_data = get_backfill_progress()
+            
+            # Show overall progress
+            st.subheader("Overall Progress")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Overall Completion", f"{progress_data['overall_progress']}%")
+            
+            with col2:
+                st.metric("Symbols Completed", f"{progress_data['symbols_completed']} / {progress_data['total_symbols']}")
+            
+            with col3:
+                if progress_data['is_running']:
+                    status = "🟢 Running"
+                else:
+                    status = "🔴 Stopped"
+                st.metric("Backfill Status", status)
+            
+            # Last updated time
+            if progress_data['last_updated']:
+                st.info(f"Last updated: {progress_data['last_updated']}")
+            
+            # Manual backfill controls
+            st.subheader("Backfill Controls")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Start Backfill Process"):
+                    if not progress_data['is_running']:
+                        start_backfill_thread(full=False)
+                        st.success("Backfill process started!")
+                    else:
+                        st.warning("A backfill process is already running.")
+                        
+            with col2:
+                if st.button("Start Full Backfill (3 years)"):
+                    if not progress_data['is_running']:
+                        start_backfill_thread(full=True)
+                        st.success("Full backfill process started!")
+                    else:
+                        st.warning("A backfill process is already running.")
+            
+            # Show symbols progress in a sortable table
+            st.subheader("Symbol Progress")
+            
+            # Convert the symbols progress to a DataFrame for easy display
+            symbols_data = []
+            
+            for symbol, data in progress_data['symbols_progress'].items():
+                row = {
+                    "Symbol": symbol,
+                    "Overall Progress": f"{data['overall_percentage']:.1f}%",
+                    "Progress %": data['overall_percentage']  # For sorting
+                }
+                
+                # Add interval data
+                for interval, interval_data in data['intervals'].items():
+                    row[f"{interval}"] = f"{interval_data['percentage']}% ({interval_data['count']}/{interval_data['expected']})"
+                
+                symbols_data.append(row)
+            
+            if symbols_data:
+                # Convert to DataFrame
+                symbols_df = pd.DataFrame(symbols_data)
+                
+                # Sort by progress percentage (descending)
+                symbols_df = symbols_df.sort_values(by="Progress %", ascending=False)
+                
+                # Drop the sorting column before displaying
+                symbols_df = symbols_df.drop(columns=["Progress %"])
+                
+                # Show the table
+                st.dataframe(symbols_df, use_container_width=True)
+            else:
+                st.info("No symbol progress data available yet. Start the backfill process to begin loading data.")
+            
+            # Show any errors
+            if progress_data['errors']:
+                with st.expander("Errors"):
+                    for error in progress_data['errors']:
+                        st.error(error)
+        except Exception as e:
+            st.error(f"Error in Data Progress page: {e}")
             import traceback
             st.text(traceback.format_exc())
     
