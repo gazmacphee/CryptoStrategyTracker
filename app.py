@@ -1612,127 +1612,127 @@ def main():
                         "all": "All Time"
                     }
                 
-                selected_period = st.selectbox("Select Time Period", options=list(time_periods.keys()), format_func=lambda x: time_periods[x])
-                
-                # Calculate date range
-                end_date = datetime.now()
-                
-                if selected_period == "1w":
-                    start_date = end_date - timedelta(days=7)
-                elif selected_period == "1m":
-                    start_date = end_date - timedelta(days=30)
-                elif selected_period == "3m":
-                    start_date = end_date - timedelta(days=90)
-                elif selected_period == "6m":
-                    start_date = end_date - timedelta(days=180)
-                elif selected_period == "1y":
-                    start_date = end_date - timedelta(days=365)
-                else:
-                    # All time - use earliest purchase date
-                    start_date = portfolio_df['purchase_date'].min()
-                
-                # Get historical price data for each symbol in portfolio
-                symbol_price_history = {}
-                
-                with st.spinner("Fetching historical price data..."):
-                    for symbol in portfolio_df['symbol'].unique():
-                        try:
-                            # Get data from database
-                            interval = "1d"  # Daily data is best for portfolio tracking
-                            price_df = get_data(symbol, interval, (end_date - start_date).days, start_date, end_date)
-                            
-                            if not price_df.empty:
-                                symbol_price_history[symbol] = price_df
-                        except Exception as e:
-                            st.warning(f"Could not fetch history for {symbol}: {e}")
-                
-                # Calculate portfolio performance over time
-                portfolio_performance = get_portfolio_performance_history(portfolio_df, symbol_price_history)
-                
-                # Get benchmark data (Bitcoin as the default benchmark)
-                benchmark_symbol = "BTCUSDT"
-                benchmark_interval = "1d"
-                
-                benchmark_df = get_data(benchmark_symbol, benchmark_interval, (end_date - start_date).days, start_date, end_date)
-                
-                if not benchmark_df.empty:
-                    # Rename 'close' to 'value' for consistency
-                    benchmark_df = benchmark_df.rename(columns={'close': 'value'})
+                    selected_period = st.selectbox("Select Time Period", options=list(time_periods.keys()), format_func=lambda x: time_periods[x])
                     
-                    # Calculate normalized comparison data
-                    comparison_data = normalize_comparison_data(portfolio_performance, benchmark_df)
+                    # Calculate date range
+                    end_date = datetime.now()
                     
-                    # Portfolio performance metrics
-                    if not portfolio_performance.empty and len(portfolio_performance) > 1:
-                        start_value = portfolio_performance['value'].iloc[0]
-                        end_value = portfolio_performance['value'].iloc[-1]
-                        portfolio_change_pct = ((end_value / start_value) - 1) * 100 if start_value > 0 else 0
-                        
-                        # Benchmark metrics
-                        benchmark_start = benchmark_df['value'].iloc[0]
-                        benchmark_end = benchmark_df['value'].iloc[-1]
-                        benchmark_change_pct = ((benchmark_end / benchmark_start) - 1) * 100 if benchmark_start > 0 else 0
-                        
-                        # Display metrics
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Portfolio Performance", f"{portfolio_change_pct:.2f}%")
-                        col2.metric("BTC Performance", f"{benchmark_change_pct:.2f}%")
-                        col3.metric("Difference", f"{(portfolio_change_pct - benchmark_change_pct):.2f}%")
-                        
-                        # Create performance comparison chart
-                        st.subheader("Performance Comparison")
-                        
-                        # Extract normalized data
-                        portfolio_norm = comparison_data['portfolio']
-                        benchmark_norm = comparison_data['benchmark']
-                        
-                        # Create traces
-                        fig = go.Figure()
-                        
-                        if portfolio_norm:
-                            timestamps = [entry['timestamp'] for entry in portfolio_norm]
-                            values = [entry['normalized'] for entry in portfolio_norm]
-                            
-                            fig.add_trace(go.Scatter(
-                                x=timestamps,
-                                y=values,
-                                mode='lines',
-                                name='Your Portfolio',
-                                line=dict(color='#5DADEC', width=2)
-                            ))
-                        
-                        if benchmark_norm:
-                            timestamps = [entry['timestamp'] for entry in benchmark_norm]
-                            values = [entry['normalized'] for entry in benchmark_norm]
-                            
-                            fig.add_trace(go.Scatter(
-                                x=timestamps,
-                                y=values,
-                                mode='lines',
-                                name='Bitcoin (BTC)',
-                                line=dict(color='#FF9900', width=2, dash='dot')
-                            ))
-                        
-                        # Update layout
-                        fig.update_layout(
-                            title="Normalized Performance (Starting Value = 100)",
-                            xaxis_title="Date",
-                            yaxis_title="Value",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            margin=dict(l=20, r=20, t=60, b=20),
-                            height=500
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
+                    if selected_period == "1w":
+                        start_date = end_date - timedelta(days=7)
+                    elif selected_period == "1m":
+                        start_date = end_date - timedelta(days=30)
+                    elif selected_period == "3m":
+                        start_date = end_date - timedelta(days=90)
+                    elif selected_period == "6m":
+                        start_date = end_date - timedelta(days=180)
+                    elif selected_period == "1y":
+                        start_date = end_date - timedelta(days=365)
                     else:
-                        st.info("Not enough performance data for the selected time period. Try extending the time range or add more historical assets.")
-                else:
-                    st.warning(f"Could not fetch benchmark data for {benchmark_symbol}. Try a different time period.")
+                        # All time - use earliest purchase date
+                        start_date = portfolio_df['purchase_date'].min()
+                    
+                    # Get historical price data for each symbol in portfolio
+                    symbol_price_history = {}
+                    
+                    with st.spinner("Fetching historical price data..."):
+                        for symbol in portfolio_df['symbol'].unique():
+                            try:
+                                # Get data from database
+                                interval = "1d"  # Daily data is best for portfolio tracking
+                                price_df = get_data(symbol, interval, (end_date - start_date).days, start_date, end_date)
+                                
+                                if not price_df.empty:
+                                    symbol_price_history[symbol] = price_df
+                            except Exception as e:
+                                st.warning(f"Could not fetch history for {symbol}: {e}")
+                    
+                    # Calculate portfolio performance over time
+                    portfolio_performance = get_portfolio_performance_history(portfolio_df, symbol_price_history)
+                    
+                    # Get benchmark data (Bitcoin as the default benchmark)
+                    benchmark_symbol = "BTCUSDT"
+                    benchmark_interval = "1d"
+                    
+                    benchmark_df = get_data(benchmark_symbol, benchmark_interval, (end_date - start_date).days, start_date, end_date)
+                    
+                    if not benchmark_df.empty:
+                        # Rename 'close' to 'value' for consistency
+                        benchmark_df = benchmark_df.rename(columns={'close': 'value'})
+                        
+                        # Calculate normalized comparison data
+                        comparison_data = normalize_comparison_data(portfolio_performance, benchmark_df)
+                        
+                        # Portfolio performance metrics
+                        if not portfolio_performance.empty and len(portfolio_performance) > 1:
+                            start_value = portfolio_performance['value'].iloc[0]
+                            end_value = portfolio_performance['value'].iloc[-1]
+                            portfolio_change_pct = ((end_value / start_value) - 1) * 100 if start_value > 0 else 0
+                            
+                            # Benchmark metrics
+                            benchmark_start = benchmark_df['value'].iloc[0]
+                            benchmark_end = benchmark_df['value'].iloc[-1]
+                            benchmark_change_pct = ((benchmark_end / benchmark_start) - 1) * 100 if benchmark_start > 0 else 0
+                            
+                            # Display metrics
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Portfolio Performance", f"{portfolio_change_pct:.2f}%")
+                            col2.metric("BTC Performance", f"{benchmark_change_pct:.2f}%")
+                            col3.metric("Difference", f"{(portfolio_change_pct - benchmark_change_pct):.2f}%")
+                            
+                            # Create performance comparison chart
+                            st.subheader("Performance Comparison")
+                            
+                            # Extract normalized data
+                            portfolio_norm = comparison_data['portfolio']
+                            benchmark_norm = comparison_data['benchmark']
+                            
+                            # Create traces
+                            fig = go.Figure()
+                            
+                            if portfolio_norm:
+                                timestamps = [entry['timestamp'] for entry in portfolio_norm]
+                                values = [entry['normalized'] for entry in portfolio_norm]
+                                
+                                fig.add_trace(go.Scatter(
+                                    x=timestamps,
+                                    y=values,
+                                    mode='lines',
+                                    name='Your Portfolio',
+                                    line=dict(color='#5DADEC', width=2)
+                                ))
+                            
+                            if benchmark_norm:
+                                timestamps = [entry['timestamp'] for entry in benchmark_norm]
+                                values = [entry['normalized'] for entry in benchmark_norm]
+                                
+                                fig.add_trace(go.Scatter(
+                                    x=timestamps,
+                                    y=values,
+                                    mode='lines',
+                                    name='Bitcoin (BTC)',
+                                    line=dict(color='#FF9900', width=2, dash='dot')
+                                ))
+                            
+                            # Update layout
+                            fig.update_layout(
+                                title="Normalized Performance (Starting Value = 100)",
+                                xaxis_title="Date",
+                                yaxis_title="Value",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                margin=dict(l=20, r=20, t=60, b=20),
+                                height=500
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Not enough performance data for the selected time period. Try extending the time range or add more historical assets.")
+                    else:
+                        st.warning(f"Could not fetch benchmark data for {benchmark_symbol}. Try a different time period.")
 
-    except Exception as e:
-        st.error(f"An error occurred in Portfolio tab: {str(e)}")
-        import traceback
-        st.text(traceback.format_exc())
+        except Exception as e:
+            st.error(f"An error occurred in Portfolio tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
