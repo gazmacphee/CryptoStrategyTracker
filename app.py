@@ -281,6 +281,7 @@ def main():
     # Import modules directly here to avoid scope issues
     import os
     import logging
+    import pandas as pd
     from data_loader import start_backfill_thread
     
     # Start data loading process on app startup
