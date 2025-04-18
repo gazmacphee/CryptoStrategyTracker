@@ -444,9 +444,9 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
             elif response.status_code == 451 or ('restricted location' in response.text.lower()):
                 # This is a geographical restriction error
                 print(f"Binance API is not available in your region. The application will use backfilled historical data instead.")
-                # Use a global flag to avoid repeated API attempts if we know we're in a restricted region
-                global BINANCE_API_GEO_RESTRICTED
-                BINANCE_API_GEO_RESTRICTED = True
+                # Update the global flag to avoid repeated API attempts if we know we're in a restricted region
+                # We need to use globals() to modify the global variable from within a function
+                globals()['BINANCE_API_GEO_RESTRICTED'] = True
                 # Continue to the next endpoint if available, though it's likely all will fail with the same error
                 return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             else:
