@@ -137,15 +137,18 @@ def download_monthly_klines(symbol, interval, year, month):
     # Determine number of days in month
     days_in_month = monthrange(year, month)[1]
     
-    # Monthly data URL
+    # Monthly data URL - using the correct path for monthly data
+    # The URL should point to monthly klines, not daily
     monthly_url = f"{BASE_URL}/monthly/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month_str}.zip"
     
-    # Try to download monthly data first
+    logging.info(f"Downloading from: {monthly_url}")
+    
+    # Try to download monthly data
     content = download_file(monthly_url)
     if content:
         df = process_kline_data(content, symbol, interval)
         if df is not None and not df.empty:
-            logging.info(f"Successfully downloaded monthly data for {symbol} {interval} {year}-{month_str}")
+            logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
             return df
     
     # If monthly data not available, try daily data for each day in month
@@ -265,29 +268,92 @@ def calculate_and_save_indicators(df, symbol, interval):
     logging.info(f"Saved indicators for {symbol} {interval}")
 
 def backfill_symbol_interval(symbol, interval, lookback_years=3):
-    """Backfill data for a specific symbol and interval going back specified years"""
+    """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
     # Calculate start date
     end_date = date.today()
     start_date = date(end_date.year - lookback_years, end_date.month, 1)
     
-    logging.info(f"Backfilling {symbol} {interval} from {start_date} to {end_date}")
+    # Getting the year and month values
+    start_year = start_date.year
+    start_month = start_date.month
+    end_year = end_date.year
+    end_month = end_date.month
     
-    # Download data
-    df = download_symbol_interval_data(symbol, interval, start_date, end_date)
+    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date}")
     
-    if df is not None and not df.empty:
-        # Number of candles downloaded
-        candle_count = len(df)
-        logging.info(f"Downloaded {candle_count} candles for {symbol} {interval}")
+    # Import our new functions to check existing data
+    from database import get_existing_data_months, has_complete_month_data
+    
+    # Get all year-month combinations in the range
+    all_months = []
+    current_year = start_year
+    current_month = start_month
+    
+    while current_year < end_year or (current_year == end_year and current_month <= end_month):
+        all_months.append((current_year, current_month))
         
-        # Save to database
-        save_historical_data(df, symbol, interval)
-        logging.info(f"Saved historical data to database for {symbol} {interval}")
+        # Move to next month
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+    
+    # Get months that already have data
+    existing_months = get_existing_data_months(symbol, interval, start_year, start_month, end_year, end_month)
+    
+    # Filter out months that already have complete data
+    months_to_process = []
+    for year, month in all_months:
+        if (year, month) not in existing_months or not has_complete_month_data(symbol, interval, year, month):
+            months_to_process.append((year, month))
+    
+    if not months_to_process:
+        logging.info(f"All data for {symbol} {interval} from {start_date} to {end_date} already exists in database. Skipping.")
+        return 0
+    
+    logging.info(f"Backfilling {symbol} {interval} for {len(months_to_process)} missing/incomplete months")
+    
+    total_candles = 0
+    
+    # Process each month separately
+    for year, month in months_to_process:
+        # For the current month, only get data up to yesterday
+        if year == end_year and month == end_month:
+            # Calculate yesterday
+            yesterday = date.today() - timedelta(days=1)
+            month_end = yesterday
+        else:
+            # Last day of month
+            if month == 12:
+                month_end = date(year + 1, 1, 1) - timedelta(days=1)
+            else:
+                month_end = date(year, month + 1, 1) - timedelta(days=1)
         
-        # Calculate and save indicators
-        calculate_and_save_indicators(df, symbol, interval)
+        month_start = date(year, month, 1)
         
-        return candle_count
+        logging.info(f"Processing {symbol} {interval} for {year}-{month:02d}")
+        
+        # Download data for this month
+        monthly_df = download_monthly_klines(symbol, interval, year, month)
+        
+        if monthly_df is not None and not monthly_df.empty:
+            # Number of candles downloaded
+            candle_count = len(monthly_df)
+            total_candles += candle_count
+            logging.info(f"Downloaded {candle_count} candles for {symbol} {interval} for {year}-{month:02d}")
+            
+            # Save to database
+            save_historical_data(monthly_df, symbol, interval)
+            
+            # Calculate and save indicators
+            calculate_and_save_indicators(monthly_df, symbol, interval)
+        else:
+            logging.warning(f"No data available for {symbol} {interval} for {year}-{month:02d}")
+    
+    if total_candles > 0:
+        logging.info(f"Downloaded a total of {total_candles} candles for {symbol} {interval}")
+        return total_candles
     else:
         logging.warning(f"No data available for {symbol} {interval}")
         return 0

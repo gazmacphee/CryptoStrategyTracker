@@ -420,6 +420,100 @@ def get_historical_data(symbol, interval, start_time, end_time):
         if conn:
             conn.close()
 
+def get_existing_data_months(symbol, interval, start_year, start_month, end_year, end_month):
+    """
+    Get a list of year-month combinations that already have data in the database.
+    This helps optimize data downloading by skipping months that are already stored.
+    
+    Returns:
+        List of tuples (year, month) that have data
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        query = """
+        SELECT DISTINCT 
+            EXTRACT(YEAR FROM timestamp)::integer as year,
+            EXTRACT(MONTH FROM timestamp)::integer as month
+        FROM historical_data
+        WHERE symbol = %s
+        AND interval = %s
+        AND timestamp BETWEEN %s AND %s
+        ORDER BY year, month
+        """
+        
+        # Create start and end dates from year and month
+        start_date = datetime(start_year, start_month, 1)
+        # Last day of end month
+        if end_month == 12:
+            end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = datetime(end_year, end_month + 1, 1) - timedelta(days=1)
+        
+        cursor.execute(query, (symbol, interval, start_date, end_date))
+        results = cursor.fetchall()
+        
+        # Convert results to list of (year, month) tuples
+        existing_months = [(int(year), int(month)) for year, month in results]
+        
+        return existing_months
+    except Exception as e:
+        print(f"Error checking existing data months: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def has_complete_month_data(symbol, interval, year, month):
+    """
+    Check if a specific month has complete data in the database.
+    Returns True if the month has expected number of records.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        query = """
+        SELECT COUNT(*) 
+        FROM historical_data
+        WHERE symbol = %s
+        AND interval = %s
+        AND EXTRACT(YEAR FROM timestamp)::integer = %s
+        AND EXTRACT(MONTH FROM timestamp)::integer = %s
+        """
+        
+        cursor.execute(query, (symbol, interval, year, month))
+        count = cursor.fetchone()[0]
+        
+        # Estimate expected candles for the month based on interval
+        from calendar import monthrange
+        days_in_month = monthrange(year, month)[1]
+        
+        expected_count = 0
+        if interval == '1h':
+            expected_count = days_in_month * 24
+        elif interval == '4h':
+            expected_count = days_in_month * 6
+        elif interval == '1d':
+            expected_count = days_in_month
+        
+        # Consider complete if at least 90% of expected candles are present
+        # (allows for some missing candles due to exchange maintenance, etc.)
+        completeness_threshold = 0.90
+        
+        return count >= expected_count * completeness_threshold
+    except Exception as e:
+        print(f"Error checking month data completeness: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 def save_indicators(df, symbol, interval):
     """Save technical indicators to database"""
     if df.empty:
