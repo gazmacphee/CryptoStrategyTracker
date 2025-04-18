@@ -97,10 +97,11 @@ def try_binance_endpoints():
                             return True  # Successfully connected and authenticated
                         elif auth_response.status_code == 451 or ('restricted location' in auth_response.text.lower()):
                             # This is a geographical restriction error
-                            BINANCE_API_GEO_RESTRICTED = True
+                            # Use globals() to modify global variables from within a function
+                            globals()['BINANCE_API_GEO_RESTRICTED'] = True
                             print(f"Binance API is not available in your region. The application will use backfilled historical data.")
-                            BINANCE_API_ACCESSIBLE = False
-                            BINANCE_API_AUTH = False
+                            globals()['BINANCE_API_ACCESSIBLE'] = False
+                            globals()['BINANCE_API_AUTH'] = False
                             return False
                         else:
                             print(f"API credentials could not be verified on {endpoint}: {auth_response.text}")
@@ -111,7 +112,8 @@ def try_binance_endpoints():
                 return True
             elif response.status_code == 451 or ('restricted location' in str(response.text).lower()):
                 # This is a geographical restriction error
-                BINANCE_API_GEO_RESTRICTED = True
+                # Use globals() to modify global variables from within a function
+                globals()['BINANCE_API_GEO_RESTRICTED'] = True
                 print(f"Binance API is not available in your region. The application will use backfilled historical data.")
                 return False
             else:
