@@ -115,9 +115,30 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    print("****************************************************************")
+    print("Starting cryptocurrency database backfill process")
+    print(f"Full backfill mode: {args.full}")
+    print(f"Continuous mode: {args.continuous}")
+    print(f"Background mode: {args.background}")
     if args.continuous:
-        # Run continuous backfill
-        continuous_backfill(interval_minutes=args.interval, full=args.full)
-    else:
-        # Run a single backfill
-        backfill_database(full=args.full, background=args.background)
+        print(f"Update interval: {args.interval} minutes")
+    print("This process ensures your database has historical price data")
+    print("****************************************************************")
+    
+    # Create lock file immediately to prevent parallel execution
+    with open(".backfill_lock", "w") as f:
+        f.write(f"Process started at {datetime.now()}")
+    
+    try:
+        if args.continuous:
+            # Run continuous backfill
+            continuous_backfill(interval_minutes=args.interval, full=args.full)
+        else:
+            # Run a single backfill
+            backfill_database(full=args.full, background=args.background)
+    except Exception as e:
+        logging.error(f"Error in backfill process: {e}")
+        # Make sure to release lock on error
+        if os.path.exists(".backfill_lock"):
+            os.remove(".backfill_lock")
+            print("Backfill lock released due to error")

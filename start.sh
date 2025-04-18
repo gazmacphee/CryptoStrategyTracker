@@ -49,13 +49,12 @@ if [ "$RESET_DB" = "true" ]; then
   python3 reset_database.py
 fi
 
-# Start background data backfill process if requested
-if [ "$BACKFILL_ON_START" = "true" ]; then
-  echo "Starting background data backfill process..."
-  python3 backfill_database.py --continuous --interval=15 &
-  BACKFILL_PID=$!
-  echo "Backfill process started with PID: $BACKFILL_PID"
-fi
+# Always start background data backfill process 
+# (This is now forced regardless of the environment variable setting)
+echo "Starting background data backfill process..."
+python3 backfill_database.py --continuous --interval=15 &
+BACKFILL_PID=$!
+echo "Backfill process started with PID: $BACKFILL_PID"
 
 # Generate Streamlit config using port from .env
 echo "Generating Streamlit configuration..."

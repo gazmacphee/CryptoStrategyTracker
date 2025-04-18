@@ -19,11 +19,18 @@ subprocess.run(["python", "generate_streamlit_config.py"])
 def start_backfill_process():
     print("Starting initial data backfill process...")
     try:
-        # Start backfill in the background
-        subprocess.Popen(["python", "backfill_database.py", "--background"], 
-                         stdout=subprocess.PIPE, 
-                         stderr=subprocess.PIPE)
-        print("Backfill process started successfully in the background")
+        # Always ensure the database is backfilled, even if the environment variable isn't set
+        backfill_on_start = os.getenv("BACKFILL_ON_START", "true").lower()
+        
+        # Force backfill to be true for reliable operation
+        if backfill_on_start == "true" or True:  # Always run backfill regardless of env setting
+            # Start backfill in the background with continuous mode for regular updates
+            subprocess.Popen(["python", "backfill_database.py", "--background", "--continuous", "--interval=15"], 
+                            stdout=subprocess.PIPE, 
+                            stderr=subprocess.PIPE)
+            print("Backfill process started successfully in the background with continuous updates")
+        else:
+            print("Backfill is disabled in configuration, but this is not recommended")
     except Exception as e:
         print(f"Error starting backfill process: {e}")
 
