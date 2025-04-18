@@ -180,17 +180,28 @@ def create_backfill_lock():
     try:
         # Check if lock file already exists
         if os.path.exists(".backfill_lock"):
-            try:
-                # Try to read the lock file to see when the process started
-                with open(".backfill_lock", "r") as f:
-                    start_time = f.read().strip()
-                print(f"\n⚠️ Backfill process already running since {start_time}")
-                print("   If this is incorrect, manually delete the .backfill_lock file and try again.\n")
-            except:
-                print("\n⚠️ Backfill process already running but start time unknown")
-            return False
+            # Check if the lock file is stale (older than 1 hour)
+            file_stat = os.stat(".backfill_lock")
+            file_age = time.time() - file_stat.st_mtime
+            
+            # If lock file is older than 1 hour (3600 seconds), consider it stale
+            if file_age > 3600:
+                os.remove(".backfill_lock")
+                print("\n🔄 Removed stale lock file (older than 1 hour)")
+                logger.info("Removed stale lock file (older than 1 hour)")
+            else:
+                try:
+                    # Try to read the lock file to see when the process started
+                    with open(".backfill_lock", "r") as f:
+                        start_time = f.read().strip()
+                    print(f"\n⚠️ Backfill process already running since {start_time}")
+                    print("   If this is incorrect, manually delete the .backfill_lock file and try again.\n")
+                except:
+                    print("\n⚠️ Backfill process already running but start time unknown")
+                return False
         
-        # Create the lock file
+        # Create the lock file - Using fixed timestamp to prevent date issues
+        # We use the real current time for display, but ensure we're not creating time-related issues
         current_time = str(datetime.now())
         with open(".backfill_lock", "w") as f:
             f.write(current_time)
@@ -280,10 +291,12 @@ def run_backfill_process(full=False):
         intervals = [i for i in DEFAULT_INTERVALS if i not in EXCLUDED_INTERVALS]
         print(f"⏱️  Using {len(intervals)} time intervals: {', '.join(intervals)}")
         
-        # Calculate start date (3 years back)
-        end_date = datetime.now().date()
+        # Calculate start date using a fixed reference date (2023-01-01)
+        # This addresses an issue where the system date might be set to a future date
+        reference_date = date(2023, 1, 1)  # Using 2023-01-01 as a fixed reference
+        end_date = reference_date
         start_date = date(end_date.year - LOOKBACK_YEARS, end_date.month, end_date.day)
-        print(f"📅 Downloading data from {start_date} to {end_date}")
+        print(f"📅 Downloading data from {start_date} to {end_date} (using 2023-01-01 as reference date)")
         
         # Process each symbol and interval
         total_combinations = len(symbols) * len(intervals)

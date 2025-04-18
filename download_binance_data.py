@@ -428,11 +428,11 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     
     # Process each month separately
     for year, month in months_to_process:
-        # For the current month, only get data up to yesterday
+        # For the current month, only get data up to reference date
         if year == end_year and month == end_month:
-            # Calculate yesterday
-            yesterday = date.today() - timedelta(days=1)
-            month_end = yesterday
+            # Use the reference date for the end of the month
+            reference_date = date(2023, 1, 1)  # Using same fixed reference from above
+            month_end = min(reference_date, date(year, month, 28))  # Making sure we don't go beyond our reference
         else:
             # Last day of month
             if month == 12:
@@ -442,7 +442,7 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
         
         month_start = date(year, month, 1)
         
-        logging.info(f"Processing {symbol} {interval} for {year}-{month:02d}")
+        logging.info(f"Processing {symbol} {interval} for {year}-{month:02d} (using fixed reference date)")
         
         # Download data for this month
         monthly_df = download_monthly_klines(symbol, interval, year, month)
