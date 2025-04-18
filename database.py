@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
 import psycopg2
 import pandas as pd
+
+# Load environment variables
+load_dotenv()
 from datetime import datetime, timedelta
 from psycopg2 import sql
 
