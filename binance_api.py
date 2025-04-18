@@ -14,19 +14,14 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Binance API endpoints - support for both global and UK users
-# For UK users, we may need to use Binance UK-specific endpoints
-BASE_URL = "https://api.binance.com/api/v3"  # Default global endpoint
-UK_BASE_URL = "https://api.binance.co.uk/api/v3"  # UK-specific endpoint if needed
+# Binance API endpoint
+BASE_URL = "https://api.binance.com/api/v3"  # Global endpoint as requested by user
 
-# We'll try the global endpoint first, then fall back to UK endpoint if needed
+# API endpoint paths
 KLINES_ENDPOINT = "/klines"
 EXCHANGE_INFO_ENDPOINT = "/exchangeInfo"
 TICKER_PRICE_ENDPOINT = "/ticker/price"
 TICKER_24HR_ENDPOINT = "/ticker/24hr"
-
-# Flag to indicate if we're using UK-specific endpoints
-USING_UK_ENDPOINT = False
 
 # Get API keys from environment variables
 API_KEY = os.getenv("BINANCE_API_KEY", "")
@@ -47,11 +42,11 @@ def get_binance_signature(data, secret):
     ).hexdigest()
     return signature
 
-# Function to try Binance API endpoints (handles UK-specific access)
+# Function to try Binance API endpoints
 def try_binance_endpoints():
-    global BASE_URL, BINANCE_API_ACCESSIBLE, BINANCE_API_AUTH, USING_UK_ENDPOINT
+    global BASE_URL, BINANCE_API_ACCESSIBLE, BINANCE_API_AUTH
     
-    endpoints_to_try = [BASE_URL, UK_BASE_URL]
+    endpoints_to_try = [BASE_URL]  # Only using the main endpoint as requested
     
     for endpoint in endpoints_to_try:
         try:
@@ -63,7 +58,6 @@ def try_binance_endpoints():
                 
                 # Set the working endpoint as our base URL
                 BASE_URL = endpoint
-                USING_UK_ENDPOINT = (endpoint == UK_BASE_URL)
                 
                 print(f"Successfully connected to Binance API at {endpoint}")
                 
@@ -173,92 +167,12 @@ def generate_synthetic_candle_data(symbol, interval, start_time, end_time, limit
     This function is deprecated and will not be used.
     We now only use real data from Binance API.
     
-    Returns an empty DataFrame to prevent any synthetic data from being generated.
+    Returns an empty DataFrame with expected structure.
     """
     print(f"WARNING: Synthetic data generation requested but disabled. Only real API data will be used.")
     
     # Return empty DataFrame with expected structure
     return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    
-    # Default to 1h if interval not recognized
-    seconds_per_candle = interval_seconds.get(interval, 3600)
-    
-    # Normalize start and end times to interval boundaries
-    if isinstance(start_time, datetime):
-        start_timestamp = start_time
-    else:
-        start_timestamp = datetime.fromtimestamp(start_time/1000) if isinstance(start_time, int) else datetime.now() - timedelta(days=30)
-        
-    if isinstance(end_time, datetime):
-        end_timestamp = end_time
-    else:
-        end_timestamp = datetime.fromtimestamp(end_time/1000) if isinstance(end_time, int) else datetime.now()
-    
-    # Normalize timestamps to exact interval boundaries to avoid duplicates
-    # For example, for 1h interval, ensure timestamps are at exact hour boundaries
-    if interval in ['1h', '2h', '4h', '6h', '8h', '12h']:
-        # For hour-based intervals, normalize to exact hours
-        start_timestamp = start_timestamp.replace(minute=0, second=0, microsecond=0)
-        end_timestamp = end_timestamp.replace(minute=0, second=0, microsecond=0)
-    elif interval in ['1d', '3d', '1w']:
-        # For day-based intervals, normalize to midnight
-        start_timestamp = start_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_timestamp = end_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif interval == '1M':
-        # For month interval, normalize to first day of month
-        start_timestamp = start_timestamp.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end_timestamp = end_timestamp.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    else:
-        # For minute-based intervals, ensure timestamps are at exact minute boundaries
-        start_timestamp = start_timestamp.replace(second=0, microsecond=0)
-        end_timestamp = end_timestamp.replace(second=0, microsecond=0)
-    
-    # Calculate number of candles
-    time_diff = (end_timestamp - start_timestamp).total_seconds()
-    num_candles = min(int(time_diff / seconds_per_candle), limit)
-    
-    # Base price depends on the symbol (make popular coins have realistic starting prices)
-    base_prices = {
-        'BTCUSDT': 30000.0, 'ETHUSDT': 2000.0, 'BNBUSDT': 300.0, 'ADAUSDT': 0.5,
-        'DOGEUSDT': 0.1, 'XRPUSDT': 0.5, 'SOLUSDT': 70.0, 'DOTUSDT': 8.0
-    }
-    base_price = base_prices.get(symbol, random.uniform(1.0, 100.0))
-    
-    # Generate data with some randomness but following trends
-    data = []
-    current_price = base_price
-    timestamp = start_timestamp
-    
-    for i in range(num_candles):
-        # Each candle has some randomness but maintains a trend
-        change_percent = random.uniform(-2.0, 2.0)  # -2% to 2% change
-        close_price = current_price * (1 + change_percent/100)
-        
-        # Generate high, low, open with realistic relationships
-        high_price = max(current_price, close_price) * (1 + random.uniform(0.1, 1.0)/100)
-        low_price = min(current_price, close_price) * (1 - random.uniform(0.1, 1.0)/100)
-        open_price = current_price
-        
-        # Generate volume with some randomness
-        volume = random.uniform(100, 1000) * (base_price / 10)
-        
-        # Add row to data
-        data.append({
-            'timestamp': timestamp,
-            'open': open_price,
-            'high': high_price,
-            'low': low_price,
-            'close': close_price,
-            'volume': volume
-        })
-        
-        # Update for next candle
-        current_price = close_price
-        timestamp += timedelta(seconds=seconds_per_candle)
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(data)
-    return df
 
 def get_current_prices(symbols=None):
     """
@@ -270,17 +184,22 @@ def get_current_prices(symbols=None):
     Returns:
         Dictionary with symbol as key and current price as value or empty dict if data cannot be fetched
     """
+    # Check if backfill is still running
+    try:
+        from os.path import exists
+        if exists('.backfill_lock'):
+            print("Backfill is still running. Cannot retrieve current prices until backfill completes.")
+            return {}
+    except Exception as e:
+        print(f"Error checking backfill status: {e}")
+    
     # Check if we have API credentials - if not, return empty dict
     if not API_KEY or not API_SECRET:
         print("ERROR: No API credentials available. Cannot retrieve current prices.")
         return {}
     
-    # Try both global and UK endpoints if needed
+    # Use only the main endpoint as requested
     endpoints_to_try = [BASE_URL]
-    
-    # If we're not already using the UK endpoint and we're in the UK, also try the UK endpoint
-    if not USING_UK_ENDPOINT:
-        endpoints_to_try.append(UK_BASE_URL)
     
     for endpoint in endpoints_to_try:
         try:
@@ -327,7 +246,6 @@ def get_current_prices(symbols=None):
                                 # Update global variables at module level
                                 global_vars = globals()
                                 global_vars['BASE_URL'] = endpoint
-                                global_vars['USING_UK_ENDPOINT'] = (endpoint == UK_BASE_URL)
                                 print(f"Switching to {endpoint} for future API calls")
                         else:
                             print(f"Error fetching price for {symbol} from {endpoint}: {single_response.text}")
@@ -371,10 +289,8 @@ def get_current_prices(symbols=None):
                 # Update base URL if this endpoint worked
                 if endpoint != BASE_URL:
                     # Update global variables at module level
-                    # Properly access global variables
                     global_vars = globals()
                     global_vars['BASE_URL'] = endpoint
-                    global_vars['USING_UK_ENDPOINT'] = (endpoint == UK_BASE_URL)
                     print(f"Switching to {endpoint} for future API calls")
                 
                 # Format response based on whether it's a single symbol or multiple
@@ -445,12 +361,8 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
         # Default to now
         end_ms = int(datetime.now().timestamp() * 1000)
     
-    # Try both global and UK endpoints if needed
+    # Use only the main endpoint as requested
     endpoints_to_try = [BASE_URL]
-    
-    # If we're not already using the UK endpoint and we're in the UK, also try the UK endpoint
-    if not USING_UK_ENDPOINT:
-        endpoints_to_try.append(UK_BASE_URL)
     
     for endpoint in endpoints_to_try:
         try:
@@ -504,7 +416,6 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
                     # Update global variables at module level
                     global_vars = globals()
                     global_vars['BASE_URL'] = endpoint
-                    global_vars['USING_UK_ENDPOINT'] = (endpoint == UK_BASE_URL)
                     print(f"Switching to {endpoint} for future API calls")
                 
                 return df
@@ -570,12 +481,12 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
     recent_threshold = current_time - timedelta(days=7)  # Consider last 7 days as "recent"
     
     # If requesting recent data that includes today or yesterday, use direct API for those days
+    need_recent_data = False
+    recent_start = None
     if end_time > recent_threshold:
         recent_start = max(start_time, recent_threshold)
         historical_end = min(end_time, recent_threshold)
         need_recent_data = True
-    else:
-        need_recent_data = False
     
     try:
         # Step 1: Try to use our database data first (direct query)
@@ -619,7 +530,7 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
                                 )
                                 
                                 # Combine the database data with the API data
-                                if not df_recent.empty:
+                                if 'df_recent' in locals() and not df_recent.empty:
                                     df_combined = pd.concat([df_from_db, df_recent]).drop_duplicates(subset=['timestamp'])
                                     print(f"Combined dataset now has {len(df_combined)} records")
                                     return df_combined
@@ -632,17 +543,18 @@ def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000
                 conn.close()
         
         # Step 2: If we couldn't get enough data from the database, try direct API for recent data
-        if need_recent_data and API_KEY and API_SECRET:
+        if need_recent_data and API_KEY and API_SECRET and recent_start is not None:
             print("Trying direct Binance API for recent data...")
             df_recent = get_recent_klines_from_api(symbol, interval, start_time=recent_start, end_time=end_time)
             
             # If we got some data but need historical data too, we'll get that next
-            if not df_recent.empty and start_time < recent_threshold:
+            if 'df_recent' in locals() and not df_recent.empty and start_time < recent_threshold:
                 # We still need historical data - continue to step 3
                 historical_data_needed = True
             else:
                 # We only needed recent data or we got all we need
-                return df_recent
+                if 'df_recent' in locals():
+                    return df_recent
         
         # Step 3: Database didn't have sufficient data, try downloading from Binance Data Vision
         print(f"Trying to download from Binance Data Vision for {symbol} {interval}")
