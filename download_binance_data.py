@@ -130,60 +130,108 @@ def process_kline_data(data_content, symbol, interval):
         return None
 
 def download_monthly_klines(symbol, interval, year, month):
-    """Download klines for a specific month"""
+    """
+    Download klines for a specific month.
+    This enhanced version first fetches file listings from Binance to verify file existence
+    before downloading, which improves performance and reliability.
+    """
     # Format month with leading zero
     month_str = f"{month:02d}"
     
     # Print progress for this specific download
     print(f"    └─ Downloading {symbol}/{interval} for {year}-{month_str}...")
     
-    # Determine number of days in month
-    days_in_month = monthrange(year, month)[1]
+    # Import file listing function
+    from binance_file_listing import get_available_kline_files
     
-    # Monthly data URL - using the correct path for monthly data
-    # The URL should point to monthly klines, not daily
-    monthly_url = f"{BASE_URL}/monthly/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month_str}.zip"
+    # First check if monthly file is available
+    monthly_files = get_available_kline_files(symbol, interval, 'monthly')
+    monthly_filename = f"{symbol}-{interval}-{year}-{month_str}.zip"
+    monthly_file_info = next((f for f in monthly_files if f['name'] == monthly_filename), None)
     
-    logging.info(f"Downloading from: {monthly_url}")
+    # Monthly data URL
+    monthly_url = f"{BASE_URL}/monthly/klines/{symbol}/{interval}/{monthly_filename}"
     
-    # Try to download monthly data
-    content = download_file(monthly_url)
-    if content:
-        df = process_kline_data(content, symbol, interval)
-        if df is not None and not df.empty:
-            logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
-            print(f"       ✓ Downloaded monthly file with {len(df)} candles")
-            return df
-    
-    # If monthly data not available, try daily data for each day in month
-    logging.info(f"Monthly data not available, trying daily downloads for {symbol} {interval} {year}-{month_str}")
-    print(f"       ⚠ Monthly file not available, fetching daily files...")
-    
-    daily_dfs = []
-    days_downloaded = 0
-    start_time = time.time()
-    
-    for day in range(1, days_in_month + 1):
-        # Print progress indicator every few days
-        if day % 5 == 1 or day == days_in_month:
-            elapsed = time.time() - start_time
-            progress = (day / days_in_month) * 100
-            remaining = elapsed * (days_in_month / day - 1) if day > 0 else 0
-            print(f"       → Day {day}/{days_in_month} ({progress:.1f}%) | {days_downloaded} files found | {elapsed:.1f}s elapsed")
-            
-        day_str = f"{day:02d}"
-        daily_url = f"{BASE_URL}/daily/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month_str}-{day_str}.zip"
+    if monthly_file_info:
+        logging.info(f"Monthly file found: {monthly_filename} (size: {monthly_file_info['size']} bytes)")
+        logging.info(f"Downloading from: {monthly_url}")
         
-        content = download_file(daily_url)
+        # Try to download monthly data
+        content = download_file(monthly_url)
         if content:
             df = process_kline_data(content, symbol, interval)
             if df is not None and not df.empty:
-                daily_dfs.append(df)
-                days_downloaded += 1
-                logging.info(f"Successfully downloaded daily data for {symbol} {interval} {year}-{month_str}-{day_str}")
+                logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
+                print(f"       ✓ Downloaded monthly file with {len(df)} candles")
+                
+                # Sort dataframe by timestamp to ensure chronological order
+                df = df.sort_values('timestamp')
+                return df
+            else:
+                logging.warning(f"Downloaded monthly file but processing failed: {monthly_filename}")
+    else:
+        logging.info(f"No monthly file available for {symbol} {interval} {year}-{month_str}")
+    
+    # If we get here, we couldn't get valid data from monthly file, so try daily files
+    print(f"       ⚠ Monthly file not available or invalid, fetching daily files...")
+    
+    # Determine number of days in month
+    days_in_month = monthrange(year, month)[1]
+    
+    # Fetch available daily files
+    daily_files = get_available_kline_files(symbol, interval, 'daily')
+    
+    # Filter daily files for the current month
+    daily_files_for_month = [
+        f for f in daily_files 
+        if f['name'].startswith(f"{symbol}-{interval}-{year}-{month_str}")
+    ]
+    
+    if not daily_files_for_month:
+        logging.warning(f"No daily files found for {symbol} {interval} {year}-{month_str}")
+        print(f"       ✗ No daily files available for this month")
+        return None
+    
+    logging.info(f"Found {len(daily_files_for_month)} daily files for {symbol} {interval} {year}-{month_str}")
+    print(f"       ℹ Found {len(daily_files_for_month)} daily files for this month")
+    
+    # Process daily files in batches to optimize performance
+    daily_dfs = []
+    batch_size = 5  # Process 5 days at a time
+    total_batches = (len(daily_files_for_month) + batch_size - 1) // batch_size
+    days_downloaded = 0
+    start_time = time.time()
+    
+    # Sort files by name to ensure chronological processing
+    daily_files_for_month.sort(key=lambda x: x['name'])
+    
+    for batch_idx in range(total_batches):
+        batch_start = batch_idx * batch_size
+        batch_end = min(batch_start + batch_size, len(daily_files_for_month))
+        batch = daily_files_for_month[batch_start:batch_end]
         
-        # Add small delay to avoid overwhelming the server
-        time.sleep(0.5)
+        elapsed = time.time() - start_time
+        progress = (batch_idx / total_batches) * 100
+        remaining = elapsed * (total_batches / (batch_idx + 1) - 1) if batch_idx > 0 else 0
+        
+        print(f"       → Batch {batch_idx+1}/{total_batches} ({progress:.1f}%) | {days_downloaded} files processed | {elapsed:.1f}s elapsed")
+        
+        # Process files in this batch
+        for file_info in batch:
+            filename = file_info['name']
+            day_str = filename.split('-')[-1].split('.')[0]  # Extract day from filename
+            url = f"{BASE_URL}/daily/klines/{symbol}/{interval}/{filename}"
+            
+            content = download_file(url)
+            if content:
+                df = process_kline_data(content, symbol, interval)
+                if df is not None and not df.empty:
+                    daily_dfs.append(df)
+                    days_downloaded += 1
+                    logging.info(f"Successfully downloaded daily data for {filename}")
+            
+            # Small delay to be nice to the server
+            time.sleep(0.2)
     
     if daily_dfs:
         # Combine all daily dataframes for this month
@@ -193,11 +241,11 @@ def download_monthly_klines(symbol, interval, year, month):
         # Sort by timestamp
         combined_df = combined_df.sort_values('timestamp')
         
-        print(f"       ✓ Downloaded {days_downloaded}/{days_in_month} daily files with total {len(combined_df)} candles")
+        print(f"       ✓ Downloaded {days_downloaded}/{len(daily_files_for_month)} daily files with total {len(combined_df)} candles")
         return combined_df
     
-    logging.warning(f"No data available for {symbol} {interval} {year}-{month_str}")
-    print(f"       ✗ No data available for this month")
+    logging.warning(f"No valid data available for {symbol} {interval} {year}-{month_str}")
+    print(f"       ✗ No valid data available for this month")
     return None
 
 def download_symbol_interval_data(symbol, interval, start_date, end_date=None):
@@ -369,12 +417,37 @@ def calculate_and_save_indicators(df, symbol, interval):
 
 def backfill_symbol_interval(symbol, interval, lookback_years=3):
     """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
-    # Calculate start date
-    # Using a fixed reference date (2024-12-31) to ensure we're downloading historical data
-    # This addresses an issue where the system date might be set to a future date
+    # Import file listing functions
+    from binance_file_listing import get_date_range_for_symbol_interval, get_available_kline_files
+    
+    print(f"\n🔍 Scanning available Binance data for {symbol}/{interval}...")
+    
+    # First, get the full date range of available data from Binance
+    min_date, max_date = get_date_range_for_symbol_interval(symbol, interval)
+    
+    if not min_date or not max_date:
+        logging.warning(f"No data files found on Binance for {symbol}/{interval}")
+        print(f"  └─ {symbol}/{interval}: No data files available on Binance ✗")
+        return 0
+    
+    # Convert to date objects for comparison
+    min_date = min_date.date()
+    max_date = max_date.date()
+    
+    # Using a fixed reference date as a maximum end date to avoid issues with future-dated files
     reference_date = date(2024, 12, 31)  # Using 2024-12-31 as a fixed reference
-    end_date = reference_date
-    start_date = date(end_date.year - lookback_years, end_date.month, 1)
+    
+    # Adjust max_date if it exceeds reference_date
+    if max_date > reference_date:
+        logging.info(f"Limiting max date to reference date {reference_date} (was {max_date})")
+        max_date = reference_date
+    
+    # Calculate start_date based on lookback_years from max_date
+    calculated_start_date = date(max_date.year - lookback_years, max_date.month, 1)
+    
+    # Use the later of min_date and calculated_start_date as our start date
+    start_date = max(min_date, calculated_start_date)
+    end_date = max_date
     
     # Getting the year and month values
     start_year = start_date.year
@@ -382,9 +455,11 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     end_year = end_date.year
     end_month = end_date.month
     
-    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date} (using 2024-12-31 as reference date)")
+    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date}")
+    print(f"  ├─ Available data range: {min_date} to {max_date}")
+    print(f"  ├─ Selected data range: {start_date} to {end_date}")
     
-    # Import our new functions to check existing data
+    # Import our functions to check existing data
     from database import get_existing_data_months, has_complete_month_data
     
     # Get all year-month combinations in the range
@@ -402,6 +477,8 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
         else:
             current_month += 1
     
+    print(f"  ├─ Total months to check: {len(all_months)}")
+    
     # Get months that already have data
     existing_months = get_existing_data_months(symbol, interval, start_year, start_month, end_year, end_month)
     
@@ -410,6 +487,9 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     for year, month in all_months:
         if (year, month) not in existing_months or not has_complete_month_data(symbol, interval, year, month):
             months_to_process.append((year, month))
+    
+    # Sort months chronologically (oldest first)
+    months_to_process.sort()
     
     if not months_to_process:
         logging.info(f"All data for {symbol} {interval} from {start_date} to {end_date} already exists in database. Skipping.")
