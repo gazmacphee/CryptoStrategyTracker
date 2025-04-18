@@ -271,8 +271,7 @@ def download_symbol_interval_data(symbol, interval, start_date, end_date=None):
         end_date = end_date.date()
     
     # Adjust for future dates - we can only download historical data
-    # Data on Binance is only available up to 2024-04-17 (as of testing time)
-    MAX_AVAILABLE_DATE = date(2024, 4, 17)
+    MAX_AVAILABLE_DATE = date.today()  # Use current date as maximum
     
     if start_date > MAX_AVAILABLE_DATE:
         logging.warning(f"Start date {start_date} is in the future. Adjusting to available data period.")

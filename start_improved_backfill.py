@@ -114,8 +114,8 @@ def process_symbol_interval(symbol, interval, max_months=36):
             logging.warning(f"Could not get date range from Binance for {symbol}/{interval}. Using fallback approach.")
             print(f"  ⚠️ Could not get file listings from Binance for {symbol}/{interval}. Using fallback time range.")
             
-            # Use fixed reference date approach - Binance typically has data back to 2017
-            reference_date = date(2024, 12, 31)  # Fixed reference date (Dec 31, 2024)
+            # Use current date as reference to avoid future dates
+            reference_date = date.today()
             lookback_years = 3  # Default for initial implementation
             
             # Calculate start date as 3 years before the reference date
