@@ -250,11 +250,92 @@ def download_symbol_interval_data(symbol, interval, start_date, end_date=None):
     return None
 
 def calculate_and_save_indicators(df, symbol, interval):
-    """Calculate technical indicators and save to database"""
+    """
+    Calculate technical indicators with lookback data and save to database.
+    This function now retrieves previous data from the database to ensure
+    accurate indicator calculations at the beginning of new periods.
+    """
     if df is None or df.empty:
         return
     
-    # Add technical indicators
+    # Import get_historical_data function
+    from database import get_historical_data
+    
+    # Calculate the maximum lookback window needed for indicators
+    # RSI typically uses 14 periods, MACD 26, BB uses 20, we'll use 30 to be safe
+    lookback_window = 30
+    
+    # Determine the earliest timestamp in our dataset
+    earliest_timestamp = df['timestamp'].min()
+    
+    # Calculate a lookback start date for retrieving prior data from DB
+    # Convert timestamp to datetime if it's not already
+    if isinstance(earliest_timestamp, (pd.Timestamp, datetime)):
+        lookback_start = earliest_timestamp - pd.Timedelta(days=lookback_window if interval == '1d' 
+                                                         else lookback_window/6 if interval == '4h'
+                                                         else lookback_window/24)
+    else:
+        # If timestamp is not a datetime object, log warning and continue without lookback
+        logging.warning(f"Unable to determine lookback period for {symbol} {interval}, timestamp type: {type(earliest_timestamp)}")
+        
+        # Add technical indicators without lookback
+        df = indicators.add_bollinger_bands(df)
+        df = indicators.add_rsi(df)
+        df = indicators.add_macd(df)
+        df = indicators.add_ema(df)
+        
+        # Evaluate trading signals
+        df = evaluate_buy_sell_signals(df)
+        
+        # Save indicators to database
+        save_indicators(df, symbol, interval)
+        logging.info(f"Saved indicators for {symbol} {interval} without lookback data")
+        return
+    
+    # Get previous data from database
+    try:
+        # We need to adjust the end_time to be just before our current data starts
+        # to avoid duplicates
+        lookback_end = earliest_timestamp - pd.Timedelta(seconds=1)
+        
+        logging.info(f"Retrieving lookback data from {lookback_start} to {lookback_end} for {symbol} {interval}")
+        
+        previous_data = get_historical_data(symbol, interval, lookback_start, lookback_end)
+        
+        if not previous_data.empty:
+            logging.info(f"Using {len(previous_data)} previous records for indicator calculations")
+            
+            # Combine previous data with current data
+            combined_df = pd.concat([previous_data, df], ignore_index=True)
+            # Remove any duplicates
+            combined_df = combined_df.drop_duplicates(subset=['timestamp'])
+            # Sort by timestamp
+            combined_df = combined_df.sort_values('timestamp')
+            
+            # Calculate indicators on the combined dataset
+            combined_df = indicators.add_bollinger_bands(combined_df)
+            combined_df = indicators.add_rsi(combined_df)
+            combined_df = indicators.add_macd(combined_df)
+            combined_df = indicators.add_ema(combined_df)
+            
+            # Evaluate trading signals
+            combined_df = evaluate_buy_sell_signals(combined_df)
+            
+            # Only save indicators for the current data, not the lookback data
+            current_data_indicators = combined_df[combined_df['timestamp'] >= earliest_timestamp].copy()
+            
+            # Save indicators to database
+            save_indicators(current_data_indicators, symbol, interval)
+            logging.info(f"Saved indicators for {symbol} {interval} with lookback data")
+            return
+    except Exception as e:
+        logging.error(f"Error retrieving lookback data: {e}")
+    
+    # If we couldn't get lookback data or any other issue occurred, fall back to calculating 
+    # indicators on just the current data
+    logging.warning(f"Falling back to calculating indicators without lookback for {symbol} {interval}")
+    
+    # Add technical indicators without lookback
     df = indicators.add_bollinger_bands(df)
     df = indicators.add_rsi(df)
     df = indicators.add_macd(df)
@@ -265,7 +346,7 @@ def calculate_and_save_indicators(df, symbol, interval):
     
     # Save indicators to database
     save_indicators(df, symbol, interval)
-    logging.info(f"Saved indicators for {symbol} {interval}")
+    logging.info(f"Saved indicators for {symbol} {interval} without lookback data")
 
 def backfill_symbol_interval(symbol, interval, lookback_years=3):
     """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
