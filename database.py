@@ -6,6 +6,34 @@ from psycopg2 import sql
 
 # Database configuration - get from environment variables with defaults
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+print(f"Original DATABASE_URL from environment: {DATABASE_URL}")
+
+# Fix for Docker environment remnants
+if DATABASE_URL == "db:5432/crypto" or DATABASE_URL == "postgresql://postgres:postgres@db:5432/crypto":
+    print("Detected Docker database URL, checking for local PostgreSQL database")
+    
+    # Try local PostgreSQL database first (with user's credentials)
+    local_user = "postgres"
+    local_password = "2212"
+    local_host = "localhost"
+    local_port = "5432"
+    local_db = "crypto"
+    local_url = f"postgresql://{local_user}:{local_password}@{local_host}:{local_port}/{local_db}"
+    
+    try:
+        # Test connection to local database
+        import psycopg2
+        test_conn = psycopg2.connect(local_url)
+        test_conn.close()
+        print(f"Successfully connected to local PostgreSQL database")
+        DATABASE_URL = local_url
+    except Exception as local_err:
+        print(f"Unable to connect to local PostgreSQL database: {local_err}")
+        # Fall back to Neon PostgreSQL configuration
+        DATABASE_URL = os.getenv("DATABASE_URL_NEON", "postgresql://neondb_owner:npg_8TbOZL2KvPxB@ep-silent-star-a5groo1f.us-east-2.aws.neon.tech/neondb?sslmode=require")
+    
+    print(f"Updated DATABASE_URL: {DATABASE_URL}")
+
 # Parse DATABASE_URL if available
 if DATABASE_URL:
     # Parse the URL to get components
@@ -24,6 +52,9 @@ if DATABASE_URL:
                 
             if "/" in host_port_db:
                 host_port, DB_NAME = host_port_db.split("/", 1)
+                # Remove any query parameters
+                if "?" in DB_NAME:
+                    DB_NAME = DB_NAME.split("?", 1)[0]
             else:
                 host_port = host_port_db
                 DB_NAME = ""
@@ -33,13 +64,18 @@ if DATABASE_URL:
             else:
                 DB_HOST = host_port
                 DB_PORT = "5432"
+            
+            print(f"Parsed URL - Host: {DB_HOST}, Port: {DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
         else:
+            # Non-postgresql:// URL format
+            print(f"Non-standard DATABASE_URL format: {DATABASE_URL}")
             # Fallback to environment variables
             DB_HOST = os.getenv("PGHOST", "localhost")
             DB_PORT = os.getenv("PGPORT", "5432")
             DB_NAME = os.getenv("PGDATABASE", "crypto")
             DB_USER = os.getenv("PGUSER", "postgres")
             DB_PASS = os.getenv("PGPASSWORD", "postgres")
+            print(f"Using environment variables - Host: {DB_HOST}, Port: {DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
     except Exception as e:
         print(f"Error parsing DATABASE_URL: {e}, using environment variables instead")
         DB_HOST = os.getenv("PGHOST", "localhost")
@@ -47,16 +83,19 @@ if DATABASE_URL:
         DB_NAME = os.getenv("PGDATABASE", "crypto")
         DB_USER = os.getenv("PGUSER", "postgres")
         DB_PASS = os.getenv("PGPASSWORD", "postgres")
+        print(f"After error - Host: {DB_HOST}, Port: {DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
 else:
     # Use environment variables
+    print("No DATABASE_URL found, using individual environment variables")
     DB_HOST = os.getenv("PGHOST", "localhost")
     DB_PORT = os.getenv("PGPORT", "5432")
     DB_NAME = os.getenv("PGDATABASE", "crypto")
     DB_USER = os.getenv("PGUSER", "postgres")
     DB_PASS = os.getenv("PGPASSWORD", "postgres")
+    print(f"Environment variables - Host: {DB_HOST}, Port: {DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
 
 def get_db_connection():
-    """Create a database connection with retry capability for Docker environment"""
+    """Create a database connection with retry capability for various environments"""
     import time
     
     # Maximum number of connection attempts
@@ -66,12 +105,52 @@ def get_db_connection():
     while attempt < max_attempts:
         attempt += 1
         try:
-            # Try connecting using DATABASE_URL directly first if available
-            if DATABASE_URL:
+            # Fix for Docker remnants - check if DATABASE_URL is Docker format
+            if DATABASE_URL == "db:5432/crypto" or DATABASE_URL == "postgresql://postgres:postgres@db:5432/crypto":
+                print("Detected Docker database URL in connection function, trying local PostgreSQL database")
+                
+                # Try local PostgreSQL database first (with user's credentials)
+                local_user = "postgres"
+                local_password = "2212"
+                local_host = "localhost"
+                local_port = "5432"
+                local_db = "crypto"
+                local_url = f"postgresql://{local_user}:{local_password}@{local_host}:{local_port}/{local_db}"
+                
+                try:
+                    # Try connecting to local database
+                    conn = psycopg2.connect(local_url)
+                    print("Successfully connected to local PostgreSQL database")
+                    return conn
+                except Exception as local_err:
+                    print(f"Unable to connect to local PostgreSQL database: {local_err}")
+                    # Fall back to Neon PostgreSQL
+                    actual_url = os.getenv("DATABASE_URL_NEON", 
+                        "postgresql://neondb_owner:npg_8TbOZL2KvPxB@ep-silent-star-a5groo1f.us-east-2.aws.neon.tech/neondb?sslmode=require")
+                    print(f"Using alternative URL: {actual_url.split('@')[1] if '@' in actual_url else 'custom-url'}")
+                    conn = psycopg2.connect(actual_url)
+                    print("Successfully connected using alternative DATABASE_URL")
+                    return conn
+            # Try connecting using DATABASE_URL directly if available and not Docker format
+            elif DATABASE_URL:
                 print(f"Connecting to database using DATABASE_URL: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'custom-url'}")
-                conn = psycopg2.connect(DATABASE_URL)
-                print("Successfully connected using DATABASE_URL")
-                return conn
+                try:
+                    conn = psycopg2.connect(DATABASE_URL)
+                    print("Successfully connected using DATABASE_URL")
+                    return conn
+                except Exception as url_error:
+                    print(f"Error connecting with DATABASE_URL: {url_error}, trying individual parameters")
+                    # Fall back to individual parameters
+                    print(f"Connecting to database at {DB_HOST}:{DB_PORT}/{DB_NAME} with user {DB_USER}")
+                    conn = psycopg2.connect(
+                        host=DB_HOST,
+                        port=DB_PORT,
+                        database=DB_NAME,
+                        user=DB_USER,
+                        password=DB_PASS
+                    )
+                    print("Successfully connected using individual parameters")
+                    return conn
             else:
                 # Fall back to individual parameters
                 print(f"Connecting to database at {DB_HOST}:{DB_PORT}/{DB_NAME} with user {DB_USER}")

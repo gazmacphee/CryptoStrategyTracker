@@ -24,33 +24,57 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 
 1. Clone this repository:
    ```
-   git clone <repository-url>
-   cd cryptocurrency-trading-platform
+   git clone https://github.com/gazmacphee/CryptoStrategyTracker.git
+   cd CryptoStrategyTracker
    ```
 
 2. Install dependencies:
    ```
-   pip install -e .
-   ```
-   
-   Or install from dependencies.txt:
-   ```
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r dependencies.txt
    ```
 
-3. Set up environment variables:
+3. Set up your local PostgreSQL database:
+   
+   **Option 1:** Use the automated setup script (recommended):
+   ```bash
+   # Make sure PostgreSQL is running
+   python check_local_db.py
+   ```
+   
+   This script will:
+   - Check if the `crypto` database exists, and create it if needed
+   - Create all required tables with proper indexes
+   - Grant necessary permissions to the postgres user
+   - Update your `.env` file with the correct database connection settings
+   
+   **Option 2:** Manual setup by creating a `.env` file:
+   ```
+   # Create .env file from example
+   cp .env.example .env
+   
+   # Edit the .env file to update database connection and API keys
+   ```
+   
+   Make sure your `.env` file contains valid database connection information:
    ```
    # Database configuration
-   export DATABASE_URL=postgresql://username:password@hostname:port/database
+   DATABASE_URL=postgresql://postgres:2212@localhost:5432/crypto
+   PGHOST=localhost
+   PGPORT=5432
+   PGUSER=postgres
+   PGPASSWORD=2212
+   PGDATABASE=crypto
    
    # API Keys (optional but recommended)
-   export BINANCE_API_KEY=your_binance_api_key
-   export BINANCE_API_SECRET=your_binance_api_secret
-   export OPENAI_API_KEY=your_openai_api_key
+   BINANCE_API_KEY=your_binance_api_key
+   BINANCE_API_SECRET=your_binance_api_secret
+   OPENAI_API_KEY=your_openai_api_key
    
    # Application settings
-   export RESET_DB=false
-   export BACKFILL_ON_START=true
+   RESET_DB=false
+   BACKFILL_ON_START=true
    ```
 
 4. Run the application:
@@ -60,8 +84,25 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 
 5. Access the application in your browser:
    ```
-   http://localhost:5000
+   http://localhost:5001
    ```
+
+6. Populate your database with cryptocurrency data:
+   ```
+   python backfill_database.py
+   ```
+   
+   Or set `BACKFILL_ON_START=true` in your `.env` file to automatically backfill when starting the app.
+
+## Using Your Local PostgreSQL Database
+
+The application has been configured to automatically detect and use your local PostgreSQL database:
+
+- **Credentials**: Username "postgres" with password "2212"
+- **Database**: The application will create a "crypto" database if it doesn't exist
+- **Connection**: The application will automatically try to connect to localhost:5432
+
+See `local_db_setup_guide.md` for detailed instructions on working with your local database.
 
 ## Environment Variables
 
