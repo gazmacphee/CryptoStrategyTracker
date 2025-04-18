@@ -26,8 +26,30 @@ SYMBOLS = [
 
 INTERVALS = ['15m', '30m', '1h', '4h', '1d']
 
+def check_binance_historical_data_installed():
+    """Check if binance-historical-data is installed"""
+    try:
+        subprocess.run(['binance-historical-data', '--version'], 
+                      capture_output=True, text=True)
+        return True
+    except FileNotFoundError:
+        logging.error("binance-historical-data not found. Installing...")
+        try:
+            subprocess.run(['npm', 'install', '-g', 'binance-historical-data'], 
+                         check=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to install binance-historical-data: {e}")
+            return False
+    except Exception as e:
+        logging.error(f"Error checking binance-historical-data: {e}")
+        return False
+
 def download_klines(symbol, interval, start_date=None):
     """Download klines using binance-historical-data"""
+    if not check_binance_historical_data_installed():
+        raise RuntimeError("binance-historical-data package not available")
+        
     try:
         cmd = ['binance-historical-data', '--symbol', symbol, '--interval', interval]
         if start_date:
