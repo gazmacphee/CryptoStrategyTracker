@@ -1,5 +1,6 @@
 import os
 import toml
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -25,4 +26,9 @@ Path(".streamlit").mkdir(exist_ok=True)
 with open(".streamlit/config.toml", "w") as f:
     toml.dump(config, f)
 
+# Print the port for informational purposes
 print(f"Successfully generated Streamlit config with port {port}")
+
+# For Replit specific environment, we'll set environment variables to ensure
+# this port is consistent throughout the application and during workflow execution
+os.environ["STREAMLIT_SERVER_PORT"] = port

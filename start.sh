@@ -57,9 +57,17 @@ if [ "$BACKFILL_ON_START" = "true" ]; then
   echo "Backfill process started with PID: $BACKFILL_PID"
 fi
 
+# Generate Streamlit config using port from .env
+echo "Generating Streamlit configuration..."
+python3 generate_streamlit_config.py
+
+# Get port from .env file with fallback to 5001
+APP_PORT=${APP_PORT:-5001}
+echo "Using application port: $APP_PORT"
+
 # Start Streamlit app
 echo "Starting Streamlit application..."
-streamlit run app.py --server.port 5000
+streamlit run app.py --server.port $APP_PORT
 
 # Cleanup background process on exit
 cleanup() {
