@@ -42,10 +42,15 @@ logs/
 
 # Local backfill lock files
 *.lock
+.backfill_lock
+backfill_progress.json
 
 # Runtime files
 *.pid
 *.pyc
+
+# Archived files
+archive/
 
 # IDE specific files
 .idea/
