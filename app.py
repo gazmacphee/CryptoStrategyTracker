@@ -250,8 +250,10 @@ def get_data(symbol, interval, lookback_days, start_date=None, end_date=None):
         end_date: Optional specific end date (defaults to now)
     """
     # Calculate date range if not explicitly provided
+    # Use a fixed reference date to avoid issues with future-dated system clock
     if end_date is None:
-        end_time = datetime.now()
+        reference_date = datetime(2023, 1, 1)  # Using 2023-01-01 as a fixed reference date
+        end_time = reference_date
     else:
         end_time = end_date
         
