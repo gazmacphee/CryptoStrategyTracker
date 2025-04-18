@@ -287,6 +287,9 @@ def main():
     # Start data loading process on app startup
     if 'initial_backfill_started' not in st.session_state:
         st.session_state.initial_backfill_started = True
+        # Show initial message about data loading
+        st.sidebar.info("⏳ Initial data setup in progress. This only happens once and may take 5-10 minutes. The application will become more responsive after data is loaded.")
+        
         # Start the background backfill only if not already running
         lock_file = ".backfill_lock"
         if not os.path.exists(lock_file):
@@ -495,6 +498,9 @@ def main():
                 st.info(f"Latest data for {symbol} ({interval}) from: {last_update_for_interval.strftime('%Y-%m-%d %H:%M:%S')} GMT")
             
             with st.spinner(f"Fetching {symbol} data..."):
+                # Show a more informative message during initial data load
+                st.info("Loading cryptocurrency data. This may take a few minutes during the initial setup as historical data is being downloaded and processed. Data is being cached for faster access in future sessions.")
+                
                 # Use the cached data function with appropriate parameters
                 if use_custom_dates:
                     df = get_cached_data(symbol, binance_interval, lookback_days, start_date, end_date)
