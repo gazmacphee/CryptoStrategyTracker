@@ -31,6 +31,8 @@ API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 BINANCE_API_ACCESSIBLE = False
 # Flag to check if we have valid API credentials
 BINANCE_API_AUTH = False
+# Flag to check if we're in a geo-restricted region for Binance
+BINANCE_API_GEO_RESTRICTED = False
 
 # Helper function to generate API signatures for authenticated requests
 def get_binance_signature(data, secret):
@@ -44,7 +46,7 @@ def get_binance_signature(data, secret):
 
 # Function to try Binance API endpoints
 def try_binance_endpoints():
-    global BASE_URL, BINANCE_API_ACCESSIBLE, BINANCE_API_AUTH
+    global BASE_URL, BINANCE_API_ACCESSIBLE, BINANCE_API_AUTH, BINANCE_API_GEO_RESTRICTED
     
     endpoints_to_try = [BASE_URL]  # Only using the main endpoint as requested
     
@@ -93,6 +95,13 @@ def try_binance_endpoints():
                             BINANCE_API_AUTH = True
                             print(f"API credentials are valid on {endpoint}")
                             return True  # Successfully connected and authenticated
+                        elif auth_response.status_code == 451 or ('restricted location' in auth_response.text.lower()):
+                            # This is a geographical restriction error
+                            BINANCE_API_GEO_RESTRICTED = True
+                            print(f"Binance API is not available in your region. The application will use backfilled historical data.")
+                            BINANCE_API_ACCESSIBLE = False
+                            BINANCE_API_AUTH = False
+                            return False
                         else:
                             print(f"API credentials could not be verified on {endpoint}: {auth_response.text}")
                     except Exception as auth_err:
@@ -100,6 +109,11 @@ def try_binance_endpoints():
                 
                 # Return True even if auth failed (we still have connectivity)
                 return True
+            elif response.status_code == 451 or ('restricted location' in str(response.text).lower()):
+                # This is a geographical restriction error
+                BINANCE_API_GEO_RESTRICTED = True
+                print(f"Binance API is not available in your region. The application will use backfilled historical data.")
+                return False
             else:
                 print(f"Could not access Binance API at {endpoint}: {response.status_code}")
         
@@ -113,11 +127,15 @@ def try_binance_endpoints():
 # Try to access Binance API to check if it's accessible
 try_binance_endpoints()
 
-# Force use of Binance API if we have API keys, regardless of location restrictions
-if API_KEY and API_SECRET:
+# Force use of Binance API if we have API keys, ONLY if we're not in a geo-restricted region
+if API_KEY and API_SECRET and not BINANCE_API_GEO_RESTRICTED:
     print("API keys found - forcing use of real Binance API data")
     BINANCE_API_ACCESSIBLE = True
     BINANCE_API_AUTH = True
+elif BINANCE_API_GEO_RESTRICTED:
+    print("API keys found but we're in a geo-restricted region. Using backfilled data instead.")
+    BINANCE_API_ACCESSIBLE = False
+    BINANCE_API_AUTH = False
 
 def get_available_symbols(quote_asset="USDT", limit=30):
     """Get available trading pairs from Binance"""
@@ -196,6 +214,11 @@ def get_current_prices(symbols=None):
     # Check if we have API credentials - if not, return empty dict
     if not API_KEY or not API_SECRET:
         print("ERROR: No API credentials available. Cannot retrieve current prices.")
+        return {}
+    
+    # Skip API calls if we're in a geo-restricted region
+    if BINANCE_API_GEO_RESTRICTED:
+        print("Skipping API calls for current prices because we're in a geo-restricted region.")
         return {}
     
     # Use only the main endpoint as requested
@@ -332,6 +355,11 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
         print("No API credentials available for direct Binance API access")
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     
+    # Skip API calls if we're in a geo-restricted region
+    if BINANCE_API_GEO_RESTRICTED:
+        print("Skipping API calls for recent data because we're in a geo-restricted region.")
+        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    
     # Convert timestamps to milliseconds for API
     if start_time:
         if isinstance(start_time, datetime):
@@ -413,6 +441,14 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
                     print(f"Switching to {endpoint} for future API calls")
                 
                 return df
+            elif response.status_code == 451 or ('restricted location' in response.text.lower()):
+                # This is a geographical restriction error
+                print(f"Binance API is not available in your region. The application will use backfilled historical data instead.")
+                # Use a global flag to avoid repeated API attempts if we know we're in a restricted region
+                global BINANCE_API_GEO_RESTRICTED
+                BINANCE_API_GEO_RESTRICTED = True
+                # Continue to the next endpoint if available, though it's likely all will fail with the same error
+                return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             else:
                 print(f"Error fetching data from API at {endpoint}: {response.text}")
                 # Continue to the next endpoint if available
