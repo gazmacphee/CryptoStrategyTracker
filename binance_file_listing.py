@@ -10,7 +10,7 @@ import re
 import time
 from datetime import datetime
 import xml.etree.ElementTree as ET
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Union, Any
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +55,10 @@ def parse_xml_listing(xml_content: str) -> List[Dict]:
     Parse an XML directory listing and extract file/directory information.
     Returns a list of dictionaries with keys: name, size, type, last_modified
     """
+    if not xml_content:
+        logging.error("Empty XML content provided to parse_xml_listing")
+        return []
+        
     try:
         # Parse XML content
         root = ET.fromstring(xml_content)
@@ -63,13 +67,27 @@ def parse_xml_listing(xml_content: str) -> List[Dict]:
         # Extract items
         items = []
         for content in root.findall('.//s3:Contents', namespace):
-            key = content.find('s3:Key', namespace).text
-            size = int(content.find('s3:Size', namespace).text)
-            last_modified = content.find('s3:LastModified', namespace).text
+            key_element = content.find('s3:Key', namespace)
+            size_element = content.find('s3:Size', namespace) 
+            last_modified_element = content.find('s3:LastModified', namespace)
             
-            # Convert to readable format
-            name = os.path.basename(key)
-            path = os.path.dirname(key)
+            # Skip items with missing elements
+            if not key_element or not size_element or not last_modified_element:
+                continue
+                
+            # Get text values, defaulting to empty string if None
+            key = key_element.text or ""
+            size_text = size_element.text or "0"
+            last_modified = last_modified_element.text or ""
+            
+            try:
+                size = int(size_text)
+            except (ValueError, TypeError):
+                size = 0
+                
+            # Convert to readable format (safely)
+            name = os.path.basename(key) if key else ""
+            path = os.path.dirname(key) if key else ""
             is_directory = name == '' or name.endswith('/')
             
             items.append({
@@ -125,7 +143,7 @@ def get_available_kline_files(symbol: str, interval: str, file_type: str = 'mont
     
     return zip_files
 
-def extract_date_from_filename(filename: str) -> Optional[Tuple[int, int, int]]:
+def extract_date_from_filename(filename: str) -> Optional[Tuple[int, int, Optional[int]]]:
     """
     Extract year, month, and day (if present) from a kline filename.
     Returns a tuple of (year, month, day) or None if the pattern doesn't match.

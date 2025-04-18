@@ -320,19 +320,47 @@ def main():
         # Kill any existing backfill processes before starting a new one
         if st.session_state.backfill_started:
             try:
-                # Find and kill any running backfill_database.py processes
+                # Find and kill any running backfill processes
                 subprocess.run(["pkill", "-f", "backfill_database.py"], 
                               stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                subprocess.run(["pkill", "-f", "start_improved_backfill.py"], 
+                              stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                # Remove any existing lock file
+                if os.path.exists(".backfill_lock"):
+                    os.remove(".backfill_lock")
                 time.sleep(1)  # Give it a second to clean up
             except Exception:
                 pass  # Ignore errors with killing process
         
-        # Start a new continuous background update with fixed 15 minute interval
-        st.session_state.backfill_thread = run_background_backfill(
-            continuous=True,  # Run continuously
-            full=False,       # Start with quick update
-            interval_minutes=15  # Always update every 15 minutes - do not change
-        )
+        # Check if we should use the improved backfill process
+        use_improved_backfill = True  # Set to True to use new process
+                
+        if use_improved_backfill:
+            try:
+                # Start the improved backfill process
+                logging.info("Starting improved backfill process")
+                from start_improved_backfill import start_background_backfill
+                
+                # Start backfill in background with continuous mode
+                st.session_state.backfill_thread = start_background_backfill(
+                    continuous=True  # Run continuously with 15-min intervals (default)
+                )
+                logging.info("Improved backfill process started successfully")
+            except Exception as e:
+                logging.error(f"Error starting improved backfill: {e}")
+                # Fall back to original backfill if improved version fails
+                st.session_state.backfill_thread = run_background_backfill(
+                    continuous=True,  # Run continuously
+                    full=False,       # Start with quick update
+                    interval_minutes=15  # Always update every 15 minutes
+                )
+        else:
+            # Use the original backfill process
+            st.session_state.backfill_thread = run_background_backfill(
+                continuous=True,  # Run continuously
+                full=False,       # Start with quick update
+                interval_minutes=15  # Always update every 15 minutes - do not change
+            )
         st.session_state.backfill_started = True
         st.session_state.backfill_start_time = current_time
         st.info("Continuous database updates started in the background. The database will be regularly updated with the latest prices, indicators, and trading signals.")
@@ -2678,4 +2706,22 @@ def main():
             st.text(traceback.format_exc())
 
 if __name__ == "__main__":
+    # Try to start improved backfill process at application startup
+    try:
+        # Check if a backfill process is already running
+        if not os.path.exists(".backfill_lock"):
+            logging.info("Starting improved backfill process at application startup")
+            from start_improved_backfill import start_background_backfill
+            
+            # Start backfill in background with continuous mode set to False
+            # (we'll run it once at startup, then the UI component can run it continuously)
+            backfill_thread = start_background_backfill(continuous=False)
+            logging.info("Improved backfill process started at application startup")
+        else:
+            logging.info("Backfill process already running, skipping startup backfill")
+    except Exception as e:
+        logging.error(f"Failed to start improved backfill at startup: {e}")
+        logging.info("Will attempt to start backfill through UI component instead")
+    
+    # Start the main Streamlit application
     main()
