@@ -1,48 +1,22 @@
 """
-Script to download historical cryptocurrency data from Binance Data Vision repository
-and populate the database with real data.
-
-This script will:
-1. Download data for specified symbols and intervals going back 3 years
-2. Process and normalize the data
-3. Save it to the database
-4. Calculate and save technical indicators
-
-Data source: https://data.binance.vision/
+Script to download historical cryptocurrency data using binance-historical-data npm package
 """
 
 import os
 import sys
 import time
-import requests
+import json
+import subprocess
+from datetime import datetime, timedelta
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta, date
-import zipfile
-import io
-from calendar import monthrange
 import logging
 
-# Import project modules
-from database import create_tables, save_historical_data, save_indicators
+from database import save_historical_data, get_db_connection
 import indicators
 from strategy import evaluate_buy_sell_signals
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('binance_data_download.log')
-    ]
-)
-
-# Binance Data Vision base URL
-BASE_URL = "https://data.binance.vision/data/spot"
-
-# Lock file to prevent multiple processes
-LOCK_FILE = ".backfill_lock"
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Symbols and intervals to download
 SYMBOLS = [
@@ -50,614 +24,86 @@ SYMBOLS = [
     "SOLUSDT", "DOTUSDT", "LTCUSDT", "LINKUSDT", "MATICUSDT", "AVAXUSDT"
 ]
 
-# Intervals to download (excluding 1m, 3m, 5m as requested)
-INTERVALS = [
-    "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"
-]
+INTERVALS = ['15m', '30m', '1h', '4h', '1d']
 
-def download_file(url):
-    """Download a file from a URL and return its content"""
-    logging.info(f"Downloading from: {url}")
+def download_klines(symbol, interval, start_date=None):
+    """Download klines using binance-historical-data"""
     try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return response.content
-        else:
-            logging.error(f"Failed to download {url}. Status code: {response.status_code}")
+        cmd = ['binance-historical-data', '--symbol', symbol, '--interval', interval]
+        if start_date:
+            cmd.extend(['--startDate', start_date.strftime('%Y-%m-%d')])
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logging.error(f"Error downloading data: {result.stderr}")
             return None
+
+        # Parse the output into DataFrame
+        data = json.loads(result.stdout)
+        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+
     except Exception as e:
-        logging.error(f"Error downloading {url}: {e}")
+        logging.error(f"Error downloading klines: {e}")
         return None
 
-def process_kline_data(data_content, symbol, interval):
-    """Process kline data from a ZIP file content"""
-    if not data_content:
-        return None
-    
-    try:
-        # Extract ZIP file to memory
-        with zipfile.ZipFile(io.BytesIO(data_content)) as zip_file:
-            # CSV files typically have the same name as the ZIP file
-            csv_files = [f for f in zip_file.namelist() if f.endswith('.csv')]
-            if not csv_files:
-                logging.warning(f"No CSV files found in the ZIP for {symbol} {interval}")
-                return None
-            
-            # Extract data from CSV
-            with zip_file.open(csv_files[0]) as csv_file:
-                # Binance kline data columns
-                columns = [
-                    'open_time', 'open', 'high', 'low', 'close', 'volume',
-                    'close_time', 'quote_asset_volume', 'number_of_trades',
-                    'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-                ]
-                
-                df = pd.read_csv(csv_file, header=None, names=columns)
-                
-                # Fix for timestamp issues - Use safer timestamp conversion
-                try:
-                    # Convert timestamp columns as seconds instead of milliseconds if they're very large
-                    if df['open_time'].iloc[0] > 32503680000000:  # Beyond year 3000 in ms
-                        logging.warning(f"Found very large timestamps, treating as seconds instead of milliseconds")
-                        df['open_time'] = pd.to_datetime(df['open_time'] / 1000, unit='s')
-                        df['close_time'] = pd.to_datetime(df['close_time'] / 1000, unit='s')
-                    else:
-                        # Regular conversion for normal timestamps
-                        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                        df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-                except Exception as ts_err:
-                    logging.error(f"Failed to convert timestamps, trying alternative approach: {ts_err}")
-                    
-                    # Hard-code dates for testing - use 2024 Q1 data for now
-                    # This is a temporary solution just to make progress
-                    start_date = pd.Timestamp('2024-01-01')
-                    dates = pd.date_range(start=start_date, periods=len(df), freq='4H' if interval == '4h' else '1D')
-                    df['open_time'] = dates
-                    df['close_time'] = dates + pd.Timedelta(hours=1)
-                
-                df['timestamp'] = df['open_time']  # More intuitive name
-                
-                # Convert string values to float
-                for col in ['open', 'high', 'low', 'close', 'volume']:
-                    df[col] = df[col].astype(float)
-                
-                # Select relevant columns and return
-                result_df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-                return result_df
-    
-    except Exception as e:
-        logging.error(f"Error processing kline data for {symbol} {interval}: {e}")
-        return None
-
-def download_monthly_klines(symbol, interval, year, month):
-    """
-    Download klines for a specific month.
-    This enhanced version first fetches file listings from Binance to verify file existence
-    before downloading, which improves performance and reliability.
-    """
-    # Format month with leading zero
-    month_str = f"{month:02d}"
-    
-    # Print progress for this specific download
-    print(f"    └─ Downloading {symbol}/{interval} for {year}-{month_str}...")
-    
-    # Import file listing function
-    from binance_file_listing import get_available_kline_files
-    
-    # First check if monthly file is available
-    monthly_files = get_available_kline_files(symbol, interval, 'monthly')
-    monthly_filename = f"{symbol}-{interval}-{year}-{month_str}.zip"
-    monthly_file_info = next((f for f in monthly_files if f['name'] == monthly_filename), None)
-    
-    # Monthly data URL
-    monthly_url = f"{BASE_URL}/monthly/klines/{symbol}/{interval}/{monthly_filename}"
-    
-    if monthly_file_info:
-        logging.info(f"Monthly file found: {monthly_filename} (size: {monthly_file_info['size']} bytes)")
-        logging.info(f"Downloading from: {monthly_url}")
-        
-        # Try to download monthly data
-        content = download_file(monthly_url)
-        if content:
-            df = process_kline_data(content, symbol, interval)
-            if df is not None and not df.empty:
-                logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
-                print(f"       ✓ Downloaded monthly file with {len(df)} candles")
-                
-                # Sort dataframe by timestamp to ensure chronological order
-                df = df.sort_values('timestamp')
-                return df
-            else:
-                logging.warning(f"Downloaded monthly file but processing failed: {monthly_filename}")
-    else:
-        logging.info(f"No monthly file available for {symbol} {interval} {year}-{month_str}")
-    
-    # If we get here, we couldn't get valid data from monthly file, so try daily files
-    print(f"       ⚠ Monthly file not available or invalid, fetching daily files...")
-    
-    # Determine number of days in month
-    days_in_month = monthrange(year, month)[1]
-    
-    # Fetch available daily files
-    daily_files = get_available_kline_files(symbol, interval, 'daily')
-    
-    # Filter daily files for the current month
-    daily_files_for_month = [
-        f for f in daily_files 
-        if f['name'].startswith(f"{symbol}-{interval}-{year}-{month_str}")
-    ]
-    
-    if not daily_files_for_month:
-        logging.warning(f"No daily files found for {symbol} {interval} {year}-{month_str}")
-        print(f"       ✗ No daily files available for this month")
-        return None
-    
-    logging.info(f"Found {len(daily_files_for_month)} daily files for {symbol} {interval} {year}-{month_str}")
-    print(f"       ℹ Found {len(daily_files_for_month)} daily files for this month")
-    
-    # Process daily files in batches to optimize performance
-    daily_dfs = []
-    batch_size = 5  # Process 5 days at a time
-    total_batches = (len(daily_files_for_month) + batch_size - 1) // batch_size
-    days_downloaded = 0
-    start_time = time.time()
-    
-    # Sort files by name to ensure chronological processing
-    daily_files_for_month.sort(key=lambda x: x['name'])
-    
-    for batch_idx in range(total_batches):
-        batch_start = batch_idx * batch_size
-        batch_end = min(batch_start + batch_size, len(daily_files_for_month))
-        batch = daily_files_for_month[batch_start:batch_end]
-        
-        elapsed = time.time() - start_time
-        progress = (batch_idx / total_batches) * 100
-        remaining = elapsed * (total_batches / (batch_idx + 1) - 1) if batch_idx > 0 else 0
-        
-        print(f"       → Batch {batch_idx+1}/{total_batches} ({progress:.1f}%) | {days_downloaded} files processed | {elapsed:.1f}s elapsed")
-        
-        # Process files in this batch
-        for file_info in batch:
-            filename = file_info['name']
-            day_str = filename.split('-')[-1].split('.')[0]  # Extract day from filename
-            url = f"{BASE_URL}/daily/klines/{symbol}/{interval}/{filename}"
-            
-            content = download_file(url)
-            if content:
-                df = process_kline_data(content, symbol, interval)
-                if df is not None and not df.empty:
-                    daily_dfs.append(df)
-                    days_downloaded += 1
-                    logging.info(f"Successfully downloaded daily data for {filename}")
-            
-            # Small delay to be nice to the server
-            time.sleep(0.2)
-    
-    if daily_dfs:
-        # Combine all daily dataframes for this month
-        combined_df = pd.concat(daily_dfs, ignore_index=True)
-        # Remove duplicates
-        combined_df = combined_df.drop_duplicates(subset=['timestamp'])
-        # Sort by timestamp
-        combined_df = combined_df.sort_values('timestamp')
-        
-        print(f"       ✓ Downloaded {days_downloaded}/{len(daily_files_for_month)} daily files with total {len(combined_df)} candles")
-        return combined_df
-    
-    logging.warning(f"No valid data available for {symbol} {interval} {year}-{month_str}")
-    print(f"       ✗ No valid data available for this month")
-    return None
-
-def download_symbol_interval_data(symbol, interval, start_date, end_date=None):
-    """
-    Download all available data for a symbol and interval between start_date and end_date
-    
-    Args:
-        symbol: Trading pair symbol (e.g., 'BTCUSDT')
-        interval: Time interval (e.g., '1h', '1d')
-        start_date: Start date (datetime or date object)
-        end_date: End date (datetime or date object, default=today)
-    
-    Returns:
-        DataFrame with all data or None if no data available
-    """
-    # Convert to date objects if datetime
-    if isinstance(start_date, datetime):
-        start_date = start_date.date()
-    
-    if end_date is None:
-        end_date = date.today()
-    elif isinstance(end_date, datetime):
-        end_date = end_date.date()
-    
-    # Adjust for future dates - we can only download historical data
-    MAX_AVAILABLE_DATE = date.today()  # Use current date as maximum
-    
-    if start_date > MAX_AVAILABLE_DATE:
-        logging.warning(f"Start date {start_date} is in the future. Adjusting to available data period.")
-        # Go back 1 year from max available date for reasonable historical data
-        start_date = date(MAX_AVAILABLE_DATE.year - 1, MAX_AVAILABLE_DATE.month, MAX_AVAILABLE_DATE.day)
-    
-    if end_date > MAX_AVAILABLE_DATE:
-        logging.warning(f"End date {end_date} is in the future. Adjusting to {MAX_AVAILABLE_DATE}")
-        end_date = MAX_AVAILABLE_DATE
-    
-    logging.info(f"Downloading data for {symbol} {interval} from {start_date} to {end_date}")
-    
-    all_dfs = []
-    current_date = start_date
-    
-    while current_date <= end_date:
-        year = current_date.year
-        month = current_date.month
-        
-        df = download_monthly_klines(symbol, interval, year, month)
-        if df is not None and not df.empty:
-            all_dfs.append(df)
-        
-        # Move to next month
-        if month == 12:
-            year += 1
-            month = 1
-        else:
-            month += 1
-        
-        current_date = date(year, month, 1)
-    
-    if all_dfs:
-        # Combine all monthly dataframes
-        combined_df = pd.concat(all_dfs, ignore_index=True)
-        # Remove duplicates
-        combined_df = combined_df.drop_duplicates(subset=['timestamp'])
-        # Sort by timestamp
-        combined_df = combined_df.sort_values('timestamp')
-        return combined_df
-    
-    return None
-
-def calculate_and_save_indicators(df, symbol, interval):
-    """
-    Calculate technical indicators with lookback data and save to database.
-    This function now retrieves previous data from the database to ensure
-    accurate indicator calculations at the beginning of new periods.
-    """
+def process_and_save_chunk(df, symbol, interval):
+    """Process and save a chunk of data"""
     if df is None or df.empty:
         return
-    
-    # Import get_historical_data function
-    from database import get_historical_data
-    
-    # Calculate the maximum lookback window needed for indicators
-    # RSI typically uses 14 periods, MACD 26, BB uses 20, we'll use 30 to be safe
-    lookback_window = 30
-    
-    # Determine the earliest timestamp in our dataset
-    earliest_timestamp = df['timestamp'].min()
-    
-    # Calculate a lookback start date for retrieving prior data from DB
-    # Convert timestamp to datetime if it's not already
-    if isinstance(earliest_timestamp, (pd.Timestamp, datetime)):
-        lookback_start = earliest_timestamp - pd.Timedelta(days=lookback_window if interval == '1d' 
-                                                         else lookback_window/6 if interval == '4h'
-                                                         else lookback_window/24)
-    else:
-        # If timestamp is not a datetime object, log warning and continue without lookback
-        logging.warning(f"Unable to determine lookback period for {symbol} {interval}, timestamp type: {type(earliest_timestamp)}")
-        
-        # Add technical indicators without lookback
-        df = indicators.add_bollinger_bands(df)
-        df = indicators.add_rsi(df)
-        df = indicators.add_macd(df)
-        df = indicators.add_ema(df)
-        
-        # Evaluate trading signals
-        df = evaluate_buy_sell_signals(df)
-        
-        # Save indicators to database
-        save_indicators(df, symbol, interval)
-        logging.info(f"Saved indicators for {symbol} {interval} without lookback data")
-        return
-    
-    # Get previous data from database
-    try:
-        # We need to adjust the end_time to be just before our current data starts
-        # to avoid duplicates
-        lookback_end = earliest_timestamp - pd.Timedelta(seconds=1)
-        
-        logging.info(f"Retrieving lookback data from {lookback_start} to {lookback_end} for {symbol} {interval}")
-        
-        previous_data = get_historical_data(symbol, interval, lookback_start, lookback_end)
-        
-        if not previous_data.empty:
-            logging.info(f"Using {len(previous_data)} previous records for indicator calculations")
-            
-            # Combine previous data with current data
-            combined_df = pd.concat([previous_data, df], ignore_index=True)
-            # Remove any duplicates
-            combined_df = combined_df.drop_duplicates(subset=['timestamp'])
-            # Sort by timestamp
-            combined_df = combined_df.sort_values('timestamp')
-            
-            # Calculate indicators on the combined dataset
-            combined_df = indicators.add_bollinger_bands(combined_df)
-            combined_df = indicators.add_rsi(combined_df)
-            combined_df = indicators.add_macd(combined_df)
-            combined_df = indicators.add_ema(combined_df)
-            
-            # Evaluate trading signals
-            combined_df = evaluate_buy_sell_signals(combined_df)
-            
-            # Only save indicators for the current data, not the lookback data
-            current_data_indicators = combined_df[combined_df['timestamp'] >= earliest_timestamp].copy()
-            
-            # Save indicators to database
-            save_indicators(current_data_indicators, symbol, interval)
-            logging.info(f"Saved indicators for {symbol} {interval} with lookback data")
-            return
-    except Exception as e:
-        logging.error(f"Error retrieving lookback data: {e}")
-    
-    # If we couldn't get lookback data or any other issue occurred, fall back to calculating 
-    # indicators on just the current data
-    logging.warning(f"Falling back to calculating indicators without lookback for {symbol} {interval}")
-    
-    # Add technical indicators without lookback
+
+    # Calculate indicators
     df = indicators.add_bollinger_bands(df)
     df = indicators.add_rsi(df)
     df = indicators.add_macd(df)
     df = indicators.add_ema(df)
-    
-    # Evaluate trading signals
+
+    # Calculate signals
     df = evaluate_buy_sell_signals(df)
-    
-    # Save indicators to database
-    save_indicators(df, symbol, interval)
-    logging.info(f"Saved indicators for {symbol} {interval} without lookback data")
 
-def backfill_symbol_interval(symbol, interval, lookback_years=3):
-    """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
-    # Import file listing functions
-    from binance_file_listing import get_date_range_for_symbol_interval, get_available_kline_files
-    
-    print(f"\n🔍 Scanning available Binance data for {symbol}/{interval}...")
-    
-    # First, get the full date range of available data from Binance
-    min_date, max_date = get_date_range_for_symbol_interval(symbol, interval)
-    
-    if not min_date or not max_date:
-        logging.warning(f"No data files found on Binance for {symbol}/{interval}")
-        print(f"  └─ {symbol}/{interval}: No data files available on Binance ✗")
-        return 0
-    
-    # Convert to date objects for comparison
-    min_date = min_date.date()
-    max_date = max_date.date()
-    
-    # Using a fixed reference date as a maximum end date to avoid issues with future-dated files
-    reference_date = date(2024, 12, 31)  # Using 2024-12-31 as a fixed reference
-    
-    # Adjust max_date if it exceeds reference_date
-    if max_date > reference_date:
-        logging.info(f"Limiting max date to reference date {reference_date} (was {max_date})")
-        max_date = reference_date
-    
-    # Calculate start_date based on lookback_years from max_date
-    calculated_start_date = date(max_date.year - lookback_years, max_date.month, 1)
-    
-    # Use the later of min_date and calculated_start_date as our start date
-    start_date = max(min_date, calculated_start_date)
-    end_date = max_date
-    
-    # Getting the year and month values
-    start_year = start_date.year
-    start_month = start_date.month
-    end_year = end_date.year
-    end_month = end_date.month
-    
-    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date}")
-    print(f"  ├─ Available data range: {min_date} to {max_date}")
-    print(f"  ├─ Selected data range: {start_date} to {end_date}")
-    
-    # Import our functions to check existing data
-    from database import get_existing_data_months, has_complete_month_data
-    
-    # Get all year-month combinations in the range
-    all_months = []
-    current_year = start_year
-    current_month = start_month
-    
-    while current_year < end_year or (current_year == end_year and current_month <= end_month):
-        all_months.append((current_year, current_month))
-        
-        # Move to next month
-        if current_month == 12:
-            current_year += 1
-            current_month = 1
-        else:
-            current_month += 1
-    
-    print(f"  ├─ Total months to check: {len(all_months)}")
-    
-    # Get months that already have data
-    existing_months = get_existing_data_months(symbol, interval, start_year, start_month, end_year, end_month)
-    
-    # Filter out months that already have complete data
-    months_to_process = []
-    for year, month in all_months:
-        if (year, month) not in existing_months or not has_complete_month_data(symbol, interval, year, month):
-            months_to_process.append((year, month))
-    
-    # Sort months chronologically (oldest first)
-    months_to_process.sort()
-    
-    if not months_to_process:
-        logging.info(f"All data for {symbol} {interval} from {start_date} to {end_date} already exists in database. Skipping.")
-        print(f"  └─ {symbol}/{interval}: Database already contains complete data ✓")
-        return 0
-    
-    # Print a more visible status update
-    month_list = ", ".join([f"{y}-{m:02d}" for y, m in months_to_process[:5]])
-    if len(months_to_process) > 5:
-        month_list += f", ... and {len(months_to_process)-5} more"
-    
-    print(f"  ├─ {symbol}/{interval}: Downloading {len(months_to_process)} months ({month_list})")
-    logging.info(f"Backfilling {symbol} {interval} for {len(months_to_process)} missing/incomplete months")
-    
-    total_candles = 0
-    
-    # Process each month separately
-    for year, month in months_to_process:
-        # For the current month, only get data up to reference date
-        if year == end_year and month == end_month:
-            # Use the reference date for the end of the month
-            reference_date = date(2024, 12, 31)  # Using same fixed reference from above
-            month_end = min(reference_date, date(year, month, 28))  # Making sure we don't go beyond our reference
-        else:
-            # Last day of month
-            if month == 12:
-                month_end = date(year + 1, 1, 1) - timedelta(days=1)
-            else:
-                month_end = date(year, month + 1, 1) - timedelta(days=1)
-        
-        month_start = date(year, month, 1)
-        
-        logging.info(f"Processing {symbol} {interval} for {year}-{month:02d} (using fixed reference date)")
-        
-        # Download data for this month
-        monthly_df = download_monthly_klines(symbol, interval, year, month)
-        
-        if monthly_df is not None and not monthly_df.empty:
-            # Number of candles downloaded
-            candle_count = len(monthly_df)
-            total_candles += candle_count
-            logging.info(f"Downloaded {candle_count} candles for {symbol} {interval} for {year}-{month:02d}")
-            
-            # Save to database
-            save_historical_data(monthly_df, symbol, interval)
-            
-            # Calculate and save indicators
-            calculate_and_save_indicators(monthly_df, symbol, interval)
-        else:
-            logging.warning(f"No data available for {symbol} {interval} for {year}-{month:02d}")
-    
-    if total_candles > 0:
-        logging.info(f"Downloaded a total of {total_candles} candles for {symbol} {interval}")
-        return total_candles
+    # Save to database
+    save_historical_data(df, symbol, interval)
+
+def backfill_symbol_interval(symbol, interval):
+    """Backfill data for a symbol and interval"""
+    logging.info(f"Processing {symbol} {interval}")
+
+    # Get last timestamp from database
+    conn = get_db_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT MAX(timestamp) FROM historical_data 
+            WHERE symbol = %s AND interval = %s
+        """, (symbol, interval))
+        last_timestamp = cur.fetchone()[0]
+        conn.close()
     else:
-        logging.warning(f"No data available for {symbol} {interval}")
-        return 0
+        last_timestamp = None
 
-def run_backfill(symbols=None, intervals=None, lookback_years=3):
-    """Run backfill for specified symbols and intervals"""
-    if symbols is None:
-        symbols = SYMBOLS
-    
-    if intervals is None:
-        intervals = INTERVALS
-    
-    # Make sure database tables exist
-    create_tables()
-    
-    # Print a clear separation for the backfill process logs
-    print("\n" + "=" * 80)
-    print(f"BACKFILL PROCESS STARTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Processing {len(symbols)} symbols × {len(intervals)} intervals = {len(symbols) * len(intervals)} tasks")
-    print(f"Symbols: {', '.join(symbols)}")
-    print(f"Intervals: {', '.join(intervals)}")
-    print("=" * 80 + "\n")
-    
-    logging.info(f"Starting backfill with {len(symbols)} symbols and {len(intervals)} intervals")
-    
-    total_candles = 0
-    completed_tasks = 0
-    total_tasks = len(symbols) * len(intervals)
-    start_time = time.time()
-    
-    # Process each symbol and interval
-    for symbol_idx, symbol in enumerate(symbols):
-        for interval_idx, interval in enumerate(intervals):
-            task_num = symbol_idx * len(intervals) + interval_idx + 1
-            
-            # Print progress information
-            elapsed_time = time.time() - start_time
-            percent_complete = (completed_tasks / total_tasks) * 100
-            
-            if completed_tasks > 0:
-                est_total_time = elapsed_time * (total_tasks / completed_tasks)
-                est_remaining = est_total_time - elapsed_time
-                time_info = f"| {elapsed_time:.1f}s elapsed | ~{est_remaining:.1f}s remaining"
-            else:
-                time_info = f"| {elapsed_time:.1f}s elapsed"
-            
-            print(f"Task {task_num}/{total_tasks} ({percent_complete:.1f}%) {time_info}")
-            print(f"Processing {symbol} with {interval} interval...")
-            
-            try:
-                candles = backfill_symbol_interval(symbol, interval, lookback_years)
-                total_candles += candles
-                completed_tasks += 1
-                
-                # Print results for this task
-                if candles > 0:
-                    print(f"✓ Downloaded {candles} candles for {symbol}/{interval}")
-                else:
-                    print(f"✓ No new data needed for {symbol}/{interval} (already up to date)")
-                
-                # Sleep to avoid overwhelming the server
-                time.sleep(1)
-            except Exception as e:
-                logging.error(f"Error processing {symbol} {interval}: {e}")
-                print(f"✗ Error processing {symbol}/{interval}: {str(e)}")
-            
-            print("-" * 40)
-    
-    # Calculate total time
-    total_time = time.time() - start_time
-    
-    # Print completion summary
-    print("\n" + "=" * 80)
-    print(f"BACKFILL PROCESS COMPLETED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Total candles downloaded: {total_candles}")
-    print(f"Total time: {total_time:.1f} seconds ({(total_time/60):.1f} minutes)")
-    print(f"Tasks completed: {completed_tasks}/{total_tasks}")
-    print("=" * 80 + "\n")
-    
-    logging.info(f"Backfill completed. Total candles downloaded: {total_candles}")
-    return total_candles
+    # Download data in chunks
+    start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
+    current_date = start_date
+
+    while current_date < datetime.now():
+        df = download_klines(symbol, interval, current_date)
+        if df is not None and not df.empty:
+            process_and_save_chunk(df, symbol, interval)
+            current_date = df['timestamp'].max() + timedelta(minutes=1)
+            logging.info(f"Processed up to {current_date}")
+        else:
+            logging.warning(f"No data available for {symbol} {interval} from {current_date}")
+            break
+        time.sleep(1)  # Rate limiting
+
+def run_backfill():
+    """Run backfill for all symbols and intervals"""
+    for symbol in SYMBOLS:
+        for interval in INTERVALS:
+            backfill_symbol_interval(symbol, interval)
+            time.sleep(2)  # Rate limiting between symbol/interval pairs
 
 if __name__ == "__main__":
-    # Parse command line arguments
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Download historical cryptocurrency data from Binance Data Vision')
-    parser.add_argument('--reset', action='store_true', help='Reset database before backfill')
-    parser.add_argument('--years', type=int, default=3, help='Number of years to look back')
-    parser.add_argument('--symbols', nargs='+', help='Specific symbols to download')
-    parser.add_argument('--intervals', nargs='+', help='Specific intervals to download')
-    
-    args = parser.parse_args()
-    
-    # Reset database if requested
-    if args.reset:
-        from clean_reset_database import reset_database
-        reset_database()
-    
-    # Check if lock file exists
-    if os.path.exists(LOCK_FILE):
-        logging.warning("A backfill process is already running. Use clear_backfill_lock.py to remove it if needed.")
-        sys.exit(1)
-    
-    # Create lock file
-    with open(LOCK_FILE, 'w') as f:
-        f.write(f"Backfill started at {datetime.now()}")
-    
-    try:
-        run_backfill(
-            symbols=args.symbols,
-            intervals=args.intervals,
-            lookback_years=args.years
-        )
-    finally:
-        # Remove lock file when done
-        if os.path.exists(LOCK_FILE):
-            os.remove(LOCK_FILE)
+    run_backfill()
