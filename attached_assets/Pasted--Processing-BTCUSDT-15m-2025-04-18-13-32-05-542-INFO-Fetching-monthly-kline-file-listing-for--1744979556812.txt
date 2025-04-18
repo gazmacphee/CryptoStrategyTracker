@@ -1,0 +1,30 @@
+🔄 Processing BTCUSDT/15m
+2025-04-18 13:32:05,542 - INFO - Fetching monthly kline file listing for BTCUSDT/15m
+2025-04-18 13:32:06,495 - WARNING - Received response but XML is invalid: mismatched tag: line 6, column 2
+2025-04-18 13:32:06,495 - WARNING - Received HTML instead of XML - Binance may be restricting access
+2025-04-18 13:32:06,496 - WARNING - No directory listing available for BTCUSDT/15m monthly klines
+2025-04-18 13:32:06,496 - INFO - Fetching daily kline file listing for BTCUSDT/15m
+2025-04-18 13:32:07,415 - WARNING - Received response but XML is invalid: mismatched tag: line 6, column 2
+2025-04-18 13:32:07,416 - WARNING - Received HTML instead of XML - Binance may be restricting access
+2025-04-18 13:32:07,417 - WARNING - No directory listing available for BTCUSDT/15m daily klines
+2025-04-18 13:32:07,417 - WARNING - No date information available for BTCUSDT/15m
+2025-04-18 13:32:07,417 - WARNING - Could not get date range from Binance for BTCUSDT/15m. Using fallback approach.
+  ⚠️ Could not get file listings from Binance for BTCUSDT/15m. Using fallback time range.
+2025-04-18 13:32:07,418 - INFO - Limiting max date to reference date 2024-12-31 (was 2025-04-18)
+  ℹ️ Processing data for BTCUSDT/15m from 2024-11-18 to 2024-12-31
+  🔄 Processing 2 months for BTCUSDT/15m
+  📅 Month 1/2 - 2024-11 (0.0%)
+    └─ Downloading BTCUSDT/15m for 2024-11...
+2025-04-18 13:32:07,425 - INFO - Fetching monthly kline file listing for BTCUSDT/15m
+2025-04-18 13:32:08,325 - WARNING - Received response but XML is invalid: mismatched tag: line 6, column 2
+2025-04-18 13:32:08,326 - WARNING - Received HTML instead of XML - Binance may be restricting access
+2025-04-18 13:32:08,326 - WARNING - No directory listing available for BTCUSDT/15m monthly klines
+2025-04-18 13:32:08,326 - INFO - No monthly file available for BTCUSDT 15m 2024-11
+       ⚠ Monthly file not available or invalid, fetching daily files...
+2025-04-18 13:32:08,327 - INFO - Fetching daily kline file listing for BTCUSDT/15m
+2025-04-18 13:32:09,251 - WARNING - Received response but XML is invalid: mismatched tag: line 6, column 2
+2025-04-18 13:32:09,251 - WARNING - Received HTML instead of XML - Binance may be restricting access
+2025-04-18 13:32:09,252 - WARNING - No directory listing available for BTCUSDT/15m daily klines
+2025-04-18 13:32:09,252 - WARNING - No daily files found for BTCUSDT 15m 2024-11
+       ✗ No daily files available for this month
+2025-04-18 13:32:09,252 - WARNING - No data available for BTCUSDT/15m 2024-11
