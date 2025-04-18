@@ -282,20 +282,16 @@ def main():
     import os
     import logging
     import pandas as pd
-    from data_loader import start_backfill_thread
     
-    # Start data loading process on app startup
-    if 'initial_backfill_started' not in st.session_state:
-        st.session_state.initial_backfill_started = True
-        # Show initial message about data loading
-        st.sidebar.info("⏳ Initial data setup in progress. This only happens once and may take 5-10 minutes. The application will become more responsive after data is loaded.")
-        
-        # Start the background backfill only if not already running
+    # Show initial message about data loading
+    if 'initial_message_shown' not in st.session_state:
+        st.session_state.initial_message_shown = True
+        # Check if a backfill is currently running
         lock_file = ".backfill_lock"
-        if not os.path.exists(lock_file):
-            logging.info("Starting data loading process on app startup")
-            # Start our data loader process
-            start_backfill_thread(full=False)
+        if os.path.exists(lock_file):
+            st.sidebar.info("⏳ Data backfill is currently in progress. This happens automatically in the background and may take 5-10 minutes. The application will become more responsive as data is loaded.")
+        else:
+            st.sidebar.success("✅ Ready to analyze cryptocurrency data. Select options below to begin.")
     
     st.title("Cryptocurrency Trading Analysis Platform")
     
