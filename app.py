@@ -252,7 +252,7 @@ def get_data(symbol, interval, lookback_days, start_date=None, end_date=None):
     # Calculate date range if not explicitly provided
     # Use a fixed reference date to avoid issues with future-dated system clock
     if end_date is None:
-        reference_date = datetime(2023, 1, 1)  # Using 2023-01-01 as a fixed reference date
+        reference_date = datetime(2024, 12, 31)  # Using 2024-12-31 as a fixed reference date
         end_time = reference_date
     else:
         end_time = end_date

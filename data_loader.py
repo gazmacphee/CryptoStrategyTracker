@@ -291,12 +291,12 @@ def run_backfill_process(full=False):
         intervals = [i for i in DEFAULT_INTERVALS if i not in EXCLUDED_INTERVALS]
         print(f"⏱️  Using {len(intervals)} time intervals: {', '.join(intervals)}")
         
-        # Calculate start date using a fixed reference date (2023-01-01)
+        # Calculate start date using a fixed reference date (2024-12-31)
         # This addresses an issue where the system date might be set to a future date
-        reference_date = date(2023, 1, 1)  # Using 2023-01-01 as a fixed reference
+        reference_date = date(2024, 12, 31)  # Using 2024-12-31 as a fixed reference
         end_date = reference_date
         start_date = date(end_date.year - LOOKBACK_YEARS, end_date.month, end_date.day)
-        print(f"📅 Downloading data from {start_date} to {end_date} (using 2023-01-01 as reference date)")
+        print(f"📅 Downloading data from {start_date} to {end_date} (using 2024-12-31 as reference date)")
         
         # Process each symbol and interval
         total_combinations = len(symbols) * len(intervals)

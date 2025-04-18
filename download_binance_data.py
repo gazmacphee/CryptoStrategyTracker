@@ -370,9 +370,9 @@ def calculate_and_save_indicators(df, symbol, interval):
 def backfill_symbol_interval(symbol, interval, lookback_years=3):
     """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
     # Calculate start date
-    # Using a fixed reference date (2023-01-01) to ensure we're downloading historical data
+    # Using a fixed reference date (2024-12-31) to ensure we're downloading historical data
     # This addresses an issue where the system date might be set to a future date
-    reference_date = date(2023, 1, 1)  # Using 2023-01-01 as a fixed reference
+    reference_date = date(2024, 12, 31)  # Using 2024-12-31 as a fixed reference
     end_date = reference_date
     start_date = date(end_date.year - lookback_years, end_date.month, 1)
     
@@ -382,7 +382,7 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     end_year = end_date.year
     end_month = end_date.month
     
-    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date} (using 2023-01-01 as reference date)")
+    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date} (using 2024-12-31 as reference date)")
     
     # Import our new functions to check existing data
     from database import get_existing_data_months, has_complete_month_data
@@ -431,7 +431,7 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
         # For the current month, only get data up to reference date
         if year == end_year and month == end_month:
             # Use the reference date for the end of the month
-            reference_date = date(2023, 1, 1)  # Using same fixed reference from above
+            reference_date = date(2024, 12, 31)  # Using same fixed reference from above
             month_end = min(reference_date, date(year, month, 28))  # Making sure we don't go beyond our reference
         else:
             # Last day of month
