@@ -1,11 +1,11 @@
 {
-  "last_updated": "2025-04-18 18:44:47",
+  "last_updated": "2025-04-18 19:49:02",
   "total_symbols": 12,
-  "symbols_completed": 0,
+  "symbols_completed": 1,
   "symbols_progress": {
-    "BTCUSDT": 0.0,
-    "ETHUSDT": 0.0,
-    "BNBUSDT": 0.0,
+    "BTCUSDT": 100.0,
+    "ETHUSDT": 33.33333333333333,
+    "BNBUSDT": 83.33333333333334,
     "ADAUSDT": 0.0,
     "DOGEUSDT": 0.0,
     "XRPUSDT": 0.0,
@@ -16,7 +16,7 @@
     "MATICUSDT": 0.0,
     "AVAXUSDT": 0.0
   },
-  "overall_progress": 0.0,
+  "overall_progress": 18.1,
   "is_running": true,
   "errors": []
 }
