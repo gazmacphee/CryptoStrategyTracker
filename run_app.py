@@ -1,47 +1,67 @@
 #!/usr/bin/env python3
+"""
+Main entry point for the Cryptocurrency Trading Platform.
+This script:
+1. Resets the database (drops all tables)
+2. Creates fresh tables
+3. Starts the backfill process to download cryptocurrency data
+4. Launches the Streamlit application
+"""
+
 import os
-import subprocess
-import threading
+import sys
 import time
-from dotenv import load_dotenv
+import logging
+import subprocess
+from datetime import datetime
 
-# Load the .env file
-load_dotenv()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app_startup.log')
+    ]
+)
 
-# Get the port from environment variable or set default to 5001
-port = os.getenv("APP_PORT", "5001")
-
-# First, generate the Streamlit config
-print("Generating Streamlit configuration...")
-subprocess.run(["python", "generate_streamlit_config.py"])
-
-# Start the backfill process in the background
 def start_backfill_process():
-    print("Starting initial data backfill process...")
+    """Run the reset_and_start.py script"""
     try:
-        # Always ensure the database is backfilled, even if the environment variable isn't set
-        backfill_on_start = os.getenv("BACKFILL_ON_START", "true").lower()
+        logging.info("Running database reset and backfill process...")
         
-        # Force backfill to be true for reliable operation
-        if backfill_on_start == "true" or True:  # Always run backfill regardless of env setting
-            # Start backfill in the background with continuous mode for regular updates
-            subprocess.Popen(["python", "backfill_database.py", "--background", "--continuous", "--interval=15"], 
-                            stdout=subprocess.PIPE, 
-                            stderr=subprocess.PIPE)
-            print("Backfill process started successfully in the background with continuous updates")
-        else:
-            print("Backfill is disabled in configuration, but this is not recommended")
+        # Run the reset_and_start.py script
+        result = subprocess.run(
+            ["python", "reset_and_start.py"],
+            capture_output=True,
+            text=True
+        )
+        
+        # Log the output
+        logging.info(f"Reset and start script stdout: {result.stdout}")
+        if result.stderr:
+            logging.warning(f"Reset and start script stderr: {result.stderr}")
+        
+        if result.returncode != 0:
+            logging.error(f"Reset and start script failed with return code: {result.returncode}")
+            return False
+        
+        logging.info("Reset and start script completed successfully")
+        return True
     except Exception as e:
-        print(f"Error starting backfill process: {e}")
+        logging.error(f"Error running reset and start script: {e}")
+        return False
 
-# Start backfill in a separate thread so it doesn't block the main app
-backfill_thread = threading.Thread(target=start_backfill_process)
-backfill_thread.daemon = True
-backfill_thread.start()
-
-# Give the backfill process a moment to initialize
-time.sleep(1)
-
-# Run Streamlit with the port from .env
-print(f"Starting Streamlit on port {port}...")
-os.execvp("streamlit", ["streamlit", "run", "app.py", f"--server.port={port}", "--server.address=0.0.0.0"])
+if __name__ == "__main__":
+    print("=" * 80)
+    print(f"CRYPTOCURRENCY TRADING PLATFORM STARTUP - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 80)
+    
+    # Run the reset and start process
+    success = start_backfill_process()
+    
+    if success:
+        print("\nApplication startup complete")
+    else:
+        print("\nApplication startup failed")
+        sys.exit(1)
