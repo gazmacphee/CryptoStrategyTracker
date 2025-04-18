@@ -178,25 +178,59 @@ def calculate_expected_records(interval, years=3):
 def create_backfill_lock():
     """Create a lock file to prevent multiple backfill processes"""
     try:
+        # Check if lock file already exists
+        if os.path.exists(".backfill_lock"):
+            try:
+                # Try to read the lock file to see when the process started
+                with open(".backfill_lock", "r") as f:
+                    start_time = f.read().strip()
+                print(f"\n⚠️ Backfill process already running since {start_time}")
+                print("   If this is incorrect, manually delete the .backfill_lock file and try again.\n")
+            except:
+                print("\n⚠️ Backfill process already running but start time unknown")
+            return False
+        
+        # Create the lock file
+        current_time = str(datetime.now())
         with open(".backfill_lock", "w") as f:
-            f.write(str(datetime.now()))
+            f.write(current_time)
+        
         progress_data["is_running"] = True
         save_progress()
+        
+        print("\n🔒 Created backfill lock file")
+        print(f"   Process started at: {current_time}")
         return True
     except Exception as e:
         logger.error(f"Error creating lock file: {e}")
+        print(f"\n❌ Failed to create backfill lock file: {e}")
         return False
 
 def release_backfill_lock():
     """Remove the backfill lock file"""
     try:
         if os.path.exists(".backfill_lock"):
+            # Try to read the lock file to see when the process started
+            start_time = "unknown time"
+            try:
+                with open(".backfill_lock", "r") as f:
+                    start_time = f.read().strip()
+            except:
+                pass
+            
+            # Remove the lock file
             os.remove(".backfill_lock")
+            print(f"\n🔓 Released backfill lock (process started at: {start_time})")
+            print(f"   Lock file removed at: {datetime.now()}")
+        else:
+            print("\n⚠️ No backfill lock file found to release")
+        
         progress_data["is_running"] = False
         save_progress()
         return True
     except Exception as e:
         logger.error(f"Error removing lock file: {e}")
+        print(f"\n❌ Failed to release backfill lock: {e}")
         return False
 
 def run_backfill_process(full=False):
@@ -211,6 +245,7 @@ def run_backfill_process(full=False):
     # Check if backfill is already running
     if os.path.exists(".backfill_lock"):
         logger.warning("A backfill process is already running. Skipping.")
+        print("\n⚠️ A backfill process is already running. Check logs for progress.")
         return False
     
     # Create lock file
@@ -224,43 +259,88 @@ def run_backfill_process(full=False):
     save_progress()
     
     try:
+        # Print nice header
+        print("\n" + "*" * 80)
+        print("CRYPTOCURRENCY DATABASE BACKFILL PROCESS")
+        print("This process will download historical price data from Binance")
+        print("*" * 80)
+        
         # Ensure tables exist
         create_tables()
+        print("\n✓ Database tables verified")
         
         # Get symbols
         symbols = get_available_symbols()
-        
+        if full:
+            print(f"\n📊 Running FULL backfill with {len(symbols)} symbols")
+        else:
+            print(f"\n📊 Running standard backfill with {len(symbols)} symbols")
+            
         # Get intervals
         intervals = [i for i in DEFAULT_INTERVALS if i not in EXCLUDED_INTERVALS]
+        print(f"⏱️  Using {len(intervals)} time intervals: {', '.join(intervals)}")
         
         # Calculate start date (3 years back)
         end_date = datetime.now().date()
         start_date = date(end_date.year - LOOKBACK_YEARS, end_date.month, end_date.day)
+        print(f"📅 Downloading data from {start_date} to {end_date}")
         
         # Process each symbol and interval
         total_combinations = len(symbols) * len(intervals)
         completed = 0
+        errors = 0
+        start_time = time.time()
         
-        for symbol in symbols:
-            logger.info(f"Processing {symbol}...")
+        print("\n" + "-" * 80)
+        print(f"Starting backfill of {total_combinations} symbol-interval combinations")
+        print("-" * 80)
+        
+        for symbol_idx, symbol in enumerate(symbols):
+            print(f"\n[{symbol_idx+1}/{len(symbols)}] Processing {symbol}...")
             
-            for interval in intervals:
+            for interval_idx, interval in enumerate(intervals):
+                # Calculate progress
+                interval_task = symbol_idx * len(intervals) + interval_idx + 1
+                percent_complete = (completed / total_combinations) * 100
+                
+                # Calculate time estimates
+                elapsed = time.time() - start_time
+                if completed > 0:
+                    est_total_time = elapsed * (total_combinations / completed)
+                    est_remaining = est_total_time - elapsed
+                    time_str = f"ETA: {est_remaining//60:.0f}m {est_remaining%60:.0f}s"
+                else:
+                    time_str = f"Elapsed: {elapsed:.1f}s"
+                
+                print(f"  [{interval_task}/{total_combinations}] ({percent_complete:.1f}%) {symbol}/{interval} - {time_str}")
+                
                 try:
-                    logger.info(f"Downloading {symbol} {interval} data...")
-                    
                     # Process month by month
+                    months_processed = 0
+                    data_downloaded = 0
                     current_date = start_date
+                    
                     while current_date <= end_date:
                         year = current_date.year
                         month = current_date.month
                         
                         try:
                             # Download data for this month
-                            download_and_process(symbol, interval, year, month)
+                            print(f"    → {year}-{month:02d}", end="", flush=True)
+                            result = download_and_process(symbol, interval, year, month)
+                            
+                            if result and result.get('candles', 0) > 0:
+                                data_downloaded += result.get('candles', 0)
+                                print(f" ✓ ({result.get('candles', 0)} candles)")
+                            else:
+                                print(" - no new data")
+                            
+                            months_processed += 1
                         except Exception as download_error:
                             error_msg = f"Error downloading {symbol} {interval} for {year}-{month}: {download_error}"
                             logger.error(error_msg)
                             progress_data["errors"].append(error_msg)
+                            print(f" ✗ ERROR: {str(download_error)[:50]}...")
                         
                         # Move to next month
                         if month == 12:
@@ -273,11 +353,14 @@ def run_backfill_process(full=False):
                     
                     completed += 1
                     logger.info(f"Completed {symbol} {interval}")
+                    print(f"  ✅ Finished {symbol}/{interval}: {months_processed} months processed, {data_downloaded} total candles")
                 
                 except Exception as interval_error:
                     error_msg = f"Error processing {symbol} {interval}: {interval_error}"
                     logger.error(error_msg)
                     progress_data["errors"].append(error_msg)
+                    print(f"  ❌ Failed {symbol}/{interval}: {str(interval_error)[:100]}")
+                    errors += 1
                 
                 # Update progress
                 progress_data["overall_progress"] = round(
@@ -288,6 +371,19 @@ def run_backfill_process(full=False):
             # Update progress from database after each symbol
             update_progress_from_database()
             save_progress()
+            print(f"← Completed symbol {symbol} ({symbol_idx+1}/{len(symbols)})")
+        
+        # Print final summary
+        total_time = time.time() - start_time
+        minutes = int(total_time // 60)
+        seconds = int(total_time % 60)
+        
+        print("\n" + "=" * 80)
+        print("BACKFILL PROCESS COMPLETE")
+        print(f"Total time: {minutes}m {seconds}s")
+        print(f"Tasks completed: {completed}/{total_combinations}")
+        print(f"Errors encountered: {errors}")
+        print("=" * 80)
         
         logger.info("Backfill process completed")
     
@@ -295,6 +391,7 @@ def run_backfill_process(full=False):
         error_msg = f"Error in backfill process: {e}"
         logger.error(error_msg)
         progress_data["errors"].append(error_msg)
+        print(f"\n❌ CRITICAL ERROR: {str(e)}")
     
     finally:
         # Release lock
