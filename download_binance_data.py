@@ -134,6 +134,9 @@ def download_monthly_klines(symbol, interval, year, month):
     # Format month with leading zero
     month_str = f"{month:02d}"
     
+    # Print progress for this specific download
+    print(f"    └─ Downloading {symbol}/{interval} for {year}-{month_str}...")
+    
     # Determine number of days in month
     days_in_month = monthrange(year, month)[1]
     
@@ -149,13 +152,25 @@ def download_monthly_klines(symbol, interval, year, month):
         df = process_kline_data(content, symbol, interval)
         if df is not None and not df.empty:
             logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
+            print(f"       ✓ Downloaded monthly file with {len(df)} candles")
             return df
     
     # If monthly data not available, try daily data for each day in month
     logging.info(f"Monthly data not available, trying daily downloads for {symbol} {interval} {year}-{month_str}")
+    print(f"       ⚠ Monthly file not available, fetching daily files...")
     
     daily_dfs = []
+    days_downloaded = 0
+    start_time = time.time()
+    
     for day in range(1, days_in_month + 1):
+        # Print progress indicator every few days
+        if day % 5 == 1 or day == days_in_month:
+            elapsed = time.time() - start_time
+            progress = (day / days_in_month) * 100
+            remaining = elapsed * (days_in_month / day - 1) if day > 0 else 0
+            print(f"       → Day {day}/{days_in_month} ({progress:.1f}%) | {days_downloaded} files found | {elapsed:.1f}s elapsed")
+            
         day_str = f"{day:02d}"
         daily_url = f"{BASE_URL}/daily/klines/{symbol}/{interval}/{symbol}-{interval}-{year}-{month_str}-{day_str}.zip"
         
@@ -164,6 +179,7 @@ def download_monthly_klines(symbol, interval, year, month):
             df = process_kline_data(content, symbol, interval)
             if df is not None and not df.empty:
                 daily_dfs.append(df)
+                days_downloaded += 1
                 logging.info(f"Successfully downloaded daily data for {symbol} {interval} {year}-{month_str}-{day_str}")
         
         # Add small delay to avoid overwhelming the server
@@ -176,9 +192,12 @@ def download_monthly_klines(symbol, interval, year, month):
         combined_df = combined_df.drop_duplicates(subset=['timestamp'])
         # Sort by timestamp
         combined_df = combined_df.sort_values('timestamp')
+        
+        print(f"       ✓ Downloaded {days_downloaded}/{days_in_month} daily files with total {len(combined_df)} candles")
         return combined_df
     
     logging.warning(f"No data available for {symbol} {interval} {year}-{month_str}")
+    print(f"       ✗ No data available for this month")
     return None
 
 def download_symbol_interval_data(symbol, interval, start_date, end_date=None):
@@ -391,8 +410,15 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     
     if not months_to_process:
         logging.info(f"All data for {symbol} {interval} from {start_date} to {end_date} already exists in database. Skipping.")
+        print(f"  └─ {symbol}/{interval}: Database already contains complete data ✓")
         return 0
     
+    # Print a more visible status update
+    month_list = ", ".join([f"{y}-{m:02d}" for y, m in months_to_process[:5]])
+    if len(months_to_process) > 5:
+        month_list += f", ... and {len(months_to_process)-5} more"
+    
+    print(f"  ├─ {symbol}/{interval}: Downloading {len(months_to_process)} months ({month_list})")
     logging.info(f"Backfilling {symbol} {interval} for {len(months_to_process)} missing/incomplete months")
     
     total_candles = 0
@@ -450,23 +476,69 @@ def run_backfill(symbols=None, intervals=None, lookback_years=3):
     # Make sure database tables exist
     create_tables()
     
+    # Print a clear separation for the backfill process logs
+    print("\n" + "=" * 80)
+    print(f"BACKFILL PROCESS STARTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Processing {len(symbols)} symbols × {len(intervals)} intervals = {len(symbols) * len(intervals)} tasks")
+    print(f"Symbols: {', '.join(symbols)}")
+    print(f"Intervals: {', '.join(intervals)}")
+    print("=" * 80 + "\n")
+    
     logging.info(f"Starting backfill with {len(symbols)} symbols and {len(intervals)} intervals")
-    logging.info(f"Symbols: {', '.join(symbols)}")
-    logging.info(f"Intervals: {', '.join(intervals)}")
     
     total_candles = 0
+    completed_tasks = 0
+    total_tasks = len(symbols) * len(intervals)
+    start_time = time.time()
     
     # Process each symbol and interval
-    for symbol in symbols:
-        for interval in intervals:
+    for symbol_idx, symbol in enumerate(symbols):
+        for interval_idx, interval in enumerate(intervals):
+            task_num = symbol_idx * len(intervals) + interval_idx + 1
+            
+            # Print progress information
+            elapsed_time = time.time() - start_time
+            percent_complete = (completed_tasks / total_tasks) * 100
+            
+            if completed_tasks > 0:
+                est_total_time = elapsed_time * (total_tasks / completed_tasks)
+                est_remaining = est_total_time - elapsed_time
+                time_info = f"| {elapsed_time:.1f}s elapsed | ~{est_remaining:.1f}s remaining"
+            else:
+                time_info = f"| {elapsed_time:.1f}s elapsed"
+            
+            print(f"Task {task_num}/{total_tasks} ({percent_complete:.1f}%) {time_info}")
+            print(f"Processing {symbol} with {interval} interval...")
+            
             try:
                 candles = backfill_symbol_interval(symbol, interval, lookback_years)
                 total_candles += candles
+                completed_tasks += 1
+                
+                # Print results for this task
+                if candles > 0:
+                    print(f"✓ Downloaded {candles} candles for {symbol}/{interval}")
+                else:
+                    print(f"✓ No new data needed for {symbol}/{interval} (already up to date)")
                 
                 # Sleep to avoid overwhelming the server
                 time.sleep(1)
             except Exception as e:
                 logging.error(f"Error processing {symbol} {interval}: {e}")
+                print(f"✗ Error processing {symbol}/{interval}: {str(e)}")
+            
+            print("-" * 40)
+    
+    # Calculate total time
+    total_time = time.time() - start_time
+    
+    # Print completion summary
+    print("\n" + "=" * 80)
+    print(f"BACKFILL PROCESS COMPLETED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total candles downloaded: {total_candles}")
+    print(f"Total time: {total_time:.1f} seconds ({(total_time/60):.1f} minutes)")
+    print(f"Tasks completed: {completed_tasks}/{total_tasks}")
+    print("=" * 80 + "\n")
     
     logging.info(f"Backfill completed. Total candles downloaded: {total_candles}")
     return total_candles

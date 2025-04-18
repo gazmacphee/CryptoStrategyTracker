@@ -56,6 +56,11 @@ def backfill_database(full=False, background=False):
         full: Whether to do a full backfill (more symbols, longer history)
         background: Whether this is running in the background (affects logging)
     """
+    print("\n" + "*" * 80)
+    print(f"DATABASE BACKFILL {'BACKGROUND ' if background else ''}PROCESS STARTING")
+    print("This will download cryptocurrency historical data from Binance")
+    print("*" * 80)
+    
     if background:
         logging.info("Starting backfill process in background mode")
     
@@ -74,15 +79,34 @@ def backfill_database(full=False, background=False):
                 symbols = get_popular_symbols(limit=20)
                 intervals = ['1h', '4h', '8h', '12h', '1d', '3d', '1w', '1M']
             
+            # Print some information about what we're doing
+            print(f"\nPreparing to download data for {len(symbols)} cryptocurrency pairs:")
+            print(f"  {', '.join(symbols)}")
+            print(f"\nUsing {len(intervals)} time intervals:")
+            print(f"  {', '.join(intervals)}")
+            print("\nThis process may take several minutes. Progress will be shown below...")
+            print("-" * 80)
+            
             logging.info(f"Starting backfill for {len(symbols)} symbols and {len(intervals)} intervals")
+            
             # Run backfill for all specified symbols and intervals
-            dbd.run_backfill(symbols=symbols, intervals=intervals, lookback_years=3)
+            total_candles = dbd.run_backfill(symbols=symbols, intervals=intervals, lookback_years=3)
+            
+            # Print summary
+            print("\n" + "*" * 80)
+            print(f"BACKFILL COMPLETED - Downloaded {total_candles} total candles")
+            if total_candles > 0:
+                print("Your database now contains historical cryptocurrency price data!")
+            else:
+                print("No new data was needed. Your database is already up to date!")
+            print("*" * 80 + "\n")
             
         finally:
             # Always release the lock when done
             data_loader.release_backfill_lock()
             logging.info("Backfill process completed and lock released")
     else:
+        print("\nA backfill process is already running. Current progress will be shown in the logs.\n")
         logging.info("A backfill process is already running. Skipping.")
 
 def continuous_backfill(interval_minutes=15, full=False):
