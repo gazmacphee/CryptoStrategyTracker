@@ -370,7 +370,10 @@ def calculate_and_save_indicators(df, symbol, interval):
 def backfill_symbol_interval(symbol, interval, lookback_years=3):
     """Backfill data for a specific symbol and interval going back specified years, but only for missing data"""
     # Calculate start date
-    end_date = date.today()
+    # Using a fixed reference date (2023-01-01) to ensure we're downloading historical data
+    # This addresses an issue where the system date might be set to a future date
+    reference_date = date(2023, 1, 1)  # Using 2023-01-01 as a fixed reference
+    end_date = reference_date
     start_date = date(end_date.year - lookback_years, end_date.month, 1)
     
     # Getting the year and month values
@@ -379,7 +382,7 @@ def backfill_symbol_interval(symbol, interval, lookback_years=3):
     end_year = end_date.year
     end_month = end_date.month
     
-    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date}")
+    logging.info(f"Checking {symbol} {interval} data coverage from {start_date} to {end_date} (using 2023-01-01 as reference date)")
     
     # Import our new functions to check existing data
     from database import get_existing_data_months, has_complete_month_data
