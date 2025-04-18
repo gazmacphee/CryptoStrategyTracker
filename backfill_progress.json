@@ -1,7 +1,7 @@
 {
-  "last_updated": "2025-04-18 12:21:38",
+  "last_updated": "2025-04-18 12:22:10",
   "total_symbols": 12,
-  "symbols_completed": 11,
+  "symbols_completed": 12,
   "symbols_progress": {
     "BTCUSDT": 100.0,
     "ETHUSDT": 100.0,
@@ -14,9 +14,9 @@
     "LTCUSDT": 100.0,
     "LINKUSDT": 100.0,
     "MATICUSDT": 100.0,
-    "AVAXUSDT": 0.0
+    "AVAXUSDT": 100.0
   },
-  "overall_progress": 91.7,
-  "is_running": true,
+  "overall_progress": 100.0,
+  "is_running": false,
   "errors": []
 }
