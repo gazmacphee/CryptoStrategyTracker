@@ -368,7 +368,7 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
         try:
             print(f"Fetching recent data for {symbol} {interval} directly from Binance API at {endpoint}...")
             
-            # Set up request parameters
+            # Set up request parameters - klines endpoint is a public endpoint and doesn't need authentication
             params = {
                 'symbol': symbol,
                 'interval': interval,
@@ -377,16 +377,10 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
                 'limit': limit
             }
             
-            # Add timestamp and signature for authentication
-            timestamp = int(time.time() * 1000)
-            params['timestamp'] = timestamp
+            # For klines endpoint, we don't need to add timestamp and signature as it's a public endpoint
+            # This prevents the "Too many parameters" error from the API
             
-            # Generate signature
-            query_string = urlencode(params)
-            signature = get_binance_signature(query_string, API_SECRET)
-            params['signature'] = signature
-            
-            # Add authentication headers
+            # Set headers - we can still include the API key for rate limiting benefits
             headers = {'X-MBX-APIKEY': API_KEY}
             
             # Make request to Binance API
