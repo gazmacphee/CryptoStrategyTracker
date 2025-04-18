@@ -101,17 +101,38 @@ def process_symbol_interval(symbol, interval, max_months=36):
         logging.info(f"Processing {symbol}/{interval}")
         print(f"\n🔄 Processing {symbol}/{interval}")
         
-        # Get the date range for available data
-        min_date, max_date = get_date_range_for_symbol_interval(symbol, interval)
+        # First try to get date range from Binance Data Vision listing
+        try:
+            min_date, max_date = get_date_range_for_symbol_interval(symbol, interval)
+        except Exception as e:
+            logging.error(f"Error getting date range from Binance Data Vision: {e}")
+            min_date, max_date = None, None
         
+        # If we couldn't get date information from Binance Data Vision,
+        # use a fallback approach with a fixed date range
         if not min_date or not max_date:
-            logging.warning(f"No data available on Binance for {symbol}/{interval}")
-            print(f"  ⚠️ No data available on Binance for {symbol}/{interval}")
-            return 0
-        
-        # Convert to date objects
-        min_date = min_date.date()
-        max_date = max_date.date()
+            logging.warning(f"Could not get date range from Binance for {symbol}/{interval}. Using fallback approach.")
+            print(f"  ⚠️ Could not get file listings from Binance for {symbol}/{interval}. Using fallback time range.")
+            
+            # Use fixed reference date approach - Binance typically has data back to 2017
+            reference_date = date(2024, 12, 31)  # Fixed reference date (Dec 31, 2024)
+            lookback_years = 3  # Default for initial implementation
+            
+            # Calculate start date as 3 years before the reference date
+            min_date = reference_date.replace(year=reference_date.year - lookback_years)
+            max_date = reference_date
+            
+            # Take a more targeted approach: focus on most recent data first
+            # Start with the most recent 6 months
+            recent_months = 6
+            min_date = max(min_date, max_date.replace(
+                year = max_date.year if max_date.month > recent_months else max_date.year - 1,
+                month = (max_date.month - recent_months) % 12 + 1
+            ))
+        else:
+            # Convert to date objects
+            min_date = min_date.date()
+            max_date = max_date.date()
         
         # Using a fixed reference date to avoid issues with future dates
         reference_date = date(2024, 12, 31)
@@ -120,7 +141,7 @@ def process_symbol_interval(symbol, interval, max_months=36):
             logging.info(f"Limiting max date to reference date {reference_date} (was {max_date})")
             max_date = reference_date
         
-        print(f"  ℹ️ Available data for {symbol}/{interval} from {min_date} to {max_date}")
+        print(f"  ℹ️ Processing data for {symbol}/{interval} from {min_date} to {max_date}")
         
         # Calculate all months between min_date and max_date
         all_months = []
@@ -146,6 +167,9 @@ def process_symbol_interval(symbol, interval, max_months=36):
         
         print(f"  🔄 Processing {len(all_months)} months for {symbol}/{interval}")
         
+        # Sort months chronologically (oldest first) to ensure proper indicator calculation
+        all_months.sort()
+        
         # Process each month
         total_candles = 0
         for idx, (year, month) in enumerate(all_months):
@@ -155,23 +179,31 @@ def process_symbol_interval(symbol, interval, max_months=36):
             
             print(f"  📅 Month {idx+1}/{len(all_months)} - {year}-{month:02d} ({progress_pct:.1f}%)")
             
-            # Download data for this month
-            monthly_df = download_monthly_klines(symbol, interval, year, month)
-            
-            if monthly_df is not None and not monthly_df.empty:
-                # Calculate indicators with proper lookback
-                calculate_and_save_indicators(monthly_df, symbol, interval)
+            try:
+                # Download data for this month
+                monthly_df = download_monthly_klines(symbol, interval, year, month)
                 
-                total_candles += len(monthly_df)
-                logging.info(f"Processed {len(monthly_df)} candles for {symbol}/{interval} {year}-{month:02d}")
-            else:
-                logging.warning(f"No data available for {symbol}/{interval} {year}-{month:02d}")
+                if monthly_df is not None and not monthly_df.empty:
+                    # Calculate indicators with proper lookback
+                    calculate_and_save_indicators(monthly_df, symbol, interval)
+                    
+                    total_candles += len(monthly_df)
+                    logging.info(f"Processed {len(monthly_df)} candles for {symbol}/{interval} {year}-{month:02d}")
+                else:
+                    logging.warning(f"No data available for {symbol}/{interval} {year}-{month:02d}")
+            except Exception as month_err:
+                logging.error(f"Error processing {symbol}/{interval} for {year}-{month:02d}: {month_err}")
+                print(f"  ❌ Error processing {year}-{month:02d}: {str(month_err)}")
         
         # Mark symbol as completed
         update_progress(symbol, 100.0)
         
-        print(f"✅ Completed {symbol}/{interval} - Processed {total_candles} candles in total")
-        logging.info(f"Completed {symbol}/{interval} - Processed {total_candles} candles")
+        if total_candles > 0:
+            print(f"✅ Completed {symbol}/{interval} - Processed {total_candles} candles in total")
+            logging.info(f"Completed {symbol}/{interval} - Processed {total_candles} candles")
+        else:
+            print(f"⚠️ No data processed for {symbol}/{interval}")
+            logging.warning(f"No data processed for {symbol}/{interval}")
         
         return total_candles
     

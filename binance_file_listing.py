@@ -36,16 +36,42 @@ def fetch_directory_listing(url: str) -> Optional[str]:
     retries = 0
     while retries < MAX_RETRIES:
         try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            
             if response.status_code == 200:
-                return response.text
+                content = response.text
+                
+                # Check if it's valid XML before returning
+                try:
+                    import xml.etree.ElementTree as ET
+                    ET.fromstring(content)
+                    return content
+                except Exception as xml_err:
+                    logging.warning(f"Received response but XML is invalid: {xml_err}")
+                    logging.debug(f"First 100 chars of response: {content[:100]}")
+                    
+                    # Binance may be returning HTML instead of XML - could be blocked or have access restrictions
+                    if "<html" in content.lower() or "<!doctype html" in content.lower():
+                        logging.warning("Received HTML instead of XML - Binance may be restricting access")
+                        return None
             
             logging.warning(f"Failed to fetch directory listing: {url}, status code: {response.status_code}")
-            return None
+            
+            # If we get a 403 Forbidden, don't retry
+            if response.status_code == 403:
+                logging.error("Access forbidden (403) - Binance may be restricting access from this location")
+                return None
+                
         except Exception as e:
             retries += 1
             logging.warning(f"Error fetching directory listing (attempt {retries}/{MAX_RETRIES}): {e}")
             time.sleep(RETRY_DELAY)
+        
+        # Increase delay for next retry
+        time.sleep(RETRY_DELAY * (retries + 1))
     
     logging.error(f"Failed to fetch directory listing after {MAX_RETRIES} attempts: {url}")
     return None

@@ -1,9 +1,9 @@
 {
-  "last_updated": "2025-04-18 11:15:51",
+  "last_updated": "2025-04-18 11:17:21",
   "total_symbols": 12,
   "symbols_completed": 0,
   "symbols_progress": {
-    "BTCUSDT": 0.0,
+    "BTCUSDT": 33.33333333333333,
     "ETHUSDT": 0.0,
     "BNBUSDT": 0.0,
     "ADAUSDT": 0.0,
@@ -16,7 +16,7 @@
     "MATICUSDT": 0.0,
     "AVAXUSDT": 0.0
   },
-  "overall_progress": 0.0,
+  "overall_progress": 2.8,
   "is_running": true,
   "errors": []
 }
