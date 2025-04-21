@@ -183,15 +183,22 @@ def download_monthly_klines(symbol, interval, year, month):
             with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
                 csv_file = zip_file.namelist()[0]  # Get the first file in the ZIP
                 
-                # Read the CSV into DataFrame
+                # Read the CSV into DataFrame with explicit dtypes
                 with zip_file.open(csv_file) as f:
                     df = pd.read_csv(f, header=None, names=[
                         'open_time', 'open', 'high', 'low', 'close', 'volume',
                         'close_time', 'quote_volume', 'count', 'taker_buy_volume',
                         'taker_buy_quote_volume', 'ignore'
-                    ])
+                    ], dtype={
+                        'open_time': 'int64',  # Force this to be int64
+                        'close_time': 'int64'  # Force this to be int64 too
+                    })
                     
-                    # Convert data types
+                    # Print sample data types for debugging
+                    logging.debug(f"Dataframe dtypes: {df.dtypes}")
+                    logging.debug(f"Sample open_time values: {df['open_time'].head(3).tolist()}")
+                    
+                    # Convert numeric data types
                     df['open'] = pd.to_numeric(df['open'])
                     df['high'] = pd.to_numeric(df['high'])
                     df['low'] = pd.to_numeric(df['low'])
@@ -333,12 +340,19 @@ def download_daily_klines(symbol, interval, year, month):
                     csv_file = zip_file.namelist()[0]
                     
                     with zip_file.open(csv_file) as f:
-                        # Use the same column names as in monthly downloads
+                        # Use the same column names as in monthly downloads with explicit dtypes
                         df = pd.read_csv(f, header=None, names=[
                             'open_time', 'open', 'high', 'low', 'close', 'volume',
                             'close_time', 'quote_volume', 'count', 'taker_buy_volume',
                             'taker_buy_quote_volume', 'ignore'
-                        ])
+                        ], dtype={
+                            'open_time': 'int64',  # Force this to be int64
+                            'close_time': 'int64'  # Force this to be int64 too
+                        })
+                        
+                        # Print sample data types for debugging
+                        logging.debug(f"Daily file dtypes: {df.dtypes}")
+                        logging.debug(f"Daily file sample open_time values: {df['open_time'].head(3).tolist()}")
                         
                         # Convert numeric columns
                         for col in ['open', 'high', 'low', 'close', 'volume']:
