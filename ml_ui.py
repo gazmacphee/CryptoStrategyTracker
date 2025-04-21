@@ -8,21 +8,29 @@ This module provides Streamlit UI components for:
 4. Managing continuous learning
 """
 
+import os
+import logging
+from datetime import datetime, timedelta
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import time
-from datetime import datetime, timedelta
 import threading
-import os
-import glob
-import joblib
-import logging
+import time
+import json
 
-# Import local modules
+# ML libraries
+import joblib
+
+# Local imports
 from ml_prediction import MLPredictor, train_all_models, predict_for_all, continuous_learning_cycle
+from binance_api import get_available_symbols
+from utils import timeframe_to_interval, get_timeframe_options
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def render_ml_predictions_tab():
     """
@@ -30,33 +38,20 @@ def render_ml_predictions_tab():
     """
     st.header("Machine Learning Price Predictions")
     
-    # Create tabs for different ML functionalities
-    ml_tabs = st.tabs(["Predictions", "Model Training", "Performance Metrics", "Continuous Learning"])
+    # Create subtabs for different ML functionalities
+    subtabs = st.tabs(["Predictions", "Model Training", "Performance Metrics", "Continuous Learning"])
     
-    # Initialize session state for ML
-    if 'ml_training_running' not in st.session_state:
-        st.session_state.ml_training_running = False
-    if 'ml_continuous_running' not in st.session_state:
-        st.session_state.ml_continuous_running = False
-    if 'ml_predictions' not in st.session_state:
-        st.session_state.ml_predictions = {}
-    if 'selected_symbol_interval' not in st.session_state:
-        st.session_state.selected_symbol_interval = ('BTCUSDT', '1h')
-    
-    # Tab 1: Predictions
-    with ml_tabs[0]:
+    # Render each subtab
+    with subtabs[0]:
         render_predictions_subtab()
     
-    # Tab 2: Model Training
-    with ml_tabs[1]:
+    with subtabs[1]:
         render_training_subtab()
     
-    # Tab 3: Performance Metrics
-    with ml_tabs[2]:
+    with subtabs[2]:
         render_metrics_subtab()
     
-    # Tab 4: Continuous Learning
-    with ml_tabs[3]:
+    with subtabs[3]:
         render_continuous_learning_subtab()
 
 def render_predictions_subtab():
@@ -65,167 +60,377 @@ def render_predictions_subtab():
     """
     st.subheader("Price Movement Predictions")
     
-    # Symbol and interval selection
-    col1, col2 = st.columns(2)
-    with col1:
-        symbols = get_available_symbols()
-        symbol = st.selectbox("Select Symbol", symbols, index=symbols.index(st.session_state.selected_symbol_interval[0]) if st.session_state.selected_symbol_interval[0] in symbols else 0)
+    # Sidebar for prediction controls
+    st.sidebar.header("Prediction Settings")
     
-    with col2:
-        intervals = ['15m', '30m', '1h', '4h', '1d']
-        interval = st.selectbox("Select Interval", intervals, index=intervals.index(st.session_state.selected_symbol_interval[1]) if st.session_state.selected_symbol_interval[1] in intervals else 2)
+    # Get available symbols
+    available_symbols = get_available_symbols()
+    default_symbol = "BTCUSDT"
+    if default_symbol not in available_symbols and available_symbols:
+        default_symbol = available_symbols[0]
     
-    st.session_state.selected_symbol_interval = (symbol, interval)
+    # Symbol selection
+    symbol = st.sidebar.selectbox(
+        "Select Cryptocurrency",
+        options=available_symbols,
+        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0,
+        key="ml_pred_symbol"
+    )
     
-    # Prediction horizon selection
-    col1, col2 = st.columns(2)
-    with col1:
-        horizon = st.selectbox("Prediction Horizon", [1, 6, 12, 24, 48, 96], index=2)
+    # Timeframe selection
+    timeframe_options = get_timeframe_options()
+    interval = st.sidebar.selectbox(
+        "Select Timeframe",
+        options=list(timeframe_options.keys()),
+        index=3,  # Default to 1h
+        key="ml_pred_interval"
+    )
+    binance_interval = timeframe_to_interval(interval)
     
-    with col2:
-        predict_button = st.button("Generate Prediction")
+    # Prediction periods
+    prediction_periods = st.sidebar.slider(
+        "Prediction Periods",
+        min_value=1,
+        max_value=10,
+        value=3,
+        help="Number of future periods to predict"
+    )
     
-    # Get model status
-    model_filename = f"models/{symbol}_{interval}_predictor.joblib"
-    model_exists = os.path.exists(model_filename)
+    # Run prediction button
+    run_prediction = st.sidebar.button("Generate Prediction")
     
-    if model_exists:
-        try:
-            model_data = joblib.load(model_filename)
-            last_updated = datetime.fromisoformat(model_data.get('updated_at', '2000-01-01T00:00:00'))
-            st.info(f"Model last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
-        except:
-            st.warning("Model file exists but could not be loaded properly.")
-    else:
-        st.warning("No trained model exists for this symbol/interval. Please train a model first.")
+    # Check if model exists
+    model_path = os.path.join('models', f"{symbol}_{binance_interval}_model.joblib")
+    model_exists = os.path.exists(model_path)
     
-    # Generate predictions when button is clicked
-    if predict_button:
+    if not model_exists:
+        st.warning(f"No trained model exists for {symbol}/{binance_interval}. Please train a model first.")
+    
+    # Run prediction if requested
+    if run_prediction and model_exists:
         with st.spinner(f"Generating predictions for {symbol}/{interval}..."):
             try:
-                predictor = MLPredictor(symbol, interval, prediction_horizon=horizon)
+                # Initialize predictor
+                predictor = MLPredictor(symbol, binance_interval)
                 
-                if not model_exists:
-                    st.info("Training new model since none exists...")
-                    success = predictor.train_model()
-                    if not success:
-                        st.error("Failed to train model. Please check logs.")
-                        return
+                # Make prediction
+                predictions_df = predictor.predict_future(periods=prediction_periods)
                 
-                predictions = predictor.predict_future(periods=horizon)
-                if predictions is not None and not predictions.empty:
-                    st.session_state.ml_predictions[(symbol, interval)] = predictions
-                    st.success("Predictions generated successfully!")
+                if predictions_df.empty:
+                    st.error("Failed to generate predictions. There may not be enough recent data.")
                 else:
-                    st.error("Failed to generate predictions. Please check logs.")
+                    # Display results
+                    st.success("Prediction generated successfully!")
+                    
+                    # Get the most recent actual price
+                    latest_price = predictions_df[predictions_df['is_prediction'] == False]['close'].iloc[-1]
+                    
+                    # Get the prediction row
+                    pred_row = predictions_df[predictions_df['is_prediction'] == True].iloc[0]
+                    predicted_price = pred_row['predicted_price']
+                    predicted_change = pred_row['predicted_change']
+                    confidence = pred_row['confidence']
+                    
+                    # Calculate prediction time
+                    pred_time = pred_row['timestamp']
+                    
+                    # Display prediction metrics
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric(
+                            "Current Price",
+                            f"${latest_price:.2f}",
+                            delta=None
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            f"Predicted Price ({interval})",
+                            f"${predicted_price:.2f}",
+                            delta=f"{predicted_change*100:.2f}%",
+                            delta_color="normal" if predicted_change >= 0 else "inverse"
+                        )
+                    
+                    with col3:
+                        st.metric(
+                            "Confidence",
+                            f"{confidence*100:.1f}%",
+                            delta=None
+                        )
+                    
+                    # Display prediction timestamp
+                    st.info(f"Prediction for {pred_time.strftime('%Y-%m-%d %H:%M')} (next {interval} candle)")
+                    
+                    # Display prediction interpretation
+                    if predicted_change > 0:
+                        if confidence > 0.7:
+                            signal = "Strong Buy Signal"
+                            color = "green"
+                        else:
+                            signal = "Weak Buy Signal"
+                            color = "lightgreen"
+                    else:
+                        if confidence > 0.7:
+                            signal = "Strong Sell Signal"
+                            color = "red"
+                        else:
+                            signal = "Weak Sell Signal"
+                            color = "lightcoral"
+                    
+                    st.markdown(f"**Prediction Signal:** <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
+                    
+                    # Add explanation
+                    if predicted_change > 0:
+                        explanation = (f"The model predicts the price will **increase {predicted_change*100:.2f}%** "
+                                    f"in the next {interval} with a confidence of {confidence*100:.1f}%.")
+                    else:
+                        explanation = (f"The model predicts the price will **decrease {abs(predicted_change)*100:.2f}%** "
+                                    f"in the next {interval} with a confidence of {confidence*100:.1f}%.")
+                    
+                    st.markdown(explanation)
+                    
+                    # Create a price chart with prediction
+                    st.subheader("Price Chart with Prediction")
+                    
+                    # Extract data for chart
+                    historical_data = predictions_df[predictions_df['is_prediction'] == False].iloc[-50:]  # Last 50 points
+                    prediction_data = predictions_df[predictions_df['is_prediction'] == True]
+                    
+                    # Create figure
+                    fig = go.Figure()
+                    
+                    # Add historical prices
+                    fig.add_trace(go.Candlestick(
+                        x=historical_data['timestamp'],
+                        open=historical_data['open'],
+                        high=historical_data['high'],
+                        low=historical_data['low'],
+                        close=historical_data['close'],
+                        name="Historical Prices"
+                    ))
+                    
+                    # Add predicted price
+                    fig.add_trace(go.Scatter(
+                        x=prediction_data['timestamp'],
+                        y=[latest_price] + [predicted_price] + [None] * (len(prediction_data) - 1),
+                        mode='lines+markers',
+                        name="Predicted Price",
+                        line=dict(color='rgba(255, 165, 0, 0.8)', width=3, dash='dot'),
+                        marker=dict(size=10, color='orange')
+                    ))
+                    
+                    # Update layout
+                    fig.update_layout(
+                        title=f"{symbol} Price Prediction",
+                        xaxis_title="Date",
+                        yaxis_title="Price (USD)",
+                        height=500,
+                        xaxis_rangeslider_visible=False
+                    )
+                    
+                    # Show chart
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Add disclaimer
+                    st.caption("**Disclaimer:** Predictions are based on historical patterns and technical indicators. They should not be considered as financial advice. Cryptocurrency markets are highly volatile and past performance does not guarantee future results.")
+                    
+                    # Load model metadata for insights
+                    metadata_path = os.path.join('models', f"{symbol}_{binance_interval}_metadata.json")
+                    if os.path.exists(metadata_path):
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                        
+                        # Display model insights
+                        with st.expander("Model Insights"):
+                            st.write("### Model Performance Metrics")
+                            
+                            metrics_df = pd.DataFrame({
+                                'Metric': ['Direction Accuracy', 'Mean Squared Error', 'R-squared'],
+                                'Value': [
+                                    f"{metadata['metrics'].get('direction_accuracy', 0) * 100:.1f}%",
+                                    f"{metadata['metrics'].get('mse', 0):.6f}",
+                                    f"{metadata['metrics'].get('r2', 0):.3f}"
+                                ]
+                            })
+                            
+                            st.dataframe(metrics_df, use_container_width=True)
+                            
+                            st.write("### Feature Importance")
+                            if 'feature_importance' in metadata['metrics']:
+                                feature_imp = metadata['metrics']['feature_importance']
+                                # Convert to DataFrame for display
+                                fi_df = pd.DataFrame({
+                                    'Feature': list(feature_imp.keys()),
+                                    'Importance': list(feature_imp.values())
+                                })
+                                fi_df = fi_df.sort_values('Importance', ascending=False).head(10)
+                                
+                                # Create bar chart
+                                fig = go.Figure(go.Bar(
+                                    x=fi_df['Importance'],
+                                    y=fi_df['Feature'],
+                                    orientation='h',
+                                    marker_color='darkblue'
+                                ))
+                                
+                                fig.update_layout(
+                                    title="Top 10 Most Important Features",
+                                    xaxis_title="Importance",
+                                    yaxis_title="Feature",
+                                    height=400
+                                )
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("Feature importance not available for this model")
+                    
             except Exception as e:
-                st.error(f"Error generating predictions: {str(e)}")
+                st.error(f"Error generating prediction: {str(e)}")
+                logging.error(f"Prediction error: {e}")
+                import traceback
+                logging.error(traceback.format_exc())
     
-    # Display predictions if available
-    if (symbol, interval) in st.session_state.ml_predictions:
-        predictions = st.session_state.ml_predictions[(symbol, interval)]
+    # No prediction requested or model doesn't exist
+    elif not run_prediction and model_exists:
+        # Show info about available model
+        st.info(f"Model for {symbol}/{interval} is available for predictions. Click 'Generate Prediction' to create a forecast.")
         
-        # Show prediction summary
-        st.subheader("Prediction Summary")
-        avg_movement = predictions['predicted_movement'].mean()
-        direction = "bullish 📈" if avg_movement > 0 else "bearish 📉"
-        confidence = predictions['confidence'].mean()
-        
-        # Format metrics
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Price Direction", direction)
-        col2.metric("Predicted Change", f"{avg_movement:.2%}")
-        col3.metric("Confidence", f"{confidence:.2%}")
-        
-        # Display the prediction table
-        st.subheader("Detailed Predictions")
-        display_df = predictions.copy()
-        display_df['timestamp'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-        display_df['predicted_movement'] = display_df['predicted_movement'].apply(lambda x: f"{x:.2%}")
-        display_df['predicted_price'] = display_df['predicted_price'].apply(lambda x: f"${x:.2f}")
-        display_df['confidence'] = display_df['confidence'].apply(lambda x: f"{x:.2%}")
-        display_df.columns = ['Timestamp', 'Predicted Movement', 'Predicted Price', 'Confidence']
-        st.dataframe(display_df)
-        
-        # Create prediction chart
-        st.subheader("Price Prediction Chart")
-        
-        # Get historical data for context
-        from database import get_historical_data
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=3)  # 3 days of historical data
-        historical_df = get_historical_data(symbol, interval, start_time, end_time)
-        
-        if not historical_df.empty:
-            # Create plotly figure
-            fig = go.Figure()
-            
-            # Add historical prices
-            fig.add_trace(go.Scatter(
-                x=historical_df['timestamp'],
-                y=historical_df['close'],
-                mode='lines',
-                name='Historical Price',
-                line=dict(color='blue')
-            ))
-            
-            # Add prediction
-            last_price = historical_df['close'].iloc[-1]
-            last_timestamp = historical_df['timestamp'].iloc[-1]
-            
-            # Create prediction line
-            pred_timestamps = [last_timestamp] + predictions['timestamp'].tolist()
-            pred_prices = [last_price] + predictions['predicted_price'].tolist()
-            
-            fig.add_trace(go.Scatter(
-                x=pred_timestamps,
-                y=pred_prices,
-                mode='lines+markers',
-                name='Predicted Price',
-                line=dict(color='green', dash='dot'),
-                marker=dict(size=8)
-            ))
-            
-            # Add confidence interval
-            upper_bound = []
-            lower_bound = []
-            
-            for i, row in predictions.iterrows():
-                error_margin = (1 - row['confidence']) * row['predicted_price'] * 0.1
-                upper_bound.append(row['predicted_price'] + error_margin)
-                lower_bound.append(max(0, row['predicted_price'] - error_margin))
-            
-            fig.add_trace(go.Scatter(
-                x=predictions['timestamp'],
-                y=upper_bound,
-                mode='lines',
-                line=dict(width=0),
-                showlegend=False
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=predictions['timestamp'],
-                y=lower_bound,
-                mode='lines',
-                line=dict(width=0),
-                fill='tonexty',
-                fillcolor='rgba(0, 255, 0, 0.1)',
-                name='Confidence Interval'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title=f"{symbol} Price Prediction ({interval})",
-                xaxis_title="Date/Time",
-                yaxis_title="Price (USDT)",
-                hovermode="x unified",
-                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-                height=500
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        # Display last prediction if available
+        prediction_cache_file = os.path.join('models', f"{symbol}_{binance_interval}_last_prediction.json")
+        if os.path.exists(prediction_cache_file):
+            try:
+                with open(prediction_cache_file, 'r') as f:
+                    last_prediction = json.load(f)
+                
+                st.subheader("Last Prediction")
+                
+                # Check if prediction is recent (within 24 hours)
+                pred_time = datetime.fromisoformat(last_prediction['timestamp'])
+                now = datetime.now()
+                
+                if (now - pred_time).total_seconds() < 86400:  # 24 hours
+                    # Display last prediction
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric(
+                            "Base Price",
+                            f"${last_prediction['base_price']:.2f}",
+                            delta=None
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            "Predicted Price",
+                            f"${last_prediction['predicted_price']:.2f}",
+                            delta=f"{last_prediction['predicted_change']*100:.2f}%",
+                            delta_color="normal" if last_prediction['predicted_change'] >= 0 else "inverse"
+                        )
+                    
+                    with col3:
+                        st.metric(
+                            "Confidence",
+                            f"{last_prediction['confidence']*100:.1f}%",
+                            delta=None
+                        )
+                    
+                    st.caption(f"Prediction made at {pred_time.strftime('%Y-%m-%d %H:%M')} (Click 'Generate Prediction' for a new forecast)")
+                else:
+                    st.warning("The last prediction is more than 24 hours old. Generate a new prediction for the latest forecast.")
+            except Exception as e:
+                logging.error(f"Error loading last prediction: {e}")
+    
+    # Share models across multiple symbols
+    st.subheader("Quick Multi-Symbol Predictions")
+    
+    # Get list of models
+    models_dir = "models"
+    available_models = []
+    
+    if os.path.exists(models_dir):
+        for filename in os.listdir(models_dir):
+            if filename.endswith("_model.joblib"):
+                model_id = filename.replace("_model.joblib", "")
+                available_models.append(model_id)
+    
+    if available_models:
+        # Generate predictions for all models
+        if st.button("Generate Quick Predictions for All Symbols"):
+            with st.spinner("Generating predictions for all models..."):
+                # Parse models to get symbol/interval combinations
+                symbols = []
+                intervals = []
+                
+                for model_id in available_models:
+                    parts = model_id.split("_")
+                    if len(parts) >= 2:
+                        symbol = parts[0]
+                        interval = parts[1]
+                        if symbol not in symbols:
+                            symbols.append(symbol)
+                        if interval not in intervals:
+                            intervals.append(interval)
+                
+                # Generate predictions
+                all_predictions = predict_for_all(symbols, intervals)
+                
+                if all_predictions:
+                    # Create a table of predictions
+                    prediction_data = []
+                    
+                    for symbol, intervals_data in all_predictions.items():
+                        for interval, pred_data in intervals_data.items():
+                            if pred_data.get('status') == 'success':
+                                prediction_data.append({
+                                    'Symbol': symbol,
+                                    'Interval': interval,
+                                    'Direction': '🔼' if pred_data['direction'] == 'up' else '🔽',
+                                    'Change': f"{pred_data['predicted_change']*100:.2f}%",
+                                    'Confidence': f"{pred_data['confidence']*100:.1f}%",
+                                    'signal_value': 1 if pred_data['direction'] == 'up' else -1,
+                                    'confidence_value': pred_data['confidence'],
+                                    'change_value': pred_data['predicted_change']
+                                })
+                    
+                    if prediction_data:
+                        # Convert to DataFrame
+                        pred_df = pd.DataFrame(prediction_data)
+                        
+                        # Sort by confidence and direction
+                        pred_df['combined_score'] = pred_df['confidence_value'] * abs(pred_df['change_value']) * pred_df['signal_value']
+                        pred_df = pred_df.sort_values('combined_score', ascending=False)
+                        
+                        # Remove sorting columns
+                        display_df = pred_df.drop(['signal_value', 'confidence_value', 'change_value', 'combined_score'], axis=1)
+                        
+                        # Show the table
+                        st.dataframe(display_df, use_container_width=True)
+                        
+                        # Group and display strongest signals
+                        st.subheader("Strongest Signals")
+                        
+                        # Top buy signals
+                        buy_signals = pred_df[pred_df['signal_value'] > 0].head(3)
+                        if not buy_signals.empty:
+                            st.markdown("#### Top Buy Signals")
+                            for _, row in buy_signals.iterrows():
+                                st.markdown(f"**{row['Symbol']} ({row['Interval']})**: {row['Change']} with {row['Confidence']} confidence")
+                        
+                        # Top sell signals
+                        sell_signals = pred_df[pred_df['signal_value'] < 0].head(3)
+                        if not sell_signals.empty:
+                            st.markdown("#### Top Sell Signals")
+                            for _, row in sell_signals.iterrows():
+                                st.markdown(f"**{row['Symbol']} ({row['Interval']})**: {row['Change']} with {row['Confidence']} confidence")
+                    else:
+                        st.warning("No valid predictions generated. Try training models first.")
+                else:
+                    st.error("Failed to generate predictions.")
         else:
-            st.warning("No historical data available to display chart context.")
+            st.info("Click the button to generate quick predictions for all available models.")
+    else:
+        st.warning("No trained models available. Train models in the 'Model Training' tab first.")
 
 def render_training_subtab():
     """
@@ -233,190 +438,257 @@ def render_training_subtab():
     """
     st.subheader("Train Prediction Models")
     
-    # Options for training
+    # Sidebar for training controls
+    st.sidebar.header("Training Settings")
+    
+    # Get available symbols
+    available_symbols = get_available_symbols(limit=15)
+    
+    # Symbol selection (multi-select)
+    selected_symbols = st.sidebar.multiselect(
+        "Select Cryptocurrencies to Train",
+        options=available_symbols,
+        default=["BTCUSDT", "ETHUSDT"],
+        key="ml_train_symbols"
+    )
+    
+    # Interval selection (multi-select)
+    timeframe_options = get_timeframe_options()
+    intervals = list(timeframe_options.keys())
+    selected_intervals = st.sidebar.multiselect(
+        "Select Timeframes to Train",
+        options=intervals,
+        default=["1h", "4h"],
+        key="ml_train_intervals"
+    )
+    
+    # Convert to Binance intervals
+    binance_intervals = [timeframe_to_interval(interval) for interval in selected_intervals]
+    
+    # Training lookback period
+    lookback_days = st.sidebar.slider(
+        "Training Data Period (days)",
+        min_value=30,
+        max_value=365,
+        value=90,
+        help="How many days of historical data to use for training"
+    )
+    
+    # Retrain existing models
+    retrain_existing = st.sidebar.checkbox(
+        "Retrain Existing Models",
+        value=False,
+        help="Whether to retrain models that already exist"
+    )
+    
+    # Training controls
     col1, col2 = st.columns(2)
     
     with col1:
-        train_option = st.radio(
-            "Training Scope",
-            ["Single Model", "Multiple Models", "All Available Models"],
-            index=0
-        )
+        # Train single model
+        if st.button("Train Selected Models"):
+            if not selected_symbols:
+                st.error("Please select at least one cryptocurrency.")
+            elif not selected_intervals:
+                st.error("Please select at least one timeframe.")
+            else:
+                # Show progress message
+                progress_placeholder = st.empty()
+                progress_placeholder.info(f"Training models for {len(selected_symbols)} symbols and {len(selected_intervals)} intervals. This may take a few minutes...")
+                
+                # Initialize session state for training
+                if 'ml_training_thread' not in st.session_state:
+                    st.session_state.ml_training_thread = None
+                    st.session_state.ml_training_results = None
+                
+                # Define training thread function
+                def train_models_thread():
+                    try:
+                        results = train_all_models(
+                            selected_symbols, 
+                            binance_intervals,
+                            lookback_days=lookback_days,
+                            retrain=retrain_existing
+                        )
+                        st.session_state.ml_training_results = results
+                    except Exception as e:
+                        logging.error(f"Training error: {e}")
+                        st.session_state.ml_training_results = {"error": str(e)}
+                
+                # Start training in background thread
+                if st.session_state.ml_training_thread is None or not st.session_state.ml_training_thread.is_alive():
+                    st.session_state.ml_training_thread = threading.Thread(target=train_models_thread)
+                    st.session_state.ml_training_thread.daemon = True
+                    st.session_state.ml_training_thread.start()
+                    st.session_state.ml_training_results = None
+                
+                # Check if training is complete
+                if st.session_state.ml_training_results is not None:
+                    progress_placeholder.success("Training complete!")
+                    
+                    # Display training results
+                    training_results = st.session_state.ml_training_results
+                    
+                    if "error" in training_results:
+                        st.error(f"Training error: {training_results['error']}")
+                    else:
+                        # Create a summary of results
+                        success_count = 0
+                        failed_count = 0
+                        
+                        for symbol, intervals_data in training_results.items():
+                            for interval, result_data in intervals_data.items():
+                                if result_data.get('status') == 'success':
+                                    success_count += 1
+                                else:
+                                    failed_count += 1
+                        
+                        st.write(f"Successfully trained {success_count} models. Failed: {failed_count}")
+                        
+                        # Create a table of model metrics
+                        metrics_data = []
+                        
+                        for symbol, intervals_data in training_results.items():
+                            for interval, result_data in intervals_data.items():
+                                if result_data.get('status') == 'success' and 'metrics' in result_data:
+                                    metrics = result_data['metrics']
+                                    metrics_data.append({
+                                        'Symbol': symbol,
+                                        'Interval': interval,
+                                        'Direction Accuracy': f"{metrics.get('direction_accuracy', 0) * 100:.1f}%",
+                                        'RMSE': f"{metrics.get('rmse', 0):.6f}",
+                                        'R2': f"{metrics.get('r2', 0):.3f}"
+                                    })
+                        
+                        if metrics_data:
+                            metrics_df = pd.DataFrame(metrics_data)
+                            st.dataframe(metrics_df, use_container_width=True)
+                        
+                        # Alert if there were failures
+                        if failed_count > 0:
+                            with st.expander("View Training Failures"):
+                                for symbol, intervals_data in training_results.items():
+                                    for interval, result_data in intervals_data.items():
+                                        if result_data.get('status') != 'success':
+                                            st.error(f"{symbol}/{interval}: {result_data.get('error', 'Unknown error')}")
+                else:
+                    # Show spinner while training
+                    st.info("Training in progress... please wait. This may take several minutes depending on the amount of data.")
     
     with col2:
-        lookback_days = st.slider("Training Data Lookback (days)", 
-                                min_value=30, 
-                                max_value=365, 
-                                value=90, 
-                                step=30)
-        retrain = st.checkbox("Retrain Existing Models", value=True)
-    
-    # Different options based on selection
-    if train_option == "Single Model":
-        # Symbol and interval selection
-        col1, col2 = st.columns(2)
-        with col1:
-            symbols = get_available_symbols()
-            symbol = st.selectbox("Symbol", symbols, key="train_single_symbol")
-        
-        with col2:
-            intervals = ['15m', '30m', '1h', '4h', '1d']
-            interval = st.selectbox("Interval", intervals, key="train_single_interval")
-        
-        train_button = st.button("Train Model")
-        
-        if train_button:
-            with st.spinner(f"Training model for {symbol}/{interval}..."):
+        # Train all models
+        if st.button("Train All Popular Models"):
+            # Initialize session state for all-model training
+            if 'ml_all_training_thread' not in st.session_state:
+                st.session_state.ml_all_training_thread = None
+                st.session_state.ml_all_training_results = None
+            
+            # Show progress message
+            all_progress_placeholder = st.empty()
+            all_progress_placeholder.info("Training models for all popular cryptocurrencies. This may take 10-15 minutes...")
+            
+            # Get popular symbols
+            from backfill_database import get_popular_symbols
+            popular_symbols = get_popular_symbols(limit=10)
+            
+            # Select common intervals
+            all_intervals = ['1h', '4h', '1d']
+            all_binance_intervals = [timeframe_to_interval(interval) for interval in all_intervals]
+            
+            # Define training thread function for all models
+            def train_all_models_thread():
                 try:
-                    predictor = MLPredictor(symbol, interval)
-                    success = predictor.train_model(lookback_days=lookback_days, retrain=retrain)
-                    
-                    if success:
-                        st.success(f"Successfully trained model for {symbol}/{interval}")
-                    else:
-                        st.error(f"Failed to train model for {symbol}/{interval}. Check logs for details.")
+                    results = train_all_models(
+                        popular_symbols, 
+                        all_binance_intervals,
+                        lookback_days=90,
+                        retrain=retrain_existing
+                    )
+                    st.session_state.ml_all_training_results = results
                 except Exception as e:
-                    st.error(f"Error training model: {str(e)}")
-    
-    elif train_option == "Multiple Models":
-        # Multiple symbol and interval selection
-        col1, col2 = st.columns(2)
-        with col1:
-            all_symbols = get_available_symbols()
-            symbols = st.multiselect("Symbols", all_symbols, default=all_symbols[:3])
-        
-        with col2:
-            all_intervals = ['15m', '30m', '1h', '4h', '1d']
-            intervals = st.multiselect("Intervals", all_intervals, default=['1h', '4h'])
-        
-        if not symbols:
-            st.warning("Please select at least one symbol.")
-        elif not intervals:
-            st.warning("Please select at least one interval.")
-        else:
-            train_button = st.button("Train Selected Models")
+                    logging.error(f"All-models training error: {e}")
+                    st.session_state.ml_all_training_results = {"error": str(e)}
             
-            if train_button:
-                if not st.session_state.ml_training_running:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # Set flag to indicate training is running
-                    st.session_state.ml_training_running = True
-                    
-                    # Start training in a separate thread
-                    def train_models_thread():
-                        try:
-                            total_models = len(symbols) * len(intervals)
-                            completed = 0
-                            
-                            results = {}
-                            for symbol in symbols:
-                                results[symbol] = {}
-                                for interval in intervals:
-                                    if not st.session_state.ml_training_running:
-                                        break
-                                        
-                                    status_text.text(f"Training model for {symbol}/{interval}...")
-                                    predictor = MLPredictor(symbol, interval)
-                                    success = predictor.train_model(lookback_days=lookback_days, retrain=retrain)
-                                    results[symbol][interval] = success
-                                    
-                                    completed += 1
-                                    progress_bar.progress(completed / total_models)
-                                    
-                                if not st.session_state.ml_training_running:
-                                    break
-                            
-                            if st.session_state.ml_training_running:
-                                # Count successes and failures
-                                successes = sum(1 for sym in results for intv in results[sym] if results[sym][intv])
-                                failures = total_models - successes
-                                
-                                status_text.text(f"Training completed. {successes} models successful, {failures} failed.")
-                            else:
-                                status_text.text("Training cancelled.")
-                                
-                            # Reset flag
-                            st.session_state.ml_training_running = False
-                            
-                        except Exception as e:
-                            status_text.text(f"Error in training: {str(e)}")
-                            st.session_state.ml_training_running = False
-                    
-                    # Start the training thread
-                    threading.Thread(target=train_models_thread).start()
+            # Start training in background thread
+            if st.session_state.ml_all_training_thread is None or not st.session_state.ml_all_training_thread.is_alive():
+                st.session_state.ml_all_training_thread = threading.Thread(target=train_all_models_thread)
+                st.session_state.ml_all_training_thread.daemon = True
+                st.session_state.ml_all_training_thread.start()
+                st.session_state.ml_all_training_results = None
+            
+            # Check if training is complete
+            if st.session_state.ml_all_training_results is not None:
+                all_progress_placeholder.success("Training complete for all popular models!")
+                
+                # Display training results
+                training_results = st.session_state.ml_all_training_results
+                
+                if "error" in training_results:
+                    st.error(f"Training error: {training_results['error']}")
                 else:
-                    st.warning("Training is already running.")
-            
-            if st.session_state.ml_training_running:
-                if st.button("Cancel Training"):
-                    st.session_state.ml_training_running = False
-                    st.warning("Cancelling training... This may take a moment.")
-    
-    else:  # All Available Models
-        train_button = st.button("Train All Available Models")
-        
-        if train_button:
-            if not st.session_state.ml_training_running:
-                symbols = get_available_symbols()
-                intervals = ['15m', '30m', '1h', '4h', '1d']
-                
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Set flag to indicate training is running
-                st.session_state.ml_training_running = True
-                
-                # Start training in a separate thread
-                def train_all_models_thread():
-                    try:
-                        total_models = len(symbols) * len(intervals)
-                        completed = 0
-                        
-                        results = {}
-                        for symbol in symbols:
-                            results[symbol] = {}
-                            for interval in intervals:
-                                if not st.session_state.ml_training_running:
-                                    break
-                                    
-                                status_text.text(f"Training model for {symbol}/{interval}...")
-                                predictor = MLPredictor(symbol, interval)
-                                success = predictor.train_model(lookback_days=lookback_days, retrain=retrain)
-                                results[symbol][interval] = success
-                                
-                                completed += 1
-                                progress_bar.progress(completed / total_models)
-                                
-                            if not st.session_state.ml_training_running:
-                                break
-                        
-                        if st.session_state.ml_training_running:
-                            # Count successes and failures
-                            successes = sum(1 for sym in results for intv in results[sym] if results[sym][intv])
-                            failures = total_models - successes
-                            
-                            status_text.text(f"Training completed. {successes} models successful, {failures} failed.")
-                        else:
-                            status_text.text("Training cancelled.")
-                            
-                        # Reset flag
-                        st.session_state.ml_training_running = False
-                        
-                    except Exception as e:
-                        status_text.text(f"Error in training: {str(e)}")
-                        st.session_state.ml_training_running = False
-                
-                # Start the training thread
-                threading.Thread(target=train_all_models_thread).start()
+                    # Create a summary of results
+                    success_count = 0
+                    failed_count = 0
+                    
+                    for symbol, intervals_data in training_results.items():
+                        for interval, result_data in intervals_data.items():
+                            if result_data.get('status') == 'success':
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                    
+                    st.write(f"Successfully trained {success_count} models. Failed: {failed_count}")
             else:
-                st.warning("Training is already running.")
+                # Show spinner while training
+                st.info("Training in progress... please wait. This may take 10-15 minutes.")
+    
+    # Show existing models
+    st.subheader("Available Trained Models")
+    
+    # Get list of models
+    models_dir = "models"
+    available_models = []
+    
+    if os.path.exists(models_dir):
+        for filename in os.listdir(models_dir):
+            if filename.endswith("_model.joblib"):
+                model_id = filename.replace("_model.joblib", "")
+                
+                # Get metadata if available
+                metadata = {}
+                metadata_path = os.path.join(models_dir, f"{model_id}_metadata.json")
+                if os.path.exists(metadata_path):
+                    try:
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                    except:
+                        pass
+                
+                # Add to list
+                available_models.append({
+                    'id': model_id,
+                    'parts': model_id.split('_'),
+                    'timestamp': metadata.get('timestamp', 'Unknown'),
+                    'metrics': metadata.get('metrics', {})
+                })
+    
+    if available_models:
+        # Convert to DataFrame for display
+        models_df = pd.DataFrame([
+            {
+                'Symbol': model['parts'][0],
+                'Interval': model['parts'][1] if len(model['parts']) > 1 else 'Unknown',
+                'Trained On': datetime.fromisoformat(model['timestamp']).strftime('%Y-%m-%d %H:%M') if model['timestamp'] != 'Unknown' else 'Unknown',
+                'Direction Accuracy': f"{model['metrics'].get('direction_accuracy', 0) * 100:.1f}%" if 'direction_accuracy' in model['metrics'] else 'Unknown',
+                'R2 Score': f"{model['metrics'].get('r2', 0):.3f}" if 'r2' in model['metrics'] else 'Unknown'
+            }
+            for model in available_models
+        ])
         
-        if st.session_state.ml_training_running:
-            if st.button("Cancel Training"):
-                st.session_state.ml_training_running = False
-                st.warning("Cancelling training... This may take a moment.")
+        # Show the table
+        st.dataframe(models_df, use_container_width=True)
+    else:
+        st.info("No trained models available. Train models using the controls above.")
 
 def render_metrics_subtab():
     """
@@ -424,302 +696,352 @@ def render_metrics_subtab():
     """
     st.subheader("Model Performance Metrics")
     
-    # Get all available models
-    model_files = glob.glob("models/*_predictor.joblib")
+    # Get list of models
+    models_dir = "models"
+    available_models = []
     
-    if not model_files:
-        st.warning("No trained models found. Train models first to view metrics.")
-        return
-    
-    # Extract symbols and intervals from model filenames
-    model_info = []
-    for file in model_files:
-        try:
-            filename = os.path.basename(file)
-            parts = filename.replace("_predictor.joblib", "").split("_")
-            if len(parts) >= 2:
-                symbol = parts[0]
-                interval = parts[1]
-                
-                # Load model to get metrics
-                model_data = joblib.load(file)
-                metrics_history = model_data.get('metrics_history', [])
-                
-                if metrics_history:
-                    latest_metrics = metrics_history[-1]['metrics']
-                    updated_at = datetime.fromisoformat(model_data.get('updated_at', '2000-01-01T00:00:00'))
+    if os.path.exists(models_dir):
+        for filename in os.listdir(models_dir):
+            if filename.endswith("_metadata.json"):
+                model_id = filename.replace("_metadata.json", "")
+                parts = model_id.split('_')
+                if len(parts) >= 2:
+                    symbol = parts[0]
+                    interval = parts[1]
                     
-                    model_info.append({
-                        'symbol': symbol,
-                        'interval': interval,
-                        'mse': latest_metrics.get('mse', 0),
-                        'mae': latest_metrics.get('mae', 0),
-                        'r2': latest_metrics.get('r2', 0),
-                        'correct_direction': latest_metrics.get('correct_direction', 0),
-                        'updated_at': updated_at
-                    })
-        except Exception as e:
-            logging.error(f"Error loading model metrics from {file}: {e}")
+                    # Read metadata
+                    try:
+                        with open(os.path.join(models_dir, filename), 'r') as f:
+                            metadata = json.load(f)
+                        
+                        available_models.append({
+                            'id': model_id,
+                            'symbol': symbol,
+                            'interval': interval,
+                            'metadata': metadata
+                        })
+                    except:
+                        pass
     
-    if not model_info:
-        st.warning("Could not load metrics from models. Try retraining models.")
+    if not available_models:
+        st.warning("No trained models available. Train models in the 'Model Training' tab first.")
         return
     
-    # Convert to DataFrame for display
-    metrics_df = pd.DataFrame(model_info)
+    # Model selection
+    model_options = [f"{model['symbol']}/{model['interval']}" for model in available_models]
+    selected_model = st.selectbox("Select Model", options=model_options)
     
-    # Add formatting
-    display_df = metrics_df.copy()
-    display_df['mse'] = display_df['mse'].apply(lambda x: f"{x:.6f}")
-    display_df['mae'] = display_df['mae'].apply(lambda x: f"{x:.6f}")
-    display_df['r2'] = display_df['r2'].apply(lambda x: f"{x:.4f}")
-    display_df['correct_direction'] = display_df['correct_direction'].apply(lambda x: f"{x:.2%}")
-    display_df['updated_at'] = display_df['updated_at'].dt.strftime('%Y-%m-%d %H:%M')
+    # Find the selected model
+    selected_model_data = next((model for model in available_models 
+                              if f"{model['symbol']}/{model['interval']}" == selected_model), None)
     
-    # Rename columns for display
-    display_df.columns = ['Symbol', 'Interval', 'MSE', 'MAE', 'R²', 'Direction Accuracy', 'Last Updated']
-    
-    # Sort by symbol and interval
-    display_df = display_df.sort_values(['Symbol', 'Interval'])
-    
-    # Display metrics table
-    st.dataframe(display_df, use_container_width=True)
-    
-    # Select model for detailed metrics
-    st.subheader("Model Metrics History")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        symbols = sorted(metrics_df['symbol'].unique())
-        symbol = st.selectbox("Symbol", symbols, key="metrics_symbol")
-    
-    with col2:
-        intervals_for_symbol = sorted(metrics_df[metrics_df['symbol'] == symbol]['interval'].unique())
-        interval = st.selectbox("Interval", intervals_for_symbol, key="metrics_interval")
-    
-    # Load detailed metrics history for selected model
-    model_file = f"models/{symbol}_{interval}_predictor.joblib"
-    if os.path.exists(model_file):
-        try:
-            model_data = joblib.load(model_file)
-            metrics_history = model_data.get('metrics_history', [])
+    if selected_model_data:
+        metadata = selected_model_data['metadata']
+        symbol = selected_model_data['symbol']
+        interval = selected_model_data['interval']
+        
+        # Display training details
+        st.write(f"### Model for {symbol}/{interval}")
+        
+        if 'timestamp' in metadata:
+            try:
+                trained_on = datetime.fromisoformat(metadata['timestamp']).strftime('%Y-%m-%d %H:%M')
+                st.write(f"**Trained on:** {trained_on}")
+            except:
+                st.write("**Trained on:** Unknown")
+        
+        # Feature window and prediction horizon
+        st.write(f"**Feature Window:** {metadata.get('feature_window', 'Unknown')} periods")
+        st.write(f"**Prediction Horizon:** {metadata.get('prediction_horizon', 'Unknown')} periods")
+        
+        # Show metrics
+        if 'metrics' in metadata:
+            metrics = metadata['metrics']
             
-            if metrics_history:
-                history_data = []
-                for entry in metrics_history:
-                    history_data.append({
-                        'timestamp': entry['timestamp'],
-                        'mse': entry['metrics'].get('mse', 0),
-                        'mae': entry['metrics'].get('mae', 0),
-                        'r2': entry['metrics'].get('r2', 0),
-                        'correct_direction': entry['metrics'].get('correct_direction', 0)
-                    })
+            # Performance metrics
+            st.subheader("Performance Metrics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                direction_acc = metrics.get('direction_accuracy', 0) * 100
+                st.metric("Direction Accuracy", f"{direction_acc:.1f}%")
+            
+            with col2:
+                mse = metrics.get('mse', 0)
+                st.metric("Mean Squared Error", f"{mse:.6f}")
+            
+            with col3:
+                rmse = metrics.get('rmse', 0)
+                st.metric("RMSE", f"{rmse:.6f}")
+            
+            with col4:
+                r2 = metrics.get('r2', 0)
+                st.metric("R² Score", f"{r2:.3f}")
+            
+            # Interpretation of metrics
+            st.write("### Interpretation")
+            
+            if 'direction_accuracy' in metrics:
+                direction_acc = metrics['direction_accuracy']
+                if direction_acc > 0.7:
+                    quality = "excellent"
+                elif direction_acc > 0.6:
+                    quality = "good"
+                elif direction_acc > 0.55:
+                    quality = "moderate"
+                else:
+                    quality = "poor"
                 
-                history_df = pd.DataFrame(history_data)
+                st.write(f"This model has **{quality} directional accuracy** ({direction_acc*100:.1f}%), "
+                       f"meaning it correctly predicts the direction of price movement {direction_acc*100:.1f}% of the time.")
+            
+            if 'r2' in metrics:
+                r2 = metrics['r2']
+                if r2 > 0.7:
+                    r2_quality = "excellent"
+                elif r2 > 0.5:
+                    r2_quality = "good"
+                elif r2 > 0.3:
+                    r2_quality = "moderate"
+                else:
+                    r2_quality = "weak"
                 
-                # Create history chart
-                fig = make_subplots(
-                    rows=2, cols=2,
-                    subplot_titles=('MSE', 'MAE', 'R²', 'Direction Accuracy'),
-                    vertical_spacing=0.15
-                )
+                st.write(f"The R² score of {r2:.3f} indicates a **{r2_quality} fit** to the data.")
+            
+            # Feature importance
+            if 'feature_importance' in metrics:
+                st.subheader("Feature Importance")
                 
-                # Add MSE trace
-                fig.add_trace(
-                    go.Scatter(x=history_df['timestamp'], y=history_df['mse'], mode='lines+markers'),
-                    row=1, col=1
-                )
+                feature_imp = metrics['feature_importance']
                 
-                # Add MAE trace
-                fig.add_trace(
-                    go.Scatter(x=history_df['timestamp'], y=history_df['mae'], mode='lines+markers'),
-                    row=1, col=2
-                )
+                # Convert to DataFrame for display
+                fi_df = pd.DataFrame({
+                    'Feature': list(feature_imp.keys()),
+                    'Importance': list(feature_imp.values())
+                })
                 
-                # Add R² trace
-                fig.add_trace(
-                    go.Scatter(x=history_df['timestamp'], y=history_df['r2'], mode='lines+markers'),
-                    row=2, col=1
-                )
+                # Sort by importance
+                fi_df = fi_df.sort_values('Importance', ascending=False)
                 
-                # Add direction accuracy trace
-                fig.add_trace(
-                    go.Scatter(x=history_df['timestamp'], y=history_df['correct_direction'], mode='lines+markers'),
-                    row=2, col=2
-                )
+                # Create bar chart for top features
+                top_features = fi_df.head(15)  # Top 15 features
                 
-                # Update layout
+                fig = go.Figure(go.Bar(
+                    x=top_features['Importance'],
+                    y=top_features['Feature'],
+                    orientation='h',
+                    marker_color='darkblue'
+                ))
+                
                 fig.update_layout(
-                    title=f"{symbol}/{interval} Model Metrics History",
-                    showlegend=False,
+                    title="Top Features by Importance",
+                    xaxis_title="Importance",
+                    yaxis_title="Feature",
                     height=500
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No metrics history available for this model.")
-        except Exception as e:
-            st.error(f"Error loading metrics history: {str(e)}")
+                
+                # Feature categories analysis
+                st.subheader("Feature Category Analysis")
+                
+                # Group features by category
+                categories = {
+                    'Price Lags': [f for f in fi_df['Feature'] if 'close_lag' in f or 'open_lag' in f],
+                    'Volume Features': [f for f in fi_df['Feature'] if 'volume' in f],
+                    'Moving Averages': [f for f in fi_df['Feature'] if 'ma_' in f],
+                    'Price Changes': [f for f in fi_df['Feature'] if 'price_change' in f],
+                    'Technical Indicators': [f for f in fi_df['Feature'] if any(ind in f for ind in ['rsi', 'macd', 'bb_'])],
+                    'Other': []
+                }
+                
+                # Calculate importance by category
+                category_importance = {}
+                
+                for category, features in categories.items():
+                    if features:
+                        category_df = fi_df[fi_df['Feature'].isin(features)]
+                        category_importance[category] = category_df['Importance'].sum()
+                
+                # Add remaining features to 'Other'
+                categorized_features = [f for cat_features in categories.values() for f in cat_features]
+                other_features = [f for f in fi_df['Feature'] if f not in categorized_features]
+                categories['Other'] = other_features
+                
+                if other_features:
+                    other_df = fi_df[fi_df['Feature'].isin(other_features)]
+                    category_importance['Other'] = other_df['Importance'].sum()
+                
+                # Create pie chart
+                cat_fig = go.Figure(data=[go.Pie(
+                    labels=list(category_importance.keys()),
+                    values=list(category_importance.values()),
+                    hole=.4
+                )])
+                
+                cat_fig.update_layout(
+                    title="Feature Importance by Category",
+                    height=400
+                )
+                
+                st.plotly_chart(cat_fig, use_container_width=True)
+        else:
+            st.warning("No metrics available for this model.")
     else:
-        st.warning(f"Model file {model_file} not found.")
+        st.error("Selected model not found.")
 
 def render_continuous_learning_subtab():
     """
     Render the Continuous Learning subtab
     """
-    st.subheader("Continuous Learning Management")
+    st.subheader("Continuous Model Learning")
     
     st.write("""
-    Continuous learning automatically retrains models at regular intervals using the latest data.
-    This helps models adapt to changing market conditions and improve prediction accuracy over time.
+    Continuous learning allows models to automatically retrain with new data at regular intervals.
+    This keeps predictions up-to-date with the latest market patterns and trends.
     """)
     
-    # Continuous learning configuration
-    col1, col2 = st.columns(2)
+    # Sidebar for continuous learning controls
+    st.sidebar.header("Continuous Learning Settings")
     
-    with col1:
-        symbols = get_available_symbols()
-        selected_symbols = st.multiselect("Symbols to Monitor", symbols, default=symbols[:3])
+    # Get available symbols
+    available_symbols = get_available_symbols(limit=5)
     
-    with col2:
-        intervals = ['15m', '30m', '1h', '4h', '1d']
-        selected_intervals = st.multiselect("Intervals to Monitor", intervals, default=['1h', '4h'])
-        retraining_interval = st.number_input("Retraining Interval (hours)", min_value=1, max_value=72, value=24)
+    # Symbol selection (multi-select)
+    selected_symbols = st.sidebar.multiselect(
+        "Select Cryptocurrencies",
+        options=available_symbols,
+        default=["BTCUSDT"],
+        key="ml_cont_symbols"
+    )
     
-    # Start/Stop continuous learning
-    col1, col2 = st.columns(2)
+    # Interval selection (multi-select)
+    timeframe_options = get_timeframe_options()
+    intervals = list(timeframe_options.keys())
+    selected_intervals = st.sidebar.multiselect(
+        "Select Timeframes",
+        options=intervals,
+        default=["1h"],
+        key="ml_cont_intervals"
+    )
     
-    with col1:
-        if st.button("Start Continuous Learning"):
-            if not st.session_state.ml_continuous_running:
+    # Convert to Binance intervals
+    binance_intervals = [timeframe_to_interval(interval) for interval in selected_intervals]
+    
+    # Retraining interval
+    retraining_hours = st.sidebar.slider(
+        "Retraining Interval (hours)",
+        min_value=1,
+        max_value=48,
+        value=24,
+        help="How often to retrain models with new data"
+    )
+    
+    # Initialize session state for continuous learning
+    if 'continuous_learning_active' not in st.session_state:
+        st.session_state.continuous_learning_active = False
+        st.session_state.continuous_learning_thread = None
+    
+    # Status indicator
+    st.write("### Continuous Learning Status")
+    
+    status_col1, status_col2 = st.columns(2)
+    
+    with status_col1:
+        if st.session_state.continuous_learning_active:
+            st.success("Continuous learning is active")
+        else:
+            st.warning("Continuous learning is not active")
+    
+    with status_col2:
+        if 'continuous_learning_start_time' in st.session_state:
+            st.info(f"Started at: {st.session_state.continuous_learning_start_time.strftime('%Y-%m-%d %H:%M')}")
+    
+    # Controls
+    control_col1, control_col2 = st.columns(2)
+    
+    with control_col1:
+        if not st.session_state.continuous_learning_active:
+            if st.button("Start Continuous Learning"):
                 if not selected_symbols:
-                    st.warning("Please select at least one symbol.")
+                    st.error("Please select at least one cryptocurrency.")
                 elif not selected_intervals:
-                    st.warning("Please select at least one interval.")
+                    st.error("Please select at least one timeframe.")
                 else:
-                    st.session_state.ml_continuous_running = True
-                    
-                    # Start continuous learning in a separate thread
+                    # Define continuous learning thread function
                     def continuous_learning_thread():
                         try:
-                            st.session_state.ml_continuous_status = "Running"
-                            st.session_state.ml_continuous_last_run = datetime.now()
-                            
-                            while st.session_state.ml_continuous_running:
-                                # Run training cycle
-                                results = {}
-                                for symbol in selected_symbols:
-                                    results[symbol] = {}
-                                    for interval in selected_intervals:
-                                        if not st.session_state.ml_continuous_running:
-                                            break
-                                            
-                                        st.session_state.ml_continuous_current = f"{symbol}/{interval}"
-                                        predictor = MLPredictor(symbol, interval)
-                                        success = predictor.train_model(retrain=True)
-                                        results[symbol][interval] = success
-                                        
-                                    if not st.session_state.ml_continuous_running:
-                                        break
-                                
-                                # Update status
-                                st.session_state.ml_continuous_last_run = datetime.now()
-                                st.session_state.ml_continuous_results = results
-                                
-                                # Wait for next cycle
-                                if st.session_state.ml_continuous_running:
-                                    next_run = datetime.now() + timedelta(hours=retraining_interval)
-                                    st.session_state.ml_continuous_next_run = next_run
-                                    
-                                    # Sleep in smaller chunks to allow for cancellation
-                                    sleep_until = time.time() + retraining_interval * 3600
-                                    while time.time() < sleep_until and st.session_state.ml_continuous_running:
-                                        time.sleep(10)  # Check every 10 seconds
-                            
-                            st.session_state.ml_continuous_status = "Stopped"
-                            
+                            continuous_learning_cycle(
+                                selected_symbols,
+                                binance_intervals,
+                                retraining_interval_hours=retraining_hours
+                            )
                         except Exception as e:
-                            st.session_state.ml_continuous_status = f"Error: {str(e)}"
-                            st.session_state.ml_continuous_running = False
+                            logging.error(f"Continuous learning error: {e}")
+                            st.session_state.continuous_learning_active = False
                     
-                    # Initialize status
-                    st.session_state.ml_continuous_status = "Starting"
-                    st.session_state.ml_continuous_current = "N/A"
-                    st.session_state.ml_continuous_last_run = None
-                    st.session_state.ml_continuous_next_run = None
-                    st.session_state.ml_continuous_results = {}
+                    # Start continuous learning thread
+                    st.session_state.continuous_learning_thread = threading.Thread(
+                        target=continuous_learning_thread
+                    )
+                    st.session_state.continuous_learning_thread.daemon = True
+                    st.session_state.continuous_learning_thread.start()
                     
-                    # Start the thread
-                    threading.Thread(target=continuous_learning_thread).start()
-            else:
-                st.warning("Continuous learning is already running.")
+                    # Update state
+                    st.session_state.continuous_learning_active = True
+                    st.session_state.continuous_learning_start_time = datetime.now()
+                    st.session_state.continuous_learning_symbols = selected_symbols
+                    st.session_state.continuous_learning_intervals = selected_intervals
+                    
+                    st.success("Continuous learning started successfully!")
+                    st.rerun()  # Refresh UI
     
-    with col2:
-        if st.button("Stop Continuous Learning"):
-            if st.session_state.ml_continuous_running:
-                st.session_state.ml_continuous_running = False
-                st.warning("Stopping continuous learning... This may take a moment.")
-            else:
-                st.info("Continuous learning is not running.")
-    
-    # Show status
-    st.subheader("Continuous Learning Status")
-    
-    if hasattr(st.session_state, 'ml_continuous_status'):
-        status_color = {
-            "Starting": "blue",
-            "Running": "green",
-            "Stopped": "orange"
-        }
-        
-        color = status_color.get(st.session_state.ml_continuous_status, "red")
-        
-        col1, col2, col3 = st.columns(3)
-        col1.markdown(f"<p style='color:{color}; font-weight:bold;'>Status: {st.session_state.ml_continuous_status}</p>", unsafe_allow_html=True)
-        
-        if st.session_state.ml_continuous_running:
-            col2.write(f"Current model: {st.session_state.ml_continuous_current}")
-            
-            if st.session_state.ml_continuous_last_run:
-                col3.write(f"Last run: {st.session_state.ml_continuous_last_run.strftime('%Y-%m-%d %H:%M')}")
-            
-            if st.session_state.ml_continuous_next_run:
-                now = datetime.now()
-                next_run = st.session_state.ml_continuous_next_run
+    with control_col2:
+        if st.session_state.continuous_learning_active:
+            if st.button("Stop Continuous Learning"):
+                # Set flag to stop (thread will exit on next iteration)
+                st.session_state.continuous_learning_active = False
+                st.session_state.continuous_learning_thread = None
                 
-                if next_run > now:
-                    time_left = next_run - now
-                    hours = int(time_left.total_seconds() // 3600)
-                    minutes = int((time_left.total_seconds() % 3600) // 60)
-                    
-                    st.info(f"Next retraining cycle in {hours}h {minutes}m ({next_run.strftime('%Y-%m-%d %H:%M')})")
-            
-            # Show last results if available
-            if st.session_state.ml_continuous_results:
-                with st.expander("Last Training Cycle Results"):
-                    results = st.session_state.ml_continuous_results
-                    
-                    # Count successes and failures
-                    total = sum(1 for sym in results for intv in results[sym])
-                    successes = sum(1 for sym in results for intv in results[sym] if results[sym][intv])
-                    failures = total - successes
-                    
-                    st.write(f"Total models: {total}, Successful: {successes}, Failed: {failures}")
-                    
-                    # Display detailed results
-                    details = []
-                    for symbol in results:
-                        for interval in results[symbol]:
-                            details.append({
-                                'Symbol': symbol,
-                                'Interval': interval,
-                                'Status': "✅ Success" if results[symbol][interval] else "❌ Failed"
-                            })
-                    
-                    if details:
-                        st.dataframe(pd.DataFrame(details))
-    else:
-        st.info("Continuous learning has not been started yet.")
+                st.info("Continuous learning will stop after current cycle completes.")
+                st.rerun()  # Refresh UI
+    
+    # Display active learning info
+    if st.session_state.continuous_learning_active:
+        st.subheader("Active Learning Configuration")
+        
+        st.write(f"**Cryptocurrencies:** {', '.join(st.session_state.continuous_learning_symbols)}")
+        st.write(f"**Timeframes:** {', '.join(st.session_state.continuous_learning_intervals)}")
+        st.write(f"**Retraining Interval:** Every {retraining_hours} hours")
+        
+        # Next retraining time estimate
+        if 'continuous_learning_start_time' in st.session_state:
+            next_time = st.session_state.continuous_learning_start_time + timedelta(hours=retraining_hours)
+            st.write(f"**Next retraining cycle:** Approximately {next_time.strftime('%Y-%m-%d %H:%M')}")
+    
+    # Information about continuous learning
+    with st.expander("About Continuous Learning"):
+        st.write("""
+        ### How Continuous Learning Works
+        
+        The continuous learning process automatically retrains models at the specified interval
+        using the latest market data. This helps the model adapt to changing market conditions
+        and improves prediction accuracy over time.
+        
+        ### Benefits
+        
+        - **Adaptation:** Models adapt to changing market patterns and regimes
+        - **Improved Accuracy:** Performance gradually improves as more data becomes available
+        - **Reduced Drift:** Prevents model performance degradation due to market changes
+        
+        ### Recommended Settings
+        
+        - For short timeframes (15m, 1h): Retrain every 24 hours
+        - For longer timeframes (4h, 1d): Retrain every 2-3 days
+        - Include both short-term (BTCUSDT, ETHUSDT) and trending coins for better insights
+        """)
+
 
 def get_available_symbols(limit=None):
     """
@@ -731,17 +1053,19 @@ def get_available_symbols(limit=None):
     Returns:
         List of symbol strings
     """
-    # Use function from existing modules if available
-    try:
-        from backfill_database import get_popular_symbols
-        return get_popular_symbols(limit=limit)
-    except:
-        # Fallback to hardcoded popular symbols
-        symbols = [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "XRPUSDT",
-            "SOLUSDT", "DOTUSDT", "LTCUSDT", "LINKUSDT", "MATICUSDT", "AVAXUSDT"
-        ]
+    from binance_api import get_available_symbols as get_symbols
+    
+    symbols = get_symbols()
+    
+    if limit and len(symbols) > limit:
+        # Ensure BTC and ETH are included if they were originally present
+        priority_symbols = ["BTCUSDT", "ETHUSDT"]
+        filtered_symbols = [s for s in priority_symbols if s in symbols]
         
-        if limit and limit < len(symbols):
-            return symbols[:limit]
-        return symbols
+        # Add other symbols up to the limit
+        other_symbols = [s for s in symbols if s not in priority_symbols]
+        filtered_symbols.extend(other_symbols[:limit-len(filtered_symbols)])
+        
+        return filtered_symbols
+    
+    return symbols

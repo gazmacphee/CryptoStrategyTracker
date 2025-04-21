@@ -9,14 +9,17 @@ This module provides functionality to:
 5. Continuously update models with new data
 """
 
+import os
+import logging
+from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
-import logging
-import pickle
-import os
-from datetime import datetime, timedelta
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+import time
+import json
+
+# ML libraries
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -24,20 +27,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.neural_network import MLPRegressor
 import joblib
 
-# Import local modules
-from database import get_db_connection, get_historical_data
-import indicators
-
 # Configure logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    filename='ml_prediction.log',
-                    filemode='a')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Create models directory if it doesn't exist
-MODELS_DIR = 'models'
-if not os.path.exists(MODELS_DIR):
-    os.makedirs(MODELS_DIR)
+# Local imports
+from database import get_historical_data, get_indicators
+from utils import timeframe_to_seconds
 
 class MLPredictor:
     """
@@ -59,19 +54,14 @@ class MLPredictor:
         self.prediction_horizon = prediction_horizon
         self.feature_window = feature_window
         self.model = None
-        self.scaler = MinMaxScaler()
-        self.feature_columns = []
-        self.model_filename = f"{MODELS_DIR}/{symbol}_{interval}_predictor.joblib"
-        self.metrics_history = []
+        self.feature_names = None
+        self.scaler = None
+        self.metrics = {}
+        self.model_path = os.path.join('models', f"{symbol}_{interval}_model.joblib")
+        self.metadata_path = os.path.join('models', f"{symbol}_{interval}_metadata.json")
         
-        # Try to load existing model
-        if os.path.exists(self.model_filename):
-            try:
-                self.load_model()
-                logging.info(f"Loaded existing model for {symbol}/{interval}")
-            except Exception as e:
-                logging.error(f"Error loading model for {symbol}/{interval}: {e}")
-                self.model = None
+        # Ensure model directory exists
+        os.makedirs('models', exist_ok=True)
     
     def prepare_data(self, df, target_column='close'):
         """
@@ -85,54 +75,66 @@ class MLPredictor:
             X: Features DataFrame
             y: Target Series
         """
-        # Ensure data is sorted by timestamp
+        if df.empty:
+            logging.warning(f"Empty dataframe provided for {self.symbol}/{self.interval}")
+            return None, None
+            
+        # Sort by timestamp
         df = df.sort_values('timestamp')
         
-        # Calculate technical indicators if not present
-        if 'bb_upper' not in df.columns:
-            df = indicators.add_bollinger_bands(df)
-        if 'rsi' not in df.columns:
-            df = indicators.add_rsi(df)
-        if 'macd' not in df.columns:
-            df = indicators.add_macd(df)
-        if 'ema_9' not in df.columns:
-            df = indicators.add_ema(df)
+        # Create lagged features for OHLCV data
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            for i in range(1, self.feature_window + 1):
+                df[f'{col}_lag_{i}'] = df[col].shift(i)
+        
+        # Calculate price changes for different periods
+        for period in [1, 3, 5, 10, 20]:
+            df[f'price_change_{period}'] = df['close'].pct_change(periods=period)
+        
+        # Calculate moving averages
+        for window in [7, 14, 30, 50, 100]:
+            df[f'ma_{window}'] = df['close'].rolling(window=window).mean()
             
-        # Calculate price changes
-        df['price_change'] = df[target_column].pct_change()
-        df['price_change_1d'] = df[target_column].pct_change(periods=24 if self.interval == '1h' else 
-                                                           (48 if self.interval == '30m' else 96))
-        df['volatility'] = df[target_column].rolling(window=self.feature_window).std()
+        # Add technical indicators like RSI and MACD if available
+        if 'rsi' in df.columns:
+            for i in range(1, 5):
+                df[f'rsi_lag_{i}'] = df['rsi'].shift(i)
+                
+        if 'macd' in df.columns:
+            for i in range(1, 5):
+                df[f'macd_lag_{i}'] = df['macd'].shift(i)
+                
+        if 'macd_signal' in df.columns:
+            for i in range(1, 5):
+                df[f'macd_signal_lag_{i}'] = df['macd_signal'].shift(i)
+                
+        if 'bb_lower' in df.columns and 'bb_upper' in df.columns:
+            df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['close']
+            for i in range(1, 5):
+                df[f'bb_width_lag_{i}'] = df['bb_width'].shift(i)
         
-        # Create target: future price movement
-        df[f'future_{target_column}'] = df[target_column].shift(-self.prediction_horizon)
-        df[f'target_movement'] = df[f'future_{target_column}'] / df[target_column] - 1.0
+        # Create target variable - future price change
+        df['target'] = df[target_column].pct_change(periods=self.prediction_horizon).shift(-self.prediction_horizon)
         
-        # Drop rows with NaN values
+        # Drop rows with NaN (due to lagging/leading operations)
         df = df.dropna()
         
-        # Feature selection
-        self.feature_columns = [
-            'open', 'high', 'low', 'close', 'volume',
-            'bb_upper', 'bb_middle', 'bb_lower', 'bb_width',
-            'rsi', 'macd', 'macd_signal', 'macd_hist',
-            'ema_9', 'ema_21', 'price_change', 'price_change_1d', 'volatility'
-        ]
+        if df.empty:
+            logging.warning(f"After feature creation, dataframe is empty for {self.symbol}/{self.interval}")
+            return None, None
+        
+        # Exclude timestamp, target_column, and other non-feature columns
+        exclude_cols = ['timestamp', 'target', target_column, 'open', 'high', 'low', 'close', 'volume']
+        feature_cols = [col for col in df.columns if col not in exclude_cols]
+        
+        # Store feature names
+        self.feature_names = feature_cols
         
         # Create feature matrix and target vector
-        X = df[self.feature_columns].values
-        y = df['target_movement'].values
+        X = df[feature_cols]
+        y = df['target']
         
-        # Scale features
-        X = self.scaler.fit_transform(X)
-        
-        # Create sequences for time series forecasting
-        X_sequences, y_sequences = [], []
-        for i in range(len(df) - self.feature_window):
-            X_sequences.append(X[i:i+self.feature_window])
-            y_sequences.append(y[i+self.feature_window])
-            
-        return np.array(X_sequences), np.array(y_sequences)
+        return X, y
     
     def train_model(self, lookback_days=90, retrain=False):
         """
@@ -145,53 +147,65 @@ class MLPredictor:
         Returns:
             Boolean indicating success
         """
+        # Check if model already exists and we don't want to retrain
+        if os.path.exists(self.model_path) and not retrain:
+            logging.info(f"Model for {self.symbol}/{self.interval} already exists. Loading model.")
+            self.load_model()
+            return True
+            
+        # Get historical data
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=lookback_days)
+        
+        # Get price data
+        df = get_historical_data(self.symbol, self.interval, start_time, end_time)
+        
+        # Get indicators data
+        indicators_df = get_indicators(self.symbol, self.interval, start_time, end_time)
+        
+        # Merge price data with indicators
+        if not indicators_df.empty:
+            df = pd.merge(df, indicators_df, on='timestamp', how='left')
+        
+        # Prepare data
+        X, y = self.prepare_data(df)
+        
+        if X is None or y is None:
+            logging.error(f"Failed to prepare data for {self.symbol}/{self.interval}")
+            return False
+            
+        # Split data for training and validation
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        
+        # Feature scaling
+        self.scaler = StandardScaler()
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+        
+        # Create model
+        self.model = self._create_model()
+        
+        # Train model
         try:
-            # Get historical data
-            end_time = datetime.now()
-            start_time = end_time - timedelta(days=lookback_days)
-            df = get_historical_data(self.symbol, self.interval, start_time, end_time)
+            self.model.fit(X_train_scaled, y_train)
             
-            if df.empty:
-                logging.error(f"No data available for {self.symbol}/{self.interval}")
-                return False
+            # Calculate metrics
+            y_pred = self.model.predict(X_test_scaled)
+            self.metrics = self._calculate_metrics(y_test, y_pred)
+            
+            # Store feature importance if available
+            if hasattr(self.model, 'feature_importances_'):
+                feature_importances = self.model.feature_importances_
+                self.metrics['feature_importance'] = dict(zip(self.feature_names, feature_importances))
                 
-            logging.info(f"Training model for {self.symbol}/{self.interval} with {len(df)} data points")
-            
-            # Prepare data
-            X, y = self.prepare_data(df)
-            
-            if len(X) < 100:  # Require at least 100 samples
-                logging.warning(f"Insufficient data for {self.symbol}/{self.interval}: {len(X)} samples")
-                return False
-                
-            # Split into train and test sets
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-            
-            # Create new model or use existing one
-            if self.model is None or retrain:
-                self.model = self._create_model()
-                
-            # Train model
-            self.model.fit(X_train, y_train)
-            
-            # Evaluate model
-            y_pred = self.model.predict(X_test)
-            metrics = self._calculate_metrics(y_test, y_pred)
-            self.metrics_history.append({
-                'timestamp': datetime.now(),
-                'metrics': metrics
-            })
-            
             # Save model
             self.save_model()
             
-            logging.info(f"Model training completed for {self.symbol}/{self.interval}. Metrics: {metrics}")
+            logging.info(f"Successfully trained model for {self.symbol}/{self.interval}")
             return True
             
         except Exception as e:
             logging.error(f"Error training model for {self.symbol}/{self.interval}: {e}")
-            import traceback
-            logging.error(traceback.format_exc())
             return False
     
     def _create_model(self):
@@ -201,20 +215,15 @@ class MLPredictor:
         Returns:
             Initialized ML model
         """
-        # For sequence data, reshape is needed for non-RNN models
-        return MLPRegressor(
-            hidden_layer_sizes=(100, 50, 25),
-            activation='relu',
-            solver='adam',
-            alpha=0.0001,
-            batch_size='auto',
-            learning_rate='adaptive',
-            max_iter=1000,
-            shuffle=False,
-            random_state=42,
-            early_stopping=True,
-            validation_fraction=0.1
+        # Use Gradient Boosting Regressor for price prediction - good balance of performance and accuracy
+        model = GradientBoostingRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=5,
+            random_state=42
         )
+        
+        return model
     
     def _calculate_metrics(self, y_true, y_pred):
         """
@@ -227,12 +236,19 @@ class MLPredictor:
         Returns:
             Dictionary with performance metrics
         """
-        return {
+        metrics = {
             'mse': mean_squared_error(y_true, y_pred),
+            'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
             'mae': mean_absolute_error(y_true, y_pred),
             'r2': r2_score(y_true, y_pred),
-            'correct_direction': np.mean((y_true > 0) == (y_pred > 0))
+            'timestamp': datetime.now().isoformat()
         }
+        
+        # Direction accuracy - how often we correctly predict up/down
+        direction_correct = np.sum((y_true > 0) == (y_pred > 0)) / len(y_true)
+        metrics['direction_accuracy'] = direction_correct
+        
+        return metrics
     
     def predict_future(self, periods=1):
         """
@@ -245,80 +261,85 @@ class MLPredictor:
             DataFrame with predictions
         """
         if self.model is None:
-            logging.error(f"No model available for {self.symbol}/{self.interval}")
-            return None
-            
-        try:
-            # Get recent data
-            end_time = datetime.now()
-            start_time = end_time - timedelta(days=30)  # Get enough data for features
-            df = get_historical_data(self.symbol, self.interval, start_time, end_time)
-            
-            if df.empty:
-                logging.error(f"No recent data available for {self.symbol}/{self.interval}")
-                return None
+            if os.path.exists(self.model_path):
+                self.load_model()
+            else:
+                logging.error(f"No trained model found for {self.symbol}/{self.interval}")
+                return pd.DataFrame()
                 
-            # Prepare data - only need the most recent window
-            df = df.sort_values('timestamp')
+        # Get most recent data for prediction
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=30)  # Need enough historical data for features
+        
+        # Get price data
+        df = get_historical_data(self.symbol, self.interval, start_time, end_time)
+        
+        # Get indicators data
+        indicators_df = get_indicators(self.symbol, self.interval, start_time, end_time)
+        
+        # Merge price data with indicators
+        if not indicators_df.empty:
+            df = pd.merge(df, indicators_df, on='timestamp', how='left')
+        
+        if df.empty:
+            logging.error(f"No recent data available for {self.symbol}/{self.interval}")
+            return pd.DataFrame()
             
-            # Calculate technical indicators if not present
-            if 'bb_upper' not in df.columns:
-                df = indicators.add_bollinger_bands(df)
-            if 'rsi' not in df.columns:
-                df = indicators.add_rsi(df)
-            if 'macd' not in df.columns:
-                df = indicators.add_macd(df)
-            if 'ema_9' not in df.columns:
-                df = indicators.add_ema(df)
-                
-            # Calculate price changes
-            df['price_change'] = df['close'].pct_change()
-            df['price_change_1d'] = df['close'].pct_change(periods=24 if self.interval == '1h' else 
-                                                         (48 if self.interval == '30m' else 96))
-            df['volatility'] = df['close'].rolling(window=self.feature_window).std()
+        # Prepare features (but ignore the target since we're predicting)
+        X, _ = self.prepare_data(df)
+        
+        if X is None or X.empty:
+            logging.error(f"Failed to prepare features for prediction")
+            return pd.DataFrame()
             
-            # Drop rows with NaN values
-            df = df.dropna()
-            
-            if len(df) < self.feature_window:
-                logging.error(f"Insufficient recent data for {self.symbol}/{self.interval}")
-                return None
-                
-            # Extract features
-            features = df[self.feature_columns].values
-            
-            # Scale features
-            scaled_features = self.scaler.transform(features)
-            
-            # Get the most recent window
-            recent_window = scaled_features[-self.feature_window:].reshape(1, self.feature_window, -1)
+        # Use only the most recent data point for prediction
+        X_recent = X.iloc[-1:].copy()
+        
+        # Scale features
+        if self.scaler is not None:
+            X_recent_scaled = self.scaler.transform(X_recent)
             
             # Make prediction
-            predicted_movement = self.model.predict(recent_window)[0]
+            predicted_change = self.model.predict(X_recent_scaled)[0]
+        else:
+            logging.error(f"Scaler not available for {self.symbol}/{self.interval}")
+            return pd.DataFrame()
             
-            # Get the most recent close price
-            last_price = df['close'].iloc[-1]
-            predicted_price = last_price * (1 + predicted_movement)
-            
-            # Create result DataFrame
-            last_timestamp = df['timestamp'].iloc[-1]
-            period_delta = self._get_period_delta()
-            
-            prediction_df = pd.DataFrame({
-                'timestamp': [last_timestamp + (i+1)*period_delta for i in range(periods)],
-                'predicted_movement': [predicted_movement] * periods,
-                'predicted_price': [predicted_price] * periods,
-                'confidence': [self._get_prediction_confidence(predicted_movement)] * periods
+        # Get most recent price
+        latest_price = df['close'].iloc[-1]
+        latest_time = df['timestamp'].iloc[-1]
+        
+        # Calculate predicted price
+        predicted_price = latest_price * (1 + predicted_change)
+        
+        # Calculate confidence score
+        confidence = self._get_prediction_confidence(predicted_change)
+        
+        # Prepare result dataframe
+        time_delta = self._get_period_delta()
+        prediction_data = []
+        
+        for i in range(1, periods + 1):
+            predicted_time = latest_time + (time_delta * i)
+            prediction_data.append({
+                'timestamp': predicted_time,
+                'predicted_price': predicted_price if i == 1 else None,  # Only include first prediction
+                'predicted_change': predicted_change if i == 1 else None,
+                'confidence': confidence if i == 1 else None,
+                'is_prediction': True
             })
             
-            logging.info(f"Made prediction for {self.symbol}/{self.interval}: {predicted_movement:.2%}")
-            return prediction_df
-            
-        except Exception as e:
-            logging.error(f"Error making prediction for {self.symbol}/{self.interval}: {e}")
-            import traceback
-            logging.error(traceback.format_exc())
-            return None
+        predictions_df = pd.DataFrame(prediction_data)
+        
+        # Add historical data
+        historical_df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+        historical_df['is_prediction'] = False
+        
+        # Combine historical and prediction data
+        result_df = pd.concat([historical_df, predictions_df], ignore_index=True)
+        result_df = result_df.sort_values('timestamp')
+        
+        return result_df
     
     def _get_period_delta(self):
         """
@@ -327,22 +348,9 @@ class MLPredictor:
         Returns:
             timedelta object
         """
-        if self.interval == '1m':
-            return timedelta(minutes=1)
-        elif self.interval == '5m':
-            return timedelta(minutes=5)
-        elif self.interval == '15m':
-            return timedelta(minutes=15)
-        elif self.interval == '30m':
-            return timedelta(minutes=30)
-        elif self.interval == '1h':
-            return timedelta(hours=1)
-        elif self.interval == '4h':
-            return timedelta(hours=4)
-        elif self.interval == '1d':
-            return timedelta(days=1)
-        else:
-            return timedelta(hours=1)  # Default
+        # Convert interval to seconds
+        seconds = timeframe_to_seconds(self.interval)
+        return timedelta(seconds=seconds)
     
     def _get_prediction_confidence(self, predicted_movement):
         """
@@ -354,8 +362,21 @@ class MLPredictor:
         Returns:
             Confidence score (0-1)
         """
-        # Simple heuristic - higher absolute movement means lower confidence
-        return max(0.5, 1.0 - min(1.0, abs(predicted_movement) * 5))
+        # Base confidence on model metrics if available
+        if 'direction_accuracy' in self.metrics:
+            base_confidence = self.metrics['direction_accuracy']
+        else:
+            base_confidence = 0.6  # Default if no metrics available
+            
+        # Adjust confidence based on magnitude of predicted movement
+        # Small movements are less certain than larger ones
+        magnitude_factor = min(abs(predicted_movement) * 10, 1.0)
+        
+        # Final confidence is a combination of model accuracy and signal strength
+        confidence = base_confidence * 0.7 + magnitude_factor * 0.3
+        
+        # Ensure confidence is between 0 and 1
+        return min(max(confidence, 0.0), 1.0)
     
     def save_model(self):
         """
@@ -365,17 +386,29 @@ class MLPredictor:
             Boolean indicating success
         """
         try:
-            if self.model is not None:
-                joblib.dump({
-                    'model': self.model,
-                    'scaler': self.scaler,
-                    'feature_columns': self.feature_columns,
-                    'metrics_history': self.metrics_history,
-                    'updated_at': datetime.now().isoformat()
-                }, self.model_filename)
-                logging.info(f"Model saved to {self.model_filename}")
-                return True
-            return False
+            # Save model
+            joblib.dump(self.model, self.model_path)
+            
+            # Save metadata (feature names, scaler, metrics)
+            metadata = {
+                'feature_names': self.feature_names,
+                'metrics': self.metrics,
+                'timestamp': datetime.now().isoformat(),
+                'symbol': self.symbol,
+                'interval': self.interval,
+                'prediction_horizon': self.prediction_horizon,
+                'feature_window': self.feature_window
+            }
+            
+            with open(self.metadata_path, 'w') as f:
+                json.dump(metadata, f)
+                
+            # Save scaler
+            scaler_path = os.path.join('models', f"{self.symbol}_{self.interval}_scaler.joblib")
+            joblib.dump(self.scaler, scaler_path)
+            
+            return True
+            
         except Exception as e:
             logging.error(f"Error saving model for {self.symbol}/{self.interval}: {e}")
             return False
@@ -388,18 +421,29 @@ class MLPredictor:
             Boolean indicating success
         """
         try:
-            if os.path.exists(self.model_filename):
-                model_data = joblib.load(self.model_filename)
-                self.model = model_data['model']
-                self.scaler = model_data['scaler']
-                self.feature_columns = model_data['feature_columns']
-                self.metrics_history = model_data.get('metrics_history', [])
-                logging.info(f"Model loaded from {self.model_filename}")
-                return True
-            return False
+            # Load model
+            self.model = joblib.load(self.model_path)
+            
+            # Load metadata
+            with open(self.metadata_path, 'r') as f:
+                metadata = json.load(f)
+                
+            self.feature_names = metadata['feature_names']
+            self.metrics = metadata['metrics']
+            self.prediction_horizon = metadata.get('prediction_horizon', self.prediction_horizon)
+            self.feature_window = metadata.get('feature_window', self.feature_window)
+            
+            # Load scaler
+            scaler_path = os.path.join('models', f"{self.symbol}_{self.interval}_scaler.joblib")
+            if os.path.exists(scaler_path):
+                self.scaler = joblib.load(scaler_path)
+                
+            return True
+            
         except Exception as e:
             logging.error(f"Error loading model for {self.symbol}/{self.interval}: {e}")
             return False
+
 
 def train_all_models(symbols, intervals, lookback_days=90, retrain=False):
     """
@@ -418,13 +462,35 @@ def train_all_models(symbols, intervals, lookback_days=90, retrain=False):
     
     for symbol in symbols:
         results[symbol] = {}
+        
         for interval in intervals:
             logging.info(f"Training model for {symbol}/{interval}")
-            predictor = MLPredictor(symbol, interval)
-            success = predictor.train_model(lookback_days, retrain)
-            results[symbol][interval] = success
             
+            try:
+                # Initialize and train model
+                predictor = MLPredictor(symbol, interval)
+                success = predictor.train_model(lookback_days=lookback_days, retrain=retrain)
+                
+                if success:
+                    # Get metrics
+                    results[symbol][interval] = {
+                        'status': 'success',
+                        'metrics': predictor.metrics
+                    }
+                else:
+                    results[symbol][interval] = {
+                        'status': 'failed',
+                        'error': 'Training failed'
+                    }
+            except Exception as e:
+                logging.error(f"Error training model for {symbol}/{interval}: {e}")
+                results[symbol][interval] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+                
     return results
+
 
 def predict_for_all(symbols, intervals, periods=1):
     """
@@ -438,25 +504,54 @@ def predict_for_all(symbols, intervals, periods=1):
     Returns:
         Dictionary with prediction results
     """
-    results = {}
+    predictions = {}
     
     for symbol in symbols:
-        results[symbol] = {}
+        predictions[symbol] = {}
+        
         for interval in intervals:
-            logging.info(f"Making prediction for {symbol}/{interval}")
-            predictor = MLPredictor(symbol, interval)
+            logging.info(f"Making predictions for {symbol}/{interval}")
             
-            if not os.path.exists(predictor.model_filename):
-                # Train model if it doesn't exist
-                success = predictor.train_model()
-                if not success:
-                    results[symbol][interval] = None
-                    continue
+            try:
+                # Initialize predictor and load model
+                predictor = MLPredictor(symbol, interval)
+                
+                # Check if model exists
+                if os.path.exists(predictor.model_path):
+                    # Make prediction
+                    pred_df = predictor.predict_future(periods=periods)
                     
-            predictions = predictor.predict_future(periods)
-            results[symbol][interval] = predictions
-            
-    return results
+                    if not pred_df.empty:
+                        # Get the prediction row
+                        pred_row = pred_df[pred_df['is_prediction'] == True].iloc[0]
+                        
+                        predictions[symbol][interval] = {
+                            'status': 'success',
+                            'timestamp': pred_row['timestamp'].isoformat(),
+                            'predicted_price': float(pred_row['predicted_price']),
+                            'predicted_change': float(pred_row['predicted_change']),
+                            'confidence': float(pred_row['confidence']),
+                            'direction': 'up' if pred_row['predicted_change'] > 0 else 'down'
+                        }
+                    else:
+                        predictions[symbol][interval] = {
+                            'status': 'failed',
+                            'error': 'No predictions generated'
+                        }
+                else:
+                    predictions[symbol][interval] = {
+                        'status': 'no_model',
+                        'error': 'No trained model available'
+                    }
+            except Exception as e:
+                logging.error(f"Error making predictions for {symbol}/{interval}: {e}")
+                predictions[symbol][interval] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+                
+    return predictions
+
 
 def continuous_learning_cycle(symbols, intervals, retraining_interval_hours=24):
     """
@@ -469,46 +564,15 @@ def continuous_learning_cycle(symbols, intervals, retraining_interval_hours=24):
         
     Note: This function runs indefinitely until interrupted
     """
-    import time
-    
-    logging.info("Starting continuous learning cycle")
-    
     while True:
-        try:
-            # Train all models
-            train_all_models(symbols, intervals, retrain=True)
-            
-            # Wait for the specified interval
-            logging.info(f"Waiting {retraining_interval_hours} hours until next retraining cycle")
-            time.sleep(retraining_interval_hours * 3600)
-            
-        except KeyboardInterrupt:
-            logging.info("Continuous learning cycle interrupted by user")
-            break
-            
-        except Exception as e:
-            logging.error(f"Error in continuous learning cycle: {e}")
-            import traceback
-            logging.error(traceback.format_exc())
-            time.sleep(3600)  # Wait an hour and try again
-
-if __name__ == "__main__":
-    # Example usage
-    from backfill_database import get_popular_symbols
-    
-    # Use a subset of popular symbols
-    symbols = get_popular_symbols(limit=5)
-    intervals = ['1h', '4h', '1d']
-    
-    # Train models
-    train_all_models(symbols, intervals)
-    
-    # Make predictions
-    predictions = predict_for_all(symbols, intervals)
-    
-    # Print predictions
-    for symbol in predictions:
-        for interval in predictions[symbol]:
-            if predictions[symbol][interval] is not None:
-                print(f"\nPredictions for {symbol}/{interval}:")
-                print(predictions[symbol][interval])
+        logging.info(f"Starting continuous learning cycle")
+        
+        # Train all models with retraining enabled
+        train_all_models(symbols, intervals, retrain=True)
+        
+        # Log completion
+        logging.info(f"Continuous learning cycle completed. Next update in {retraining_interval_hours} hours")
+        
+        # Sleep until next update
+        sleep_seconds = retraining_interval_hours * 3600
+        time.sleep(sleep_seconds)

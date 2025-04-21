@@ -20,6 +20,15 @@ from strategy import evaluate_buy_sell_signals, backtest_strategy, find_optimal_
 from utils import timeframe_to_seconds, timeframe_to_interval, get_timeframe_options, calculate_trade_statistics
 from data_loader import get_backfill_progress, start_backfill_thread, run_backfill_process
 
+# Import ML modules (with graceful fallback if not available)
+try:
+    from ml_ui import render_ml_predictions_tab
+except ImportError:
+    # Create stub function if ML module is not available
+    def render_ml_predictions_tab():
+        st.header("Machine Learning Price Predictions")
+        st.warning("Machine Learning module is not available. Please ensure ml_ui.py is installed.")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -2488,6 +2497,16 @@ def main():
                         st.error(error)
         except Exception as e:
             st.error(f"Error in Data Progress page: {e}")
+            import traceback
+            st.text(traceback.format_exc())
+    
+    # ML Predictions Tab
+    elif selected_tab == "ML Predictions":
+        try:
+            # Call the ML prediction UI component
+            render_ml_predictions_tab()
+        except Exception as e:
+            st.error(f"An error occurred in the ML Predictions tab: {str(e)}")
             import traceback
             st.text(traceback.format_exc())
     
