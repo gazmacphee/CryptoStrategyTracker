@@ -2320,7 +2320,7 @@ def main():
                 col3.metric("Gaps Remaining", gap_stats.get("total_gaps", 0) - gap_stats.get("filled_gaps", 0))
                 
                 # Show details of all gaps with their status
-                if not gap_stats.get("gap_details").empty:
+                if "gap_details" in gap_stats and gap_stats["gap_details"] is not None and hasattr(gap_stats["gap_details"], 'empty') and not gap_stats["gap_details"].empty:
                     st.subheader("Gap Details")
                     st.dataframe(gap_stats["gap_details"])
                     
