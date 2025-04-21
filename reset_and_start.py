@@ -62,6 +62,10 @@ def reset_database():
     logger.info("Resetting database...")
     
     conn = get_db_connection()
+    if conn is None:
+        logger.error("Failed to get database connection")
+        return
+        
     cursor = conn.cursor()
     
     # Drop all tables
@@ -81,8 +85,9 @@ def reset_database():
         except Exception as e:
             logger.error(f"Error dropping table {table}: {e}")
     
-    conn.commit()
-    cursor.close()
+    if conn is not None:
+        conn.commit()
+        cursor.close()
     logger.info("All tables dropped successfully")
 
 

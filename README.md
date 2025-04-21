@@ -8,10 +8,9 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 - Technical indicators: Bollinger Bands, MACD, RSI, EMA
 - Trading signals based on technical analysis
 - Portfolio performance tracking
-- Sentiment analysis from social media and news
-- Personalized crypto news digest
 - Interactive candlestick charts
 - Background database updates
+- Clean, simplified architecture
 
 ## Prerequisites
 
@@ -119,6 +118,33 @@ See `local_db_setup_guide.md` for detailed instructions on working with your loc
 - **Data Sources**: Binance API for real-time and historical price data
 - **Background Processes**: Continuous data updates every 15 minutes
 
+## Project Structure
+
+The project has been cleaned up and organized for better maintainability:
+
+```
+/
+├── app.py                    # Main Streamlit application
+├── reset_and_start.py        # Application entry point script
+├── database.py               # Database operations
+├── binance_api.py            # Binance API integration
+├── download_binance_data.py  # Data downloading functionality
+├── backfill_database.py      # Database backfill operations
+├── indicators.py             # Technical indicators calculation
+├── strategy.py               # Trading strategy evaluation
+├── utils.py                  # Utility functions
+├── data/                     # Data storage directory
+├── models/                   # Saved ML models directory
+└── legacy_archive/           # Archive of old/unused files
+    ├── documentation/        # Project documentation
+    ├── json/                 # JSON configuration files
+    ├── logs/                 # Log files
+    ├── scripts/              # Utility scripts
+    ├── ml_modules/           # ML modules
+    ├── src/                  # Old modular architecture
+    └── archive/              # Additional archived files
+```
+
 ## Customization
 
 - Edit `backfill_database.py` to modify which cryptocurrencies are tracked
@@ -131,3 +157,32 @@ See `local_db_setup_guide.md` for detailed instructions on working with your loc
 - Historical cryptocurrency data is stored in your PostgreSQL database
 - You can reset the database by setting `RESET_DB=true` in your environment variables
 - Background updates run every 15 minutes to keep data current
+
+## Using the Cleaned Project Structure
+
+The project has been simplified to make it more maintainable and easier to understand:
+
+1. **Starting the Application**
+   ```
+   python reset_and_start.py
+   ```
+   This script:
+   - Resets the database if `RESET_DB=true`
+   - Creates fresh tables
+   - Starts the backfill process if `BACKFILL_ON_START=true`
+   - Launches the Streamlit application
+
+2. **Running Just the Streamlit App**
+   ```
+   streamlit run app.py
+   ```
+
+3. **Running Just the Backfill Process**
+   ```
+   python backfill_database.py
+   ```
+
+4. **Archived Code**
+   
+   Previous versions of the code, including the modular architecture and machine learning modules,
+   are preserved in the `legacy_archive` directory for reference or future use.
