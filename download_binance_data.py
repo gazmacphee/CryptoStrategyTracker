@@ -343,9 +343,17 @@ def download_daily_klines(symbol, interval, year, month):
     
     # Log summary of daily files processing
     if unprocessed_files:
-        with open("unprocessed_files.log", "a") as f:
+        # Try to use the specialized module for logging unprocessed files
+        try:
+            from unprocessed_files import log_unprocessed_file
             for date_str in unprocessed_files:
-                f.write(f"{symbol}/{interval}/{year}-{month:02d}-{date_str}: Could not process\n")
+                log_unprocessed_file(symbol, interval, year, int(date_str.split('-')[2]), 
+                                    f"Daily file could not be processed")
+        except ImportError:
+            # Fall back to simple logging if module not available
+            with open("unprocessed_files.log", "a") as f:
+                for date_str in unprocessed_files:
+                    f.write(f"{symbol}/{interval}/{date_str}: Daily file could not be processed\n")
         
         logging.warning(f"Could not process {len(unprocessed_files)} daily files for {symbol}/{interval} {year}-{month:02d}")
         print(f"       ⚠ {len(unprocessed_files)} daily files could not be processed (see unprocessed_files.log)")

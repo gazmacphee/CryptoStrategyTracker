@@ -2260,99 +2260,98 @@ def main():
             # Import necessary modules and functions for this tab
             import pandas as pd
             import os
+            # Import our specialized modules for gap and unprocessed files tracking
+            from unprocessed_files import get_unprocessed_files_stats, clear_unprocessed_files_log
+            from gap_stats import get_gap_stats, clear_gap_log
             
             st.header("Data Gaps and Processing Issues")
             
             # Display information about any unprocessed files or data gaps
             st.subheader("Unprocessed Files")
             
-            unprocessed_file_path = "unprocessed_files.log"
+            # Get statistics about unprocessed files
+            unprocessed_stats = get_unprocessed_files_stats()
             
-            if os.path.exists(unprocessed_file_path) and os.path.getsize(unprocessed_file_path) > 0:
-                # Read the unprocessed files log
-                with open(unprocessed_file_path, "r") as f:
-                    unprocessed_files = f.readlines()
-                
-                # Count by symbol and interval
-                symbol_counts = {}
-                interval_counts = {}
-                total_count = len(unprocessed_files)
-                
-                for file_entry in unprocessed_files:
-                    parts = file_entry.strip().split('/')
-                    if len(parts) >= 2:
-                        symbol = parts[0]
-                        interval = parts[1]
-                        
-                        symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
-                        interval_counts[interval] = interval_counts.get(interval, 0) + 1
-                
+            if unprocessed_stats:
                 # Display summary metrics
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Total Unprocessed Files", total_count)
-                col2.metric("Affected Symbols", len(symbol_counts))
-                col3.metric("Affected Intervals", len(interval_counts))
+                col1.metric("Total Unprocessed Files", unprocessed_stats["total_count"])
+                col2.metric("Affected Symbols", len(unprocessed_stats["symbol_counts"]))
+                col3.metric("Affected Intervals", len(unprocessed_stats["interval_counts"]))
                 
                 # Show breakdown by symbol and interval
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.subheader("By Symbol")
-                    symbol_df = pd.DataFrame({
-                        "Symbol": list(symbol_counts.keys()),
-                        "Count": list(symbol_counts.values())
-                    }).sort_values("Count", ascending=False)
-                    
-                    st.dataframe(symbol_df)
+                    st.dataframe(unprocessed_stats["symbol_counts"])
                 
                 with col2:
                     st.subheader("By Interval")
-                    interval_df = pd.DataFrame({
-                        "Interval": list(interval_counts.keys()),
-                        "Count": list(interval_counts.values())
-                    }).sort_values("Count", ascending=False)
-                    
-                    st.dataframe(interval_df)
+                    st.dataframe(unprocessed_stats["interval_counts"])
                 
-                # Show the detailed log
-                with st.expander("View Detailed Unprocessed Files Log"):
-                    for file_entry in unprocessed_files:
-                        st.text(file_entry.strip())
+                # Show breakdown by reason
+                st.subheader("By Reason")
+                st.dataframe(unprocessed_stats["reason_counts"])
+                
+                # Show the detailed file list
+                with st.expander("View Detailed Unprocessed Files List"):
+                    st.dataframe(unprocessed_stats["file_details"])
                 
                 # Offer to clear the log
                 if st.button("Clear Unprocessed Files Log"):
-                    try:
-                        with open(unprocessed_file_path, "w") as f:
-                            f.write("")  # Clear the file
+                    if clear_unprocessed_files_log():
                         st.success("Unprocessed files log cleared successfully")
-                    except Exception as e:
-                        st.error(f"Error clearing log: {e}")
+                    else:
+                        st.error("Error clearing unprocessed files log")
             else:
                 st.success("No unprocessed files have been detected. All data files are being processed correctly.")
             
             # Gap Analysis Results
             st.subheader("Gap Analysis")
             
-            # Check if gap filler module is available and show gap analysis stats
-            try:
-                from gap_filler import get_gap_stats
-                gap_stats = get_gap_stats()
+            # Get gap statistics
+            gap_stats = get_gap_stats()
+            
+            if gap_stats and gap_stats.get("total_gaps", 0) > 0:
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Gaps Detected", gap_stats.get("total_gaps", 0))
+                col2.metric("Gaps Filled", gap_stats.get("filled_gaps", 0))
+                col3.metric("Gaps Remaining", gap_stats.get("total_gaps", 0) - gap_stats.get("filled_gaps", 0))
                 
-                if gap_stats and gap_stats.get("total_gaps", 0) > 0:
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Total Gaps Detected", gap_stats.get("total_gaps", 0))
-                    col2.metric("Gaps Filled", gap_stats.get("filled_gaps", 0))
-                    col3.metric("Gaps Remaining", gap_stats.get("total_gaps", 0) - gap_stats.get("filled_gaps", 0))
+                # Show details of all gaps with their status
+                if not gap_stats.get("gap_details").empty:
+                    st.subheader("Gap Details")
+                    st.dataframe(gap_stats["gap_details"])
                     
-                    # Show details of remaining gaps
-                    if gap_stats.get("gap_details"):
-                        st.subheader("Gap Details")
+                    # Show filtered views
+                    tabs = st.tabs(["All Gaps", "Filled Gaps", "Unfilled Gaps"])
+                    
+                    with tabs[0]:
                         st.dataframe(gap_stats["gap_details"])
-                else:
-                    st.success("No time series gaps detected in the historical data.")
-                    
-            except (ImportError, Exception) as e:
-                st.warning(f"Gap analysis not available: {str(e)}")
+                        
+                    with tabs[1]:
+                        filled_gaps = gap_stats["gap_details"][gap_stats["gap_details"]["Status"] == "Filled"]
+                        if not filled_gaps.empty:
+                            st.dataframe(filled_gaps)
+                        else:
+                            st.info("No gaps have been filled yet.")
+                            
+                    with tabs[2]:
+                        unfilled_gaps = gap_stats["gap_details"][gap_stats["gap_details"]["Status"] != "Filled"]
+                        if not unfilled_gaps.empty:
+                            st.dataframe(unfilled_gaps)
+                        else:
+                            st.success("All detected gaps have been filled!")
+                            
+                # Offer to clear the gap log
+                if st.button("Clear Gap Analysis Log"):
+                    if clear_gap_log():
+                        st.success("Gap analysis log cleared successfully")
+                    else:
+                        st.error("Error clearing gap analysis log")
+            else:
+                st.success("No time series gaps detected in the historical data.")
             
             # Action buttons
             st.subheader("Maintenance Actions")
@@ -2365,7 +2364,7 @@ def main():
                         subprocess.Popen(["python", "run_gap_filler.py"], 
                                         stdout=subprocess.PIPE, 
                                         stderr=subprocess.PIPE)
-                        st.success("Gap filler process started.")
+                        st.success("Gap filler process started. Check back in a few minutes for results.")
                     except Exception as e:
                         st.error(f"Error starting gap filler: {e}")
             
@@ -2386,7 +2385,7 @@ def main():
                         subprocess.Popen(["python", "start_improved_backfill.py"], 
                                         stdout=subprocess.PIPE, 
                                         stderr=subprocess.PIPE)
-                        st.success("Data collection process restarted.")
+                        st.success("Data collection process restarted. This will continue running in the background.")
                     except Exception as e:
                         st.error(f"Error restarting data collection: {e}")
                         

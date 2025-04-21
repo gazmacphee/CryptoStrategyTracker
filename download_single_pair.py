@@ -110,8 +110,26 @@ def download_single_month(symbol, interval, year, month):
         if df is not None and not df.empty:
             logging.info(f"Successfully downloaded monthly data: {len(df)} rows")
             return df
+        else:
+            # Log the unprocessed file
+            logging.warning(f"Downloaded content for {symbol}/{interval}/{year}-{month_str} but failed to process it")
+            try:
+                from unprocessed_files import log_unprocessed_file
+                log_unprocessed_file(symbol, interval, year, month, "Failed to process ZIP content")
+            except ImportError:
+                # Fallback if unprocessed_files module is not available
+                with open("unprocessed_files.log", "a") as f:
+                    f.write(f"{symbol}/{interval}/{year}-{month_str}: Failed to process ZIP content\n")
+    else:
+        logging.warning(f"No monthly data available for {year}-{month_str}")
+        try:
+            from unprocessed_files import log_unprocessed_file
+            log_unprocessed_file(symbol, interval, year, month, "Monthly file not available")
+        except ImportError:
+            # Fallback if unprocessed_files module is not available
+            with open("unprocessed_files.log", "a") as f:
+                f.write(f"{symbol}/{interval}/{year}-{month_str}: Monthly file not available\n")
     
-    logging.warning(f"No monthly data available for {year}-{month_str}")
     return None
 
 def download_and_process(symbol, interval, year, month):
