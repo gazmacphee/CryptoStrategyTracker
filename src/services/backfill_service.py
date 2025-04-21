@@ -24,11 +24,19 @@ from src.config import settings
 class BackfillService:
     """Service for backfilling historical data"""
     
-    def __init__(self):
-        """Initialize the backfill service"""
-        self.logger = container.get("logger")
-        self.data_service = container.get("data_service")
-        self.indicators_service = container.get("indicators_service")
+    def __init__(self, logger=None, data_service=None, indicators_service=None):
+        """
+        Initialize the backfill service
+        
+        Args:
+            logger: Logger instance
+            data_service: Data service instance
+            indicators_service: Indicators service instance
+        """
+        # Allow injected dependencies or get from container
+        self.logger = logger or container.get("logger")
+        self.data_service = data_service or container.get("data_service")
+        self.indicators_service = indicators_service or container.get("indicators_service")
         
         # Running state
         self.is_running = False
@@ -441,8 +449,25 @@ class BackfillService:
             self.logger.error(f"Error saving backfill results: {e}")
 
 
-# Register in the container
+# Factory function for dependency injection
 def backfill_service_factory(container):
-    return BackfillService()
-
-container.register_service("backfill_service", backfill_service_factory)
+    """
+    Create and return a BackfillService instance with injected dependencies
+    
+    Args:
+        container: The dependency container
+        
+    Returns:
+        Configured BackfillService instance
+    """
+    # Get required dependencies from container
+    logger = container.get("logger")
+    data_service = container.get("data_service")
+    indicators_service = container.get("indicators_service")
+    
+    # Create and return service with explicit dependencies
+    return BackfillService(
+        logger=logger,
+        data_service=data_service,
+        indicators_service=indicators_service
+    )

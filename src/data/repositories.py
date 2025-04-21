@@ -17,8 +17,16 @@ from src.config.container import container
 class HistoricalDataRepository:
     """Repository for historical price data operations"""
     
-    def __init__(self):
-        self.logger = container.get("logger")
+    def __init__(self, db_connection=None, logger=None):
+        """
+        Initialize the repository
+        
+        Args:
+            db_connection: Database connection
+            logger: Logger instance
+        """
+        self.db_connection = db_connection
+        self.logger = logger or container.get("logger")
     
     def save_candles(self, symbol: str, interval: str, candles: List[Dict[str, Any]]) -> int:
         """
@@ -178,8 +186,16 @@ class HistoricalDataRepository:
 class TechnicalIndicatorsRepository:
     """Repository for technical indicators data operations"""
     
-    def __init__(self):
-        self.logger = container.get("logger")
+    def __init__(self, db_connection=None, logger=None):
+        """
+        Initialize the repository
+        
+        Args:
+            db_connection: Database connection
+            logger: Logger instance
+        """
+        self.db_connection = db_connection
+        self.logger = logger or container.get("logger")
     
     def save_indicators(self, indicators_data: List[Dict[str, Any]]) -> int:
         """
@@ -256,8 +272,16 @@ class TechnicalIndicatorsRepository:
 class SentimentRepository:
     """Repository for sentiment data operations"""
     
-    def __init__(self):
-        self.logger = container.get("logger")
+    def __init__(self, db_connection=None, logger=None):
+        """
+        Initialize the repository
+        
+        Args:
+            db_connection: Database connection
+            logger: Logger instance
+        """
+        self.db_connection = db_connection
+        self.logger = logger or container.get("logger")
     
     def save_sentiment(self, sentiment_data: List[Dict[str, Any]]) -> int:
         """
@@ -337,8 +361,16 @@ class SentimentRepository:
 class TradeRepository:
     """Repository for trade data operations"""
     
-    def __init__(self):
-        self.logger = container.get("logger")
+    def __init__(self, db_connection=None, logger=None):
+        """
+        Initialize the repository
+        
+        Args:
+            db_connection: Database connection
+            logger: Logger instance
+        """
+        self.db_connection = db_connection
+        self.logger = logger or container.get("logger")
     
     def save_trade(self, trade_data: Dict[str, Any]) -> int:
         """
@@ -469,8 +501,6 @@ class TradeRepository:
             return pd.DataFrame()
 
 
-# Register repositories in the container
-container.register_instance("historical_data_repo", HistoricalDataRepository())
-container.register_instance("indicators_repo", TechnicalIndicatorsRepository())
-container.register_instance("sentiment_repo", SentimentRepository())
-container.register_instance("trade_repo", TradeRepository())
+# Note: We don't register repositories directly here anymore
+# They are now registered in src/config/initialize.py with proper dependency injection
+# This avoids circular dependencies and makes the code more testable

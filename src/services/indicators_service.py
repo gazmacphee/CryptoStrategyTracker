@@ -16,11 +16,29 @@ from src.config import settings
 class IndicatorsService:
     """Service for managing technical indicators"""
     
-    def __init__(self):
-        """Initialize the indicators service"""
-        self.logger = container.get("logger")
-        self.indicators_repo = container.get("indicators_repo")
-        self.data_service = container.get("data_service")
+    def __init__(self, logger=None, indicators_repo=None, data_service=None):
+        """
+        Initialize the indicators service
+        
+        Args:
+            logger: Logger instance
+            indicators_repo: Technical indicators repository
+            data_service: Data service instance
+        """
+        # These will be set by the factory method
+        self.logger = logger
+        self.indicators_repo = indicators_repo
+        self.data_service = data_service
+    
+    def initialize(self, data_service=None):
+        """
+        Initialize the service with dependencies that might not be available at construction time
+        
+        Args:
+            data_service: Data service instance
+        """
+        if data_service is not None:
+            self.data_service = data_service
     
     def calculate_all_indicators(
         self,
@@ -467,16 +485,25 @@ class IndicatorsService:
         Returns:
             Dictionary with update results
         """
+        # Check if data_service is available
+        if not self.data_service:
+            return {'status': 'error', 'message': 'Data service not initialized'}
+            
         # Get historical data
-        df = self.data_service.get_klines_data(
-            symbol=symbol,
-            interval=interval,
-            start_time=start_time,
-            end_time=end_time
-        )
-        
-        if df.empty:
-            return {'status': 'error', 'message': 'No data available for indicators calculation'}
+        try:
+            df = self.data_service.get_klines_data(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            if df.empty:
+                return {'status': 'error', 'message': 'No data available for indicators calculation'}
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error getting historical data: {e}")
+            return {'status': 'error', 'message': f'Failed to retrieve historical data: {str(e)}'}
         
         # We need some extra data before the start time to calculate indicators correctly
         # Get additional data from before the start_time
@@ -484,16 +511,22 @@ class IndicatorsService:
             # Calculate how much extra data we need
             # Use the highest window size from our indicators (e.g. EMA 200)
             lookback_periods = 200
-            lookback_seconds = lookback_periods * self.data_service._interval_to_seconds(interval)
-            lookback_start = start_time - pd.Timedelta(seconds=lookback_seconds)
-            
-            # Get lookback data
-            lookback_df = self.data_service.get_klines_data(
-                symbol=symbol,
-                interval=interval,
-                start_time=lookback_start,
-                end_time=start_time
-            )
+            try:
+                lookback_seconds = lookback_periods * self.data_service._interval_to_seconds(interval)
+                lookback_start = start_time - pd.Timedelta(seconds=lookback_seconds)
+                
+                # Get lookback data
+                lookback_df = self.data_service.get_klines_data(
+                    symbol=symbol,
+                    interval=interval,
+                    start_time=lookback_start,
+                    end_time=start_time
+                )
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Error getting lookback data: {e}")
+                # Continue without lookback data
+                lookback_df = pd.DataFrame()
             
             # Combine with main data if we got lookback data
             if not lookback_df.empty:
@@ -547,6 +580,9 @@ class IndicatorsService:
                     pass
                 
                 # Save new indicators
+                if not self.indicators_repo:
+                    return {'status': 'error', 'message': 'Indicators repository not initialized'}
+                    
                 saved_count = self.indicators_repo.save_indicators(to_save)
                 
                 return {
@@ -555,14 +591,40 @@ class IndicatorsService:
                     'indicators_saved': saved_count
                 }
             except Exception as e:
-                self.logger.error(f"Error saving indicators: {e}")
+                if self.logger:
+                    self.logger.error(f"Error saving indicators: {e}")
                 return {'status': 'error', 'message': str(e)}
         else:
             return {'status': 'warning', 'message': 'No valid indicators to save'}
 
 
-# Register in the container
+# Factory function for dependency injection
 def indicators_service_factory(container):
-    return IndicatorsService()
-
-container.register_service("indicators_service", indicators_service_factory)
+    """
+    Create and return an IndicatorsService instance with injected dependencies
+    
+    Args:
+        container: The dependency container
+        
+    Returns:
+        Configured IndicatorsService instance
+    """
+    # Get the required dependencies from the container
+    logger = container.get("logger")
+    indicators_repo = container.get("indicators_repo")
+    
+    # Data service might not be available yet during initialization
+    # But it will be available by the time the indicators service is used
+    data_service = None
+    try:
+        data_service = container.get("data_service")
+    except KeyError:
+        # We'll set this later or in the initialize method
+        pass
+    
+    # Create and return service with injected dependencies
+    return IndicatorsService(
+        logger=logger,
+        indicators_repo=indicators_repo,
+        data_service=data_service
+    )

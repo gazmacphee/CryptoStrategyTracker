@@ -29,8 +29,10 @@ from src.ui.settings_ui import render_settings
 
 def setup_app():
     """Set up the application environment"""
-    # Initialize the dependency container
-    initialize_container()
+    # Initialize the dependency container with all services
+    # Use the returned container with all services registered
+    global container
+    container = initialize_container()
     
     # Make sure necessary directories exist
     os.makedirs('models', exist_ok=True)

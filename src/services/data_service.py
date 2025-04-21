@@ -24,11 +24,19 @@ from src.config import settings
 class DataService:
     """Service for managing cryptocurrency data"""
     
-    def __init__(self):
-        """Initialize the data service"""
-        self.logger = container.get("logger")
-        self.historical_repo = container.get("historical_data_repo")
-        self.indicators_repo = container.get("indicators_repo")
+    def __init__(self, logger=None, historical_repo=None, indicators_repo=None):
+        """
+        Initialize the data service
+        
+        Args:
+            logger: Logger instance
+            historical_repo: Historical data repository
+            indicators_repo: Technical indicators repository
+        """
+        # These will be set by the factory method
+        self.logger = logger
+        self.historical_repo = historical_repo
+        self.indicators_repo = indicators_repo
         
         # Cache for in-memory data that doesn't need to be fetched repeatedly
         self._cache = {}
@@ -610,8 +618,25 @@ class DataService:
         return max(0, int(time_diff / seconds) + 1)
 
 
-# Register in the container
+# Factory function for dependency injection
 def data_service_factory(container):
-    return DataService()
-
-container.register_service("data_service", data_service_factory)
+    """
+    Create and return a DataService instance with injected dependencies
+    
+    Args:
+        container: The dependency container
+        
+    Returns:
+        Configured DataService instance
+    """
+    # Get the logger and repositories from the container
+    logger = container.get("logger")
+    historical_repo = container.get("historical_data_repo") 
+    indicators_repo = container.get("indicators_repo")
+    
+    # Create a DataService instance with explicitly injected dependencies
+    return DataService(
+        logger=logger,
+        historical_repo=historical_repo,
+        indicators_repo=indicators_repo
+    )
