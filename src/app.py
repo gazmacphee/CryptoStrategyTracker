@@ -11,20 +11,20 @@ import logging
 import streamlit as st
 from datetime import datetime, timedelta
 
-# Add the src directory to the path to enable imports
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# Add the parent directory to the path to enable imports
+sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-# Import local modules
-from config.container import container, initialize_container
-from config import settings
-from data.database import create_tables
-from services.backfill_service import BackfillService
-from ui.dashboard import render_dashboard
-from ui.data_browser import render_data_browser
-from ui.trading import render_trading
-from ui.analysis import render_analysis
-from ui.ml_prediction import render_ml_predictions
-from ui.settings_ui import render_settings
+# Import local modules from src package
+from src.config.container import container, initialize_container
+from src.config import settings
+from src.data.database import create_tables
+from src.services.backfill_service import BackfillService
+from src.ui.dashboard import render_dashboard
+from src.ui.data_browser import render_data_browser
+from src.ui.trading import render_trading
+from src.ui.analysis import render_analysis
+from src.ui.ml_prediction import render_ml_predictions
+from src.ui.settings_ui import render_settings
 
 
 def setup_app():

@@ -8,27 +8,54 @@ and table definitions with optimized indexes.
 import logging
 import psycopg2
 import psycopg2.extras
+import os
 from psycopg2.extensions import connection
 from typing import Optional, List, Dict, Any
 
 from src.config.container import container
 
+# Set up a logger (will be replaced by container logger when available)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 def get_db_connection() -> connection:
     """
-    Get a database connection from the container
+    Get a database connection
     
     Returns:
         Active database connection
     """
-    return container.get("db_connection")
+    try:
+        # First try to get from container
+        return container.get("db_connection")
+    except (KeyError, Exception):
+        # Fall back to direct connection if container is not initialized
+        try:
+            if "DATABASE_URL" in os.environ:
+                logger.info(f"Connecting to database using DATABASE_URL: {os.environ['DATABASE_URL'].split('@')[1]}")
+                conn = psycopg2.connect(os.environ["DATABASE_URL"])
+                conn.autocommit = True
+                logger.info("Successfully connected using DATABASE_URL")
+                return conn
+            else:
+                logger.error("DATABASE_URL environment variable not set")
+                raise ValueError("DATABASE_URL not set")
+        except Exception as e:
+            logger.error(f"Error connecting to database: {e}")
+            raise
 
 
 def create_tables() -> None:
     """
     Create database tables with optimized indexes
     """
-    logger = container.get("logger")
+    try:
+        # Try to get logger from container
+        logger = container.get("logger")
+    except (KeyError, Exception):
+        # Fall back to module logger
+        pass
+        
     logger.info("Creating database tables if they don't exist...")
     
     create_statements = [

@@ -7,7 +7,6 @@ for cryptocurrency price data.
 
 import pandas as pd
 import numpy as np
-import pandas_ta as ta  # Using pandas-ta for technical indicators
 from typing import Dict, Any, List, Optional
 
 from src.config.container import container
@@ -40,6 +39,12 @@ class IndicatorsService:
         """
         if df.empty:
             return df
+        
+        # Ensure all price columns are float to avoid decimal operations
+        price_columns = ['open', 'high', 'low', 'close', 'volume']
+        for col in price_columns:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
         
         # Make a copy to avoid modifying the original
         result_df = df.copy()
@@ -112,15 +117,24 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate Bollinger Bands
-        indicator = ta.bbands(df['close'], length=window, std=window_dev)
+        # Ensure data type is float
+        close_float = df['close'].astype(float)
         
-        # Rename columns to match our conventions
-        indicator = indicator.rename(columns={
-            'BBL_' + str(window) + '_' + str(window_dev): 'bb_lower',
-            'BBM_' + str(window) + '_' + str(window_dev): 'bb_middle',
-            'BBU_' + str(window) + '_' + str(window_dev): 'bb_upper'
-        })
+        # Calculate moving average and standard deviation
+        ma = close_float.rolling(window=window).mean()
+        std = close_float.rolling(window=window).std()
+        
+        # Calculate Bollinger Bands
+        bb_lower = ma - (std * window_dev)
+        bb_middle = ma
+        bb_upper = ma + (std * window_dev)
+        
+        # Create DataFrame with results
+        indicator = pd.DataFrame({
+            'bb_lower': bb_lower,
+            'bb_middle': bb_middle,
+            'bb_upper': bb_upper
+        }, index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, indicator], axis=1)
@@ -145,11 +159,26 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate RSI
-        rsi = ta.rsi(df['close'], length=window)
+        # Ensure data type is float
+        close_float = df['close'].astype(float)
         
-        # Rename column
-        rsi = rsi.rename('rsi')
+        # Calculate RSI using pandas native functions
+        delta = close_float.diff()
+        
+        # Separate gains and losses
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        
+        # Calculate average gains and losses
+        avg_gain = gain.rolling(window=window).mean()
+        avg_loss = loss.rolling(window=window).mean()
+        
+        # Calculate RS and RSI
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        # Create a series with the result
+        rsi = pd.Series(rsi, name='rsi', index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, rsi], axis=1)
@@ -178,15 +207,28 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate MACD
-        macd_data = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+        # Ensure data type is float
+        close_float = df['close'].astype(float)
         
-        # Rename columns
-        macd_data = macd_data.rename(columns={
-            'MACD_' + str(fast) + '_' + str(slow) + '_' + str(signal): 'macd',
-            'MACDs_' + str(fast) + '_' + str(slow) + '_' + str(signal): 'macd_signal',
-            'MACDh_' + str(fast) + '_' + str(slow) + '_' + str(signal): 'macd_histogram'
-        })
+        # Calculate EMAs for MACD
+        fast_ema = close_float.ewm(span=fast, adjust=False).mean()
+        slow_ema = close_float.ewm(span=slow, adjust=False).mean()
+        
+        # Calculate MACD line
+        macd_line = fast_ema - slow_ema
+        
+        # Calculate MACD signal line
+        macd_signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+        
+        # Calculate MACD histogram
+        macd_histogram = macd_line - macd_signal_line
+        
+        # Create a DataFrame with the results
+        macd_data = pd.DataFrame({
+            'macd': macd_line,
+            'macd_signal': macd_signal_line,
+            'macd_histogram': macd_histogram
+        }, index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, macd_data], axis=1)
@@ -213,10 +255,13 @@ class IndicatorsService:
         
         result = df.copy()
         
+        # Ensure data type is float
+        close_float = df['close'].astype(float)
+        
         # Calculate each EMA
         for window in windows:
-            ema = ta.ema(df['close'], length=window)
-            ema = ema.rename(f'ema_{window}')
+            ema = close_float.ewm(span=window, adjust=False).mean()
+            ema = pd.Series(ema, name=f'ema_{window}', index=df.index)
             result = pd.concat([result, ema], axis=1)
         
         return result
@@ -243,14 +288,37 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate Stochastic
-        stoch = ta.stoch(df['high'], df['low'], df['close'], k=k, d=d, smooth_k=smooth_k)
+        # Ensure data types are float
+        low_float = df['low'].astype(float)
+        high_float = df['high'].astype(float)
+        close_float = df['close'].astype(float)
         
-        # Rename columns
-        stoch = stoch.rename(columns={
-            'STOCHk_' + str(k) + '_' + str(d) + '_' + str(smooth_k): 'stoch_k',
-            'STOCHd_' + str(k) + '_' + str(d) + '_' + str(smooth_k): 'stoch_d'
-        })
+        # Calculate %K
+        # Formula: %K = (Current Close - Lowest Low) / (Highest High - Lowest Low) * 100
+        low_min = low_float.rolling(window=k).min()
+        high_max = high_float.rolling(window=k).max()
+        
+        # Avoid division by zero
+        denominator = high_max - low_min
+        denominator = denominator.replace(0, np.nan)
+        
+        # Calculate raw %K
+        k_raw = 100 * ((close_float - low_min) / denominator)
+        
+        # Apply smoothing to %K if specified
+        if smooth_k > 1:
+            stoch_k = k_raw.rolling(window=smooth_k).mean()
+        else:
+            stoch_k = k_raw
+        
+        # Calculate %D which is n-period SMA of %K
+        stoch_d = stoch_k.rolling(window=d).mean()
+        
+        # Create a DataFrame with the results
+        stoch = pd.DataFrame({
+            'stoch_k': stoch_k,
+            'stoch_d': stoch_d
+        }, index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, stoch], axis=1)
@@ -275,11 +343,31 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate ATR
-        atr = ta.atr(df['high'], df['low'], df['close'], length=window)
+        # Ensure data types are float
+        high_float = df['high'].astype(float)
+        low_float = df['low'].astype(float)
+        close_float = df['close'].astype(float)
         
-        # Rename column
-        atr = atr.rename('atr')
+        # Calculate True Range (TR)
+        high_low = high_float - low_float
+        high_close_prev = abs(high_float - close_float.shift(1))
+        low_close_prev = abs(low_float - close_float.shift(1))
+        
+        # Create a DataFrame for the TR components
+        tr_components = pd.DataFrame({
+            'high_low': high_low,
+            'high_close_prev': high_close_prev,
+            'low_close_prev': low_close_prev
+        })
+        
+        # True Range is the maximum of the three
+        tr = tr_components.max(axis=1)
+        
+        # Average True Range is the simple moving average of the TR
+        atr = tr.rolling(window=window).mean()
+        
+        # Create a series with the result
+        atr = pd.Series(atr, name='atr', index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, atr], axis=1)
@@ -304,11 +392,56 @@ class IndicatorsService:
         if df.empty:
             return df
         
-        # Calculate ADX
-        adx = ta.adx(df['high'], df['low'], df['close'], length=window)
+        # Ensure data types are float
+        high_float = df['high'].astype(float)
+        low_float = df['low'].astype(float)
+        close_float = df['close'].astype(float)
         
-        # Keep only the main ADX line
-        adx = adx['ADX_' + str(window)].rename('adx')
+        # ATR calculation required for ADX
+        # Calculate True Range (TR)
+        high_low = high_float - low_float
+        high_close_prev = abs(high_float - close_float.shift(1))
+        low_close_prev = abs(low_float - close_float.shift(1))
+        
+        # Create a DataFrame for TR components
+        tr_components = pd.DataFrame({
+            'high_low': high_low,
+            'high_close_prev': high_close_prev,
+            'low_close_prev': low_close_prev
+        })
+        
+        # True Range is the maximum of the three
+        tr = tr_components.max(axis=1)
+        
+        # Calculate +DM and -DM
+        up_move = high_float - high_float.shift(1)
+        down_move = low_float.shift(1) - low_float
+        
+        # +DM and -DM conditions
+        pos_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        neg_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+        
+        # Convert to series
+        pos_dm = pd.Series(pos_dm, index=df.index)
+        neg_dm = pd.Series(neg_dm, index=df.index)
+        
+        # Calculate smoothed +DM, -DM and TR
+        smoothed_tr = tr.rolling(window=window).sum()
+        smoothed_pos_dm = pos_dm.rolling(window=window).sum()
+        smoothed_neg_dm = neg_dm.rolling(window=window).sum()
+        
+        # Calculate +DI and -DI
+        pos_di = 100 * (smoothed_pos_dm / smoothed_tr)
+        neg_di = 100 * (smoothed_neg_dm / smoothed_tr)
+        
+        # Calculate the directional index (DX)
+        dx = 100 * abs(pos_di - neg_di) / (pos_di + neg_di)
+        
+        # Calculate ADX with smoothed DX
+        adx = dx.rolling(window=window).mean()
+        
+        # Create a series with the result
+        adx = pd.Series(adx, name='adx', index=df.index)
         
         # Merge with original DataFrame
         result = pd.concat([df, adx], axis=1)

@@ -148,10 +148,12 @@ def create_db_connection() -> psycopg2.extensions.connection:
         raise
 
 
-def initialize_container() -> None:
+def initialize_container() -> Container:
     """Initialize the dependency container with core services"""
     # Register logger
     container.register_instance("logger", setup_logging())
     
     # Register database connection
-    container.register_factory("db_connection", create_db_connection)
+    container.register_factory("db_connection", lambda c: create_db_connection())
+    
+    return container
