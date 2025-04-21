@@ -225,11 +225,139 @@ def download_monthly_klines(symbol, interval, year, month):
             logging.info(f"No monthly file available for {symbol} {interval} {year}-{month:02d}")
             
             # Try to download daily files for this month
-            return None
+            return download_daily_klines(symbol, interval, year, month)
             
     except Exception as e:
         logging.error(f"Error downloading data for {symbol}/{interval} {year}-{month:02d}: {e}")
         print(f"       ❌ Error downloading: {str(e)}")
+        return None
+
+def download_daily_klines(symbol, interval, year, month):
+    """
+    Download daily kline files for a specific month when monthly file is not available.
+    
+    Args:
+        symbol: Trading pair symbol (e.g., 'BTCUSDT')
+        interval: Time interval (e.g., '1h', '4h', '1d')
+        year: Year to download
+        month: Month to download
+        
+    Returns:
+        DataFrame with combined daily data or None if download fails
+    """
+    import calendar
+    import pandas as pd
+    
+    base_url = "https://data.binance.vision/data/spot/daily/klines"
+    
+    # Get number of days in the month
+    _, days_in_month = calendar.monthrange(year, month)
+    
+    # Initialize empty combined dataframe
+    combined_df = None
+    
+    # Track which files couldn't be processed
+    unprocessed_files = []
+    successful_days = 0
+    
+    print(f"       🔍 Attempting to download {days_in_month} daily files for {month:02d}/{year}")
+    logging.info(f"Downloading daily klines for {symbol}/{interval} {year}-{month:02d}")
+    
+    # Try to download each day's data
+    for day in range(1, days_in_month + 1):
+        # Skip future dates
+        current_date = datetime(year, month, day)
+        if current_date > datetime.now():
+            logging.info(f"Skipping future date: {current_date.strftime('%Y-%m-%d')}")
+            continue
+            
+        # Format day with leading zero
+        day_str = f"{day:02d}"
+        
+        # Construct the URL for daily file
+        date_str = f"{year}-{month:02d}-{day_str}"
+        filename = f"{symbol.upper()}-{interval}-{date_str}.zip"
+        url = f"{base_url}/{symbol.upper()}/{interval}/{filename}"
+        
+        try:
+            # Try to download the file
+            response = requests.get(url, timeout=15)
+            
+            if response.status_code == 200:
+                # File downloaded successfully
+                logging.info(f"Downloaded daily file for {date_str}")
+                
+                # Process the ZIP file
+                with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
+                    csv_file = zip_file.namelist()[0]
+                    
+                    with zip_file.open(csv_file) as f:
+                        # Use the same column names as in monthly downloads
+                        df = pd.read_csv(f, header=None, names=[
+                            'open_time', 'open', 'high', 'low', 'close', 'volume',
+                            'close_time', 'quote_volume', 'count', 'taker_buy_volume',
+                            'taker_buy_quote_volume', 'ignore'
+                        ])
+                        
+                        # Convert numeric columns
+                        for col in ['open', 'high', 'low', 'close', 'volume']:
+                            df[col] = pd.to_numeric(df[col])
+                        
+                        # Convert timestamps with error handling
+                        try:
+                            # Safely convert to numeric first
+                            df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                            
+                            # Convert to datetime with error handling
+                            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                            
+                            # Drop rows with invalid timestamps
+                            df = df.dropna(subset=['timestamp'])
+                            
+                            if df.empty:
+                                logging.warning(f"All timestamps were invalid for daily file {date_str}")
+                                unprocessed_files.append(date_str)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Error converting timestamps for {date_str}: {e}")
+                            unprocessed_files.append(date_str)
+                            continue
+                        
+                        # Keep only essential columns
+                        df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+                        
+                        # Add to combined dataframe
+                        if combined_df is None:
+                            combined_df = df
+                        else:
+                            combined_df = pd.concat([combined_df, df])
+                            
+                        successful_days += 1
+            else:
+                logging.info(f"Daily file not available for {date_str} (status: {response.status_code})")
+                unprocessed_files.append(date_str)
+                
+        except Exception as e:
+            logging.error(f"Error downloading daily file for {date_str}: {e}")
+            unprocessed_files.append(date_str)
+    
+    # Log summary of daily files processing
+    if unprocessed_files:
+        with open("unprocessed_files.log", "a") as f:
+            for date_str in unprocessed_files:
+                f.write(f"{symbol}/{interval}/{year}-{month:02d}-{date_str}: Could not process\n")
+        
+        logging.warning(f"Could not process {len(unprocessed_files)} daily files for {symbol}/{interval} {year}-{month:02d}")
+        print(f"       ⚠ {len(unprocessed_files)} daily files could not be processed (see unprocessed_files.log)")
+    
+    if combined_df is not None and not combined_df.empty:
+        # Sort by timestamp and remove duplicates
+        combined_df = combined_df.sort_values('timestamp').drop_duplicates(subset=['timestamp'])
+        print(f"       ✅ Successfully downloaded {successful_days}/{days_in_month} daily files with {len(combined_df)} candles")
+        return combined_df
+    else:
+        logging.warning(f"No data available from daily files for {symbol}/{interval} {year}-{month:02d}")
+        print(f"       ❌ No data available from daily files")
         return None
 
 def calculate_and_save_indicators(df, symbol, interval):
