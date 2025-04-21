@@ -68,7 +68,25 @@ def download_klines(symbol, interval, start_date=None):
         # Parse the output into DataFrame
         data = json.loads(result.stdout)
         df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        
+        # Convert timestamps to datetime with error handling
+        try:
+            # First safely convert to integers to handle any extreme values
+            df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+            
+            # Use errors='coerce' to handle out-of-bounds values by converting them to NaT
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', errors='coerce')
+            
+            # Drop any rows with invalid timestamps
+            df = df.dropna(subset=['timestamp'])
+            
+            if df.empty:
+                logging.warning("All timestamps were invalid in the downloaded data")
+                return None
+        except Exception as e:
+            logging.error(f"Error converting timestamps: {e}")
+            return None
+            
         return df
 
     except Exception as e:
@@ -179,8 +197,23 @@ def download_monthly_klines(symbol, interval, year, month):
                     df['close'] = pd.to_numeric(df['close'])
                     df['volume'] = pd.to_numeric(df['volume'])
                     
-                    # Convert timestamps to datetime
-                    df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+                    # Convert timestamps to datetime with error handling
+                    try:
+                        # First safely convert to integers to handle any extreme values
+                        df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                        
+                        # Use errors='coerce' to handle out-of-bounds values by converting them to NaT
+                        df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                        
+                        # Drop any rows with invalid timestamps
+                        df = df.dropna(subset=['timestamp'])
+                        
+                        if df.empty:
+                            logging.warning(f"All timestamps were invalid for {symbol}/{interval} {year}-{month:02d}")
+                            return None
+                    except Exception as e:
+                        logging.error(f"Error converting timestamps: {e}")
+                        return None
                     
                     # Keep only essential columns
                     df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]

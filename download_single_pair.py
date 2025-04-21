@@ -62,10 +62,26 @@ def process_kline_data(data_content):
                 
                 df = pd.read_csv(csv_file, header=None, names=columns)
                 
-                # Convert timestamp columns
-                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-                df['timestamp'] = df['open_time']  # More intuitive name
+                # Convert timestamp columns with error handling
+                try:
+                    # First safely convert to integers to handle any extreme values
+                    df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                    df['close_time'] = pd.to_numeric(df['close_time'], errors='coerce')
+                    
+                    # Use errors='coerce' to handle out-of-bounds values by converting them to NaT
+                    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                    df['close_time'] = pd.to_datetime(df['close_time'], unit='ms', errors='coerce')
+                    df['timestamp'] = df['open_time']  # More intuitive name
+                    
+                    # Drop any rows with invalid timestamps
+                    df = df.dropna(subset=['timestamp'])
+                    
+                    if df.empty:
+                        logging.warning("All timestamps were invalid in the downloaded data")
+                        return None
+                except Exception as e:
+                    logging.error(f"Error converting timestamps: {e}")
+                    return None
                 
                 # Convert string values to float
                 for col in ['open', 'high', 'low', 'close', 'volume']:
