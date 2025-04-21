@@ -438,11 +438,8 @@ def get_historical_data(symbol, interval, start_time, end_time):
         if isinstance(end_time, str):
             end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
         
-        df = pd.read_sql_query(
-            query, 
-            conn, 
-            params=(symbol, interval, start_time, end_time)
-        )
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(symbol, interval, start_time, end_time))
         
         return df
     except psycopg2.Error as e:
@@ -465,11 +462,10 @@ def get_existing_data_months(symbol, interval, start_year, start_month, end_year
         return []
     
     try:
-        cursor = conn.cursor()
         query = """
         SELECT DISTINCT 
-            EXTRACT(YEAR FROM timestamp)::integer as year,
-            EXTRACT(MONTH FROM timestamp)::integer as month
+            EXTRACT(YEAR FROM timestamp)::INTEGER as year,
+            EXTRACT(MONTH FROM timestamp)::INTEGER as month
         FROM historical_data
         WHERE symbol = %s
         AND interval = %s
@@ -477,23 +473,23 @@ def get_existing_data_months(symbol, interval, start_year, start_month, end_year
         ORDER BY year, month
         """
         
-        # Create start and end dates from year and month
+        # Create date range
         start_date = datetime(start_year, start_month, 1)
-        # Last day of end month
         if end_month == 12:
             end_date = datetime(end_year + 1, 1, 1) - timedelta(days=1)
         else:
             end_date = datetime(end_year, end_month + 1, 1) - timedelta(days=1)
         
-        cursor.execute(query, (symbol, interval, start_date, end_date))
-        results = cursor.fetchall()
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(symbol, interval, start_date, end_date))
         
-        # Convert results to list of (year, month) tuples
-        existing_months = [(int(year), int(month)) for year, month in results]
+        if df.empty:
+            return []
         
-        return existing_months
-    except Exception as e:
-        print(f"Error checking existing data months: {e}")
+        # Convert to list of tuples
+        return list(zip(df['year'].astype(int).tolist(), df['month'].astype(int).tolist()))
+    except psycopg2.Error as e:
+        print(f"Error getting existing data months: {e}")
         return []
     finally:
         if conn:
@@ -509,38 +505,72 @@ def has_complete_month_data(symbol, interval, year, month):
         return False
     
     try:
-        cursor = conn.cursor()
         query = """
-        SELECT COUNT(*) 
+        SELECT COUNT(*) as record_count
         FROM historical_data
         WHERE symbol = %s
         AND interval = %s
-        AND EXTRACT(YEAR FROM timestamp)::integer = %s
-        AND EXTRACT(MONTH FROM timestamp)::integer = %s
+        AND EXTRACT(YEAR FROM timestamp) = %s
+        AND EXTRACT(MONTH FROM timestamp) = %s
         """
         
-        cursor.execute(query, (symbol, interval, year, month))
-        count = cursor.fetchone()[0]
+        cur = conn.cursor()
+        cur.execute(query, (symbol, interval, year, month))
+        record_count = cur.fetchone()[0]
+        cur.close()
         
-        # Estimate expected candles for the month based on interval
-        from calendar import monthrange
-        days_in_month = monthrange(year, month)[1]
+        # Calculate expected records
+        days_in_month = 31  # Approximate for most months
+        if month == 2:
+            # February
+            if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+                days_in_month = 29  # Leap year
+            else:
+                days_in_month = 28
+        elif month in [4, 6, 9, 11]:
+            # April, June, September, November
+            days_in_month = 30
         
-        expected_count = 0
-        if interval == '1h':
-            expected_count = days_in_month * 24
+        # Expected records based on interval
+        if interval == '1m':
+            expected = days_in_month * 24 * 60
+        elif interval == '3m':
+            expected = days_in_month * 24 * 20
+        elif interval == '5m':
+            expected = days_in_month * 24 * 12
+        elif interval == '15m':
+            expected = days_in_month * 24 * 4
+        elif interval == '30m':
+            expected = days_in_month * 24 * 2
+        elif interval == '1h':
+            expected = days_in_month * 24
+        elif interval == '2h':
+            expected = days_in_month * 12
         elif interval == '4h':
-            expected_count = days_in_month * 6
+            expected = days_in_month * 6
+        elif interval == '6h':
+            expected = days_in_month * 4
+        elif interval == '8h':
+            expected = days_in_month * 3
+        elif interval == '12h':
+            expected = days_in_month * 2
         elif interval == '1d':
-            expected_count = days_in_month
+            expected = days_in_month
+        elif interval == '3d':
+            expected = days_in_month // 3
+        elif interval == '1w':
+            expected = days_in_month // 7
+        else:
+            expected = 0
         
-        # Consider complete if at least 90% of expected candles are present
-        # (allows for some missing candles due to exchange maintenance, etc.)
-        completeness_threshold = 0.90
+        # Check if we have at least 90% of expected records
+        # This accounts for partial months, market closures, etc.
+        threshold = expected * 0.9
         
-        return count >= expected_count * completeness_threshold
-    except Exception as e:
-        print(f"Error checking month data completeness: {e}")
+        print(f"Month {year}-{month} for {symbol}/{interval}: {record_count} records (expected ~{expected})")
+        return record_count >= threshold
+    except psycopg2.Error as e:
+        print(f"Error checking month completeness: {e}")
         return False
     finally:
         if conn:
@@ -558,11 +588,12 @@ def save_indicators(df, symbol, interval):
     try:
         cur = conn.cursor()
         
-        # Insert or update indicators
+        # Insert data row by row
         insert_query = """
         INSERT INTO technical_indicators 
-        (symbol, interval, timestamp, rsi, macd, macd_signal, macd_histogram, 
-         bb_upper, bb_middle, bb_lower, bb_percent, ema_9, ema_21, ema_50, ema_200,
+        (symbol, interval, timestamp, rsi, macd, macd_signal, macd_histogram,
+         bb_upper, bb_middle, bb_lower, bb_percent, 
+         ema_9, ema_21, ema_50, ema_200, 
          buy_signal, sell_signal)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (symbol, interval, timestamp) 
@@ -590,20 +621,20 @@ def save_indicators(df, symbol, interval):
                 symbol,
                 interval,
                 row['timestamp'],
-                float(row.get('rsi', None)) if 'rsi' in row and pd.notna(row['rsi']) else None,
-                float(row.get('macd', None)) if 'macd' in row and pd.notna(row['macd']) else None,
-                float(row.get('macd_signal', None)) if 'macd_signal' in row and pd.notna(row['macd_signal']) else None,
-                float(row.get('macd_histogram', None)) if 'macd_histogram' in row and pd.notna(row['macd_histogram']) else None,
-                float(row.get('bb_upper', None)) if 'bb_upper' in row and pd.notna(row['bb_upper']) else None,
-                float(row.get('bb_middle', None)) if 'bb_middle' in row and pd.notna(row['bb_middle']) else None,
-                float(row.get('bb_lower', None)) if 'bb_lower' in row and pd.notna(row['bb_lower']) else None,
-                float(row.get('bb_percent', None)) if 'bb_percent' in row and pd.notna(row['bb_percent']) else None,
-                float(row.get('ema_9', None)) if 'ema_9' in row and pd.notna(row['ema_9']) else None,
-                float(row.get('ema_21', None)) if 'ema_21' in row and pd.notna(row['ema_21']) else None,
-                float(row.get('ema_50', None)) if 'ema_50' in row and pd.notna(row['ema_50']) else None,
-                float(row.get('ema_200', None)) if 'ema_200' in row and pd.notna(row['ema_200']) else None,
-                bool(row.get('buy_signal', False)),
-                bool(row.get('sell_signal', False))
+                float(row['RSI']) if 'RSI' in row and not pd.isna(row['RSI']) else None,
+                float(row['MACD']) if 'MACD' in row and not pd.isna(row['MACD']) else None,
+                float(row['MACD_signal']) if 'MACD_signal' in row and not pd.isna(row['MACD_signal']) else None,
+                float(row['MACD_histogram']) if 'MACD_histogram' in row and not pd.isna(row['MACD_histogram']) else None,
+                float(row['BB_upper']) if 'BB_upper' in row and not pd.isna(row['BB_upper']) else None,
+                float(row['BB_middle']) if 'BB_middle' in row and not pd.isna(row['BB_middle']) else None,
+                float(row['BB_lower']) if 'BB_lower' in row and not pd.isna(row['BB_lower']) else None,
+                float(row['BB_percent']) if 'BB_percent' in row and not pd.isna(row['BB_percent']) else None,
+                float(row['EMA_9']) if 'EMA_9' in row and not pd.isna(row['EMA_9']) else None,
+                float(row['EMA_21']) if 'EMA_21' in row and not pd.isna(row['EMA_21']) else None,
+                float(row['EMA_50']) if 'EMA_50' in row and not pd.isna(row['EMA_50']) else None,
+                float(row['EMA_200']) if 'EMA_200' in row and not pd.isna(row['EMA_200']) else None,
+                bool(row['buy_signal']) if 'buy_signal' in row else False,
+                bool(row['sell_signal']) if 'sell_signal' in row else False
             ))
         
         cur.executemany(insert_query, data_tuples)
@@ -625,9 +656,9 @@ def get_indicators(symbol, interval, start_time, end_time):
     
     try:
         query = """
-        SELECT timestamp, rsi, macd, macd_signal, macd_histogram, 
-               bb_upper, bb_middle, bb_lower, bb_percent, 
-               ema_9, ema_21, ema_50, ema_200,
+        SELECT timestamp, rsi, macd, macd_signal, macd_histogram,
+               bb_upper, bb_middle, bb_lower, bb_percent,
+               ema_9, ema_21, ema_50, ema_200, 
                buy_signal, sell_signal
         FROM technical_indicators
         WHERE symbol = %s
@@ -642,11 +673,8 @@ def get_indicators(symbol, interval, start_time, end_time):
         if isinstance(end_time, str):
             end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
         
-        df = pd.read_sql_query(
-            query, 
-            conn, 
-            params=(symbol, interval, start_time, end_time)
-        )
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(symbol, interval, start_time, end_time))
         
         return df
     except psycopg2.Error as e:
@@ -665,61 +693,83 @@ def save_trade(trade_data):
     try:
         cur = conn.cursor()
         
-        # Convert strategy_params to JSON string if present
-        strategy_params = trade_data.get('strategy_params', {})
-        import json
-        strategy_params_json = json.dumps(strategy_params)
-        
-        if trade_data.get('type') == 'BUY':
-            # Insert a new open trade
-            insert_query = """
+        # Create query based on trade type (buy or sell)
+        if trade_data['type'] == 'BUY':
+            query = """
             INSERT INTO trades 
             (symbol, interval, type, entry_timestamp, entry_price, quantity, trade_status, strategy_params)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             RETURNING id
             """
-            
-            cur.execute(insert_query, (
-                trade_data.get('symbol'),
-                trade_data.get('interval'),
-                trade_data.get('type'),
-                trade_data.get('timestamp'),
-                trade_data.get('price'),
-                trade_data.get('coins'),
+            params = (
+                trade_data['symbol'],
+                trade_data['interval'],
+                trade_data['type'],
+                trade_data['timestamp'],
+                trade_data['price'],
+                trade_data['quantity'],
                 'OPEN',
-                strategy_params_json
-            ))
+                trade_data.get('strategy_params', '{}')
+            )
+        else:  # SELL
+            # First, get the open trade
+            open_trade_query = """
+            SELECT id, entry_price, entry_timestamp
+            FROM trades
+            WHERE symbol = %s
+            AND interval = %s
+            AND trade_status = 'OPEN'
+            ORDER BY entry_timestamp DESC
+            LIMIT 1
+            """
             
-            # Get the ID of the inserted trade
-            trade_id = cur.fetchone()[0]
-            conn.commit()
-            return trade_id
+            cur.execute(open_trade_query, (trade_data['symbol'], trade_data['interval']))
+            open_trade = cur.fetchone()
             
-        elif trade_data.get('type') in ['SELL', 'SELL (EOT)']:
-            # Update an existing trade
-            update_query = """
-            UPDATE trades 
+            if not open_trade:
+                print(f"No open trade found for {trade_data['symbol']}/{trade_data['interval']}")
+                return False
+            
+            trade_id, entry_price, entry_timestamp = open_trade
+            
+            # Calculate profit
+            exit_price = trade_data['price']
+            profit = (exit_price - entry_price) * trade_data['quantity']
+            profit_pct = ((exit_price / entry_price) - 1) * 100
+            
+            # Calculate holding time in hours
+            exit_timestamp = trade_data['timestamp']
+            holding_time = (exit_timestamp - entry_timestamp).total_seconds() / 3600
+            
+            # Update the trade
+            query = """
+            UPDATE trades
             SET exit_timestamp = %s,
                 exit_price = %s,
                 profit = %s,
                 profit_pct = %s,
                 holding_time_hours = %s,
-                trade_status = 'CLOSED'
+                trade_status = 'CLOSED',
+                type = %s
             WHERE id = %s
+            RETURNING id
             """
             
-            cur.execute(update_query, (
-                trade_data.get('timestamp'),
-                trade_data.get('price'),
-                trade_data.get('profit'),
-                trade_data.get('profit_pct'),
-                trade_data.get('holding_time'),
-                trade_data.get('trade_id')
-            ))
-            
-            conn.commit()
-            return True
-            
+            params = (
+                exit_timestamp,
+                exit_price,
+                profit,
+                profit_pct,
+                holding_time,
+                trade_data['type'],  # This could be 'SELL' or 'SELL (EOT)'
+                trade_id
+            )
+        
+        cur.execute(query, params)
+        trade_id = cur.fetchone()[0]
+        conn.commit()
+        
+        return trade_id
     except psycopg2.Error as e:
         print(f"Error saving trade: {e}")
         return False
@@ -735,7 +785,7 @@ def get_open_trade(symbol, interval):
     
     try:
         query = """
-        SELECT id, symbol, interval, type, entry_timestamp, entry_price, quantity, strategy_params
+        SELECT id, symbol, interval, type, entry_timestamp, entry_price, quantity
         FROM trades
         WHERE symbol = %s
         AND interval = %s
@@ -744,25 +794,17 @@ def get_open_trade(symbol, interval):
         LIMIT 1
         """
         
-        cur = conn.cursor()
-        cur.execute(query, (symbol, interval))
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(symbol, interval))
         
-        result = cur.fetchone()
-        if result:
-            # Convert to dictionary
-            columns = ['id', 'symbol', 'interval', 'type', 'entry_timestamp', 'entry_price', 'quantity', 'strategy_params']
-            trade = dict(zip(columns, result))
-            
-            # Parse JSON
-            import json
-            if trade['strategy_params']:
-                trade['strategy_params'] = json.loads(trade['strategy_params'])
-                
-            return trade
+        if df.empty:
+            return None
         
-        return None
+        # Convert to dictionary
+        trade = df.iloc[0].to_dict()
+        return trade
     except psycopg2.Error as e:
-        print(f"Error fetching open trade: {e}")
+        print(f"Error getting open trade: {e}")
         return None
     finally:
         if conn:
@@ -777,31 +819,22 @@ def add_portfolio_item(symbol, quantity, purchase_price, purchase_date, notes=No
     try:
         cur = conn.cursor()
         
-        # Insert a new portfolio item
-        insert_query = """
+        # Convert purchase_date to datetime if it's a string
+        if isinstance(purchase_date, str):
+            purchase_date = datetime.fromisoformat(purchase_date.replace('Z', '+00:00'))
+        
+        query = """
         INSERT INTO portfolio 
         (symbol, quantity, purchase_price, purchase_date, notes)
         VALUES (%s, %s, %s, %s, %s)
         RETURNING id
         """
         
-        # Convert purchase_date to datetime if it's a string
-        if isinstance(purchase_date, str):
-            purchase_date = datetime.fromisoformat(purchase_date.replace('Z', '+00:00'))
-            
-        cur.execute(insert_query, (
-            symbol,
-            quantity,
-            purchase_price,
-            purchase_date,
-            notes
-        ))
-        
-        # Get the ID of the inserted item
+        cur.execute(query, (symbol, quantity, purchase_price, purchase_date, notes))
         item_id = cur.fetchone()[0]
         conn.commit()
+        
         return item_id
-            
     except psycopg2.Error as e:
         print(f"Error adding portfolio item: {e}")
         return False
@@ -818,49 +851,46 @@ def update_portfolio_item(item_id, quantity=None, purchase_price=None, purchase_
     try:
         cur = conn.cursor()
         
-        # First, get the current item to preserve any values not being updated
-        cur.execute("SELECT * FROM portfolio WHERE id = %s", (item_id,))
-        current_item = cur.fetchone()
-        
-        if not current_item:
-            print(f"Portfolio item with ID {item_id} not found")
-            return False
-            
-        # Build update query based on which fields are provided
-        update_parts = []
+        # Build the update query dynamically based on what's provided
+        update_fields = []
         params = []
         
         if quantity is not None:
-            update_parts.append("quantity = %s")
+            update_fields.append("quantity = %s")
             params.append(quantity)
-            
+        
         if purchase_price is not None:
-            update_parts.append("purchase_price = %s")
+            update_fields.append("purchase_price = %s")
             params.append(purchase_price)
-            
+        
         if purchase_date is not None:
-            # Convert purchase_date to datetime if it's a string
             if isinstance(purchase_date, str):
                 purchase_date = datetime.fromisoformat(purchase_date.replace('Z', '+00:00'))
-            update_parts.append("purchase_date = %s")
+            update_fields.append("purchase_date = %s")
             params.append(purchase_date)
-            
+        
         if notes is not None:
-            update_parts.append("notes = %s")
+            update_fields.append("notes = %s")
             params.append(notes)
-            
-        if not update_parts:
-            # Nothing to update
-            return True
-            
-        # Complete the query and add the ID parameter
-        update_query = f"UPDATE portfolio SET {', '.join(update_parts)} WHERE id = %s"
+        
+        if not update_fields:
+            return False  # Nothing to update
+        
+        # Add the item_id parameter
         params.append(item_id)
         
-        cur.execute(update_query, params)
+        query = f"""
+        UPDATE portfolio 
+        SET {', '.join(update_fields)}
+        WHERE id = %s
+        RETURNING id
+        """
+        
+        cur.execute(query, params)
+        updated_id = cur.fetchone()
         conn.commit()
-        return True
-            
+        
+        return updated_id is not None
     except psycopg2.Error as e:
         print(f"Error updating portfolio item: {e}")
         return False
@@ -876,9 +906,18 @@ def delete_portfolio_item(item_id):
     
     try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM portfolio WHERE id = %s", (item_id,))
+        
+        query = """
+        DELETE FROM portfolio
+        WHERE id = %s
+        RETURNING id
+        """
+        
+        cur.execute(query, (item_id,))
+        deleted_id = cur.fetchone()
         conn.commit()
-        return True
+        
+        return deleted_id is not None
     except psycopg2.Error as e:
         print(f"Error deleting portfolio item: {e}")
         return False
@@ -890,7 +929,7 @@ def get_portfolio():
     """Get all portfolio items"""
     conn = get_db_connection()
     if not conn:
-        return pd.DataFrame(columns=['id', 'symbol', 'quantity', 'purchase_price', 'purchase_date', 'notes', 'created_at'])
+        return pd.DataFrame()
     
     try:
         query = """
@@ -899,7 +938,9 @@ def get_portfolio():
         ORDER BY symbol, purchase_date
         """
         
-        df = pd.read_sql_query(query, conn)
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn)
+        
         if df.empty:
             # Return empty DataFrame with correct columns
             return pd.DataFrame(columns=['id', 'symbol', 'quantity', 'purchase_price', 'purchase_date', 'notes', 'created_at'])
@@ -920,8 +961,7 @@ def save_benchmark_data(name, symbol, timestamp, value):
     try:
         cur = conn.cursor()
         
-        # Insert or update benchmark data point
-        insert_query = """
+        query = """
         INSERT INTO benchmarks 
         (name, symbol, timestamp, value)
         VALUES (%s, %s, %s, %s)
@@ -929,22 +969,14 @@ def save_benchmark_data(name, symbol, timestamp, value):
         DO UPDATE SET
             value = EXCLUDED.value,
             created_at = CURRENT_TIMESTAMP
+        RETURNING id
         """
         
-        # Convert timestamp to datetime if it's a string
-        if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            
-        cur.execute(insert_query, (
-            name,
-            symbol,
-            timestamp,
-            value
-        ))
-        
+        cur.execute(query, (name, symbol, timestamp, value))
+        benchmark_id = cur.fetchone()[0]
         conn.commit()
-        return True
-            
+        
+        return benchmark_id
     except psycopg2.Error as e:
         print(f"Error saving benchmark data: {e}")
         return False
@@ -960,7 +992,7 @@ def get_benchmark_data(name, start_time, end_time):
     
     try:
         query = """
-        SELECT timestamp, value
+        SELECT name, symbol, timestamp, value
         FROM benchmarks
         WHERE name = %s
         AND timestamp BETWEEN %s AND %s
@@ -973,11 +1005,8 @@ def get_benchmark_data(name, start_time, end_time):
         if isinstance(end_time, str):
             end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
         
-        df = pd.read_sql_query(
-            query, 
-            conn, 
-            params=(name, start_time, end_time)
-        )
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(name, start_time, end_time))
         
         return df
     except psycopg2.Error as e:
@@ -996,8 +1025,7 @@ def save_sentiment_data(symbol, source, timestamp, sentiment_score, volume):
     try:
         cur = conn.cursor()
         
-        # Insert or update sentiment data
-        insert_query = """
+        query = """
         INSERT INTO sentiment_data 
         (symbol, source, timestamp, sentiment_score, volume)
         VALUES (%s, %s, %s, %s, %s)
@@ -1006,22 +1034,14 @@ def save_sentiment_data(symbol, source, timestamp, sentiment_score, volume):
             sentiment_score = EXCLUDED.sentiment_score,
             volume = EXCLUDED.volume,
             created_at = CURRENT_TIMESTAMP
+        RETURNING id
         """
         
-        # Convert timestamp to datetime if it's a string
-        if isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            
-        cur.execute(insert_query, (
-            symbol,
-            source,
-            timestamp,
-            sentiment_score,
-            volume
-        ))
-        
+        cur.execute(query, (symbol, source, timestamp, sentiment_score, volume))
+        sentiment_id = cur.fetchone()[0]
         conn.commit()
-        return True
+        
+        return sentiment_id
     except psycopg2.Error as e:
         print(f"Error saving sentiment data: {e}")
         return False
@@ -1036,7 +1056,7 @@ def get_sentiment_data(symbol, sources=None, start_time=None, end_time=None):
         return pd.DataFrame()
     
     try:
-        # Build query based on parameters
+        # Base query
         query = """
         SELECT symbol, source, timestamp, sentiment_score, volume
         FROM sentiment_data
@@ -1047,30 +1067,30 @@ def get_sentiment_data(symbol, sources=None, start_time=None, end_time=None):
         
         # Add source filter if specified
         if sources:
-            source_placeholders = ', '.join(['%s'] * len(sources))
-            query += f" AND source IN ({source_placeholders})"
+            if isinstance(sources, str):
+                sources = [sources]
+            placeholders = ', '.join(['%s'] * len(sources))
+            query += f" AND source IN ({placeholders})"
             params.extend(sources)
         
-        # Add time filters if specified
+        # Add time range if specified
         if start_time:
-            # Convert to datetime if it's a string
             if isinstance(start_time, str):
                 start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
             query += " AND timestamp >= %s"
             params.append(start_time)
-            
+        
         if end_time:
-            # Convert to datetime if it's a string
             if isinstance(end_time, str):
                 end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
             query += " AND timestamp <= %s"
             params.append(end_time)
         
-        # Order by timestamp
+        # Add order by
         query += " ORDER BY timestamp ASC"
         
-        # Execute query
-        df = pd.read_sql_query(query, conn, params=params)
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=tuple(params))
         
         return df
     except psycopg2.Error as e:
@@ -1084,14 +1104,15 @@ def get_profitable_trades(symbol, interval, min_profit_pct=0, limit=50):
     """Get the most profitable closed trades"""
     conn = get_db_connection()
     if not conn:
-        return []
+        return pd.DataFrame()
     
     try:
         query = """
-        SELECT id, symbol, interval, type, 
-               entry_timestamp, exit_timestamp, 
-               entry_price, exit_price, 
-               quantity, profit, profit_pct, holding_time_hours, strategy_params
+        SELECT 
+            id, symbol, interval, type, 
+            entry_timestamp, exit_timestamp, 
+            entry_price, exit_price, quantity,
+            profit, profit_pct, holding_time_hours
         FROM trades
         WHERE symbol = %s
         AND interval = %s
@@ -1101,33 +1122,13 @@ def get_profitable_trades(symbol, interval, min_profit_pct=0, limit=50):
         LIMIT %s
         """
         
-        cur = conn.cursor()
-        cur.execute(query, (symbol, interval, min_profit_pct, limit))
+        # Use custom function instead of pandas read_sql_query to avoid SQLAlchemy dependency
+        df = execute_sql_to_df(query, conn, params=(symbol, interval, min_profit_pct, limit))
         
-        rows = cur.fetchall()
-        trades = []
-        
-        if rows:
-            # Convert to dictionaries
-            columns = ['id', 'symbol', 'interval', 'type', 
-                     'entry_timestamp', 'exit_timestamp', 
-                     'entry_price', 'exit_price', 
-                     'quantity', 'profit', 'profit_pct', 'holding_time_hours', 'strategy_params']
-            
-            import json
-            for row in rows:
-                trade = dict(zip(columns, row))
-                
-                # Parse JSON
-                if trade['strategy_params']:
-                    trade['strategy_params'] = json.loads(trade['strategy_params'])
-                    
-                trades.append(trade)
-        
-        return trades
+        return df
     except psycopg2.Error as e:
         print(f"Error fetching profitable trades: {e}")
-        return []
+        return pd.DataFrame()
     finally:
         if conn:
             conn.close()
