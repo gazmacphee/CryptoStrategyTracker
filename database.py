@@ -8,6 +8,34 @@ load_dotenv()
 from datetime import datetime, timedelta
 from psycopg2 import sql
 
+# Helper function to replace pandas read_sql_query to avoid SQLAlchemy dependency issues
+def execute_sql_to_df(query, conn, params=None):
+    """
+    Execute SQL query and return results as a pandas DataFrame without using SQLAlchemy
+    
+    Args:
+        query: SQL query string
+        conn: psycopg2 connection object
+        params: Parameters for the query (optional)
+        
+    Returns:
+        pandas DataFrame with query results
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        
+        # Fetch results and column names
+        results = cur.fetchall()
+        column_names = [desc[0] for desc in cur.description]
+        cur.close()
+        
+        # Create pandas DataFrame from the results
+        return pd.DataFrame(results, columns=column_names)
+    except Exception as e:
+        print(f"Error executing SQL: {e}")
+        return pd.DataFrame()
+
 # Database configuration - get from environment variables with defaults
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 print(f"Original DATABASE_URL from environment: {DATABASE_URL}")
