@@ -1,137 +1,157 @@
 """
 Dependency Injection Container
 
-This module provides a centralized dependency container to manage
-application dependencies and facilitate testing through easy dependency mocking.
+This module provides a container for managing dependencies and services.
+The DI container helps manage component lifecycles and improves testability.
 """
 
-import psycopg2
 import logging
-from typing import Dict, Any, Callable
+import psycopg2
+import os
+from typing import Dict, Any, Optional, Callable
 
 from src.config import settings
 
 
 class Container:
     """
-    Container for managing application dependencies
+    Dependency Injection Container
     
-    Implements a simple dependency injection container that manages
-    service lifecycle and dependency resolution.
+    Manages service instantiation and lifetime, centralizing dependency management.
     """
     
     def __init__(self):
-        """Initialize the container with empty registries"""
-        self._services = {}
-        self._factories = {}
+        """Initialize the container"""
         self._instances = {}
-        self._initializing = set()
+        self._factories = {}
     
-    def register_service(self, name: str, factory: Callable) -> None:
+    def register_instance(self, key: str, instance: Any) -> None:
         """
-        Register a service factory
+        Register an instance
         
         Args:
-            name: Service name/identifier
-            factory: Factory function that creates the service
+            key: The name to register the instance under
+            instance: The instance to register
         """
-        self._factories[name] = factory
+        self._instances[key] = instance
     
-    def register_instance(self, name: str, instance: Any) -> None:
+    def register_factory(self, key: str, factory: Callable[['Container'], Any]) -> None:
         """
-        Register a pre-instantiated object
+        Register a factory function
         
         Args:
-            name: Service name/identifier
-            instance: Instantiated object
+            key: The name to register the factory under
+            factory: The factory function that creates the instance
         """
-        self._instances[name] = instance
+        self._factories[key] = factory
     
-    def get(self, name: str) -> Any:
+    def register_service(self, key: str, factory: Callable[['Container'], Any]) -> None:
         """
-        Get a service or instance
-        
-        Instantiates services on-demand and caches them for future use.
+        Register a service factory and create the instance
         
         Args:
-            name: Service name/identifier
+            key: The name to register the service under
+            factory: The factory function that creates the service
+        """
+        instance = factory(self)
+        self.register_instance(key, instance)
+    
+    def get(self, key: str) -> Any:
+        """
+        Get an instance by key
+        
+        Args:
+            key: The key to look up
             
         Returns:
-            Instantiated service or instance
+            The instance associated with the key
         
         Raises:
-            ValueError: If service isn't registered or a circular dependency is detected
+            KeyError: If the key is not registered
         """
-        # Check if already instantiated
-        if name in self._instances:
-            return self._instances[name]
+        # Check if we already have an instance
+        if key in self._instances:
+            return self._instances[key]
         
-        # Check if factory exists
-        if name not in self._factories:
-            raise ValueError(f"Service {name} is not registered")
-        
-        # Check for circular dependencies
-        if name in self._initializing:
-            raise ValueError(f"Circular dependency detected for {name}")
-        
-        # Track that we're initializing this service
-        self._initializing.add(name)
-        
-        try:
-            # Instantiate the service
-            instance = self._factories[name](self)
-            self._instances[name] = instance
+        # Check if we have a factory
+        if key in self._factories:
+            # Create the instance
+            instance = self._factories[key](self)
+            
+            # Save for future use
+            self._instances[key] = instance
+            
             return instance
-        finally:
-            # Remove from initializing set
-            self._initializing.remove(name)
-    
-    def reset(self) -> None:
-        """
-        Reset all instances (useful for testing)
-        """
-        self._instances = {}
+        
+        raise KeyError(f"No instance or factory registered for key: {key}")
 
 
-# Create the container
+# Create a global container instance
 container = Container()
 
-# Register configuration
-container.register_instance("config", settings)
 
-# Register logging
-logger = logging.getLogger("crypto_app")
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(getattr(logging, settings.LOG_LEVEL))
-container.register_instance("logger", logger)
+def setup_logging() -> logging.Logger:
+    """
+    Set up the application logger
+    
+    Returns:
+        Configured logger instance
+    """
+    # Configure logging
+    logger = logging.getLogger("crypto_platform")
+    logger.setLevel(getattr(logging, settings.LOG_LEVEL))
+    
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(getattr(logging, settings.LOG_LEVEL))
+    
+    # Create formatter
+    formatter = logging.Formatter(settings.LOG_FORMAT)
+    console_handler.setFormatter(formatter)
+    
+    # Add handler to logger
+    logger.addHandler(console_handler)
+    
+    return logger
 
-# Database connection factory
-def db_connection_factory(container) -> psycopg2.extensions.connection:
-    """Create a database connection"""
-    config = container.get("config")
+
+def create_db_connection() -> psycopg2.extensions.connection:
+    """
+    Create a database connection
+    
+    Returns:
+        Active database connection
+    
+    Raises:
+        Exception: If the connection cannot be established
+    """
     logger = container.get("logger")
     
     try:
-        connection = psycopg2.connect(config.DATABASE_URL)
-        connection.autocommit = True
-        return connection
+        # Try to connect using the DATABASE_URL environment variable
+        if "DATABASE_URL" in os.environ:
+            logger.info(f"Connecting to database using DATABASE_URL: {os.environ['DATABASE_URL'].split('@')[1]}")
+            conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        else:
+            # Fall back to the settings value
+            logger.info("Connecting to database using settings.DATABASE_URL")
+            conn = psycopg2.connect(settings.DATABASE_URL)
+        
+        # Configure the connection
+        conn.autocommit = True
+        
+        logger.info("Successfully connected using DATABASE_URL")
+        return conn
+    
     except Exception as e:
-        logger.error(f"Database connection error: {e}")
+        logger.error(f"Error connecting to database: {e}")
         raise
 
-container.register_service("db_connection", db_connection_factory)
 
-# Add more service registrations here
-
-def initialize_container():
-    """
-    Initialize the application container with all dependencies
+def initialize_container() -> None:
+    """Initialize the dependency container with core services"""
+    # Register logger
+    container.register_instance("logger", setup_logging())
     
-    Registers all services needed for the application.
-    This function should be called during application startup.
-    """
-    # This function will be extended as we add more services
-    pass
+    # Register database connection
+    container.register_factory("db_connection", create_db_connection)
