@@ -203,7 +203,35 @@ def process_symbol_interval(symbol, interval, max_months=36):
                     total_candles += len(monthly_df)
                     logging.info(f"Processed {len(monthly_df)} candles for {symbol}/{interval} {year}-{month:02d}")
                 else:
-                    logging.warning(f"No data available for {symbol}/{interval} {year}-{month:02d}")
+                    # Try falling back to daily files
+                    logging.warning(f"No monthly data available for {symbol}/{interval} {year}-{month:02d}, trying daily files")
+                    print(f"    ⚠️ Monthly file unavailable - Trying daily files for {year}-{month:02d}...")
+                    
+                    # Use the daily files fallback
+                    try:
+                        from download_binance_data import download_daily_klines
+                        daily_df = download_daily_klines(symbol, interval, year, month)
+                        
+                        if daily_df is not None and not daily_df.empty:
+                            # Calculate indicators with proper lookback
+                            calculate_and_save_indicators(daily_df, symbol, interval)
+
+                            total_candles += len(daily_df)
+                            logging.info(f"Processed {len(daily_df)} daily candles for {symbol}/{interval} {year}-{month:02d}")
+                        else:
+                            # Log missing data
+                            logging.warning(f"No data available for {symbol}/{interval} {year}-{month:02d}")
+                            
+                            # Record in unprocessed files log
+                            with open("unprocessed_files.log", "a") as f:
+                                f.write(f"{symbol}/{interval}/{year}-{month:02d}: No data available (both monthly and daily files)\n")
+                    except Exception as daily_err:
+                        logging.error(f"Error processing daily files for {symbol}/{interval} {year}-{month:02d}: {daily_err}")
+                        print(f"    ❌ Error with daily files: {str(daily_err)}")
+                        
+                        # Record error in unprocessed files log
+                        with open("unprocessed_files.log", "a") as f:
+                            f.write(f"{symbol}/{interval}/{year}-{month:02d}: Error with daily files: {str(daily_err)}\n")
             except Exception as month_err:
                 logging.error(f"Error processing {symbol}/{interval} for {year}-{month:02d}: {month_err}")
                 print(f"  ❌ Error processing {year}-{month:02d}: {str(month_err)}")

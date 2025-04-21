@@ -298,7 +298,7 @@ def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
-    tab_options = ["Analysis", "Portfolio", "Sentiment", "News Digest", "Trend Visualizer", "Data Progress"]
+    tab_options = ["Analysis", "Portfolio", "Sentiment", "News Digest", "Trend Visualizer", "Data Progress", "Data Gaps"]
     selected_tab = st.sidebar.radio("Navigation", tab_options)
     
     # Initialize session state for backfill tracking
@@ -2251,6 +2251,147 @@ def main():
                 
         except Exception as e:
             st.error(f"An error occurred in the Trend Visualizer tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+    
+    # Data Gaps Tab
+    elif selected_tab == "Data Gaps":
+        try:
+            # Import necessary modules and functions for this tab
+            import pandas as pd
+            import os
+            
+            st.header("Data Gaps and Processing Issues")
+            
+            # Display information about any unprocessed files or data gaps
+            st.subheader("Unprocessed Files")
+            
+            unprocessed_file_path = "unprocessed_files.log"
+            
+            if os.path.exists(unprocessed_file_path) and os.path.getsize(unprocessed_file_path) > 0:
+                # Read the unprocessed files log
+                with open(unprocessed_file_path, "r") as f:
+                    unprocessed_files = f.readlines()
+                
+                # Count by symbol and interval
+                symbol_counts = {}
+                interval_counts = {}
+                total_count = len(unprocessed_files)
+                
+                for file_entry in unprocessed_files:
+                    parts = file_entry.strip().split('/')
+                    if len(parts) >= 2:
+                        symbol = parts[0]
+                        interval = parts[1]
+                        
+                        symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+                        interval_counts[interval] = interval_counts.get(interval, 0) + 1
+                
+                # Display summary metrics
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Unprocessed Files", total_count)
+                col2.metric("Affected Symbols", len(symbol_counts))
+                col3.metric("Affected Intervals", len(interval_counts))
+                
+                # Show breakdown by symbol and interval
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("By Symbol")
+                    symbol_df = pd.DataFrame({
+                        "Symbol": list(symbol_counts.keys()),
+                        "Count": list(symbol_counts.values())
+                    }).sort_values("Count", ascending=False)
+                    
+                    st.dataframe(symbol_df)
+                
+                with col2:
+                    st.subheader("By Interval")
+                    interval_df = pd.DataFrame({
+                        "Interval": list(interval_counts.keys()),
+                        "Count": list(interval_counts.values())
+                    }).sort_values("Count", ascending=False)
+                    
+                    st.dataframe(interval_df)
+                
+                # Show the detailed log
+                with st.expander("View Detailed Unprocessed Files Log"):
+                    for file_entry in unprocessed_files:
+                        st.text(file_entry.strip())
+                
+                # Offer to clear the log
+                if st.button("Clear Unprocessed Files Log"):
+                    try:
+                        with open(unprocessed_file_path, "w") as f:
+                            f.write("")  # Clear the file
+                        st.success("Unprocessed files log cleared successfully")
+                    except Exception as e:
+                        st.error(f"Error clearing log: {e}")
+            else:
+                st.success("No unprocessed files have been detected. All data files are being processed correctly.")
+            
+            # Gap Analysis Results
+            st.subheader("Gap Analysis")
+            
+            # Check if gap filler module is available and show gap analysis stats
+            try:
+                from gap_filler import get_gap_stats
+                gap_stats = get_gap_stats()
+                
+                if gap_stats and gap_stats.get("total_gaps", 0) > 0:
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total Gaps Detected", gap_stats.get("total_gaps", 0))
+                    col2.metric("Gaps Filled", gap_stats.get("filled_gaps", 0))
+                    col3.metric("Gaps Remaining", gap_stats.get("total_gaps", 0) - gap_stats.get("filled_gaps", 0))
+                    
+                    # Show details of remaining gaps
+                    if gap_stats.get("gap_details"):
+                        st.subheader("Gap Details")
+                        st.dataframe(gap_stats["gap_details"])
+                else:
+                    st.success("No time series gaps detected in the historical data.")
+                    
+            except (ImportError, Exception) as e:
+                st.warning(f"Gap analysis not available: {str(e)}")
+            
+            # Action buttons
+            st.subheader("Maintenance Actions")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Run Gap Filler"):
+                    try:
+                        st.info("Starting gap detection and filling process...")
+                        subprocess.Popen(["python", "run_gap_filler.py"], 
+                                        stdout=subprocess.PIPE, 
+                                        stderr=subprocess.PIPE)
+                        st.success("Gap filler process started.")
+                    except Exception as e:
+                        st.error(f"Error starting gap filler: {e}")
+            
+            with col2:
+                if st.button("Restart Data Collection"):
+                    try:
+                        # Kill any existing backfill processes
+                        subprocess.run(["pkill", "-f", "backfill_database.py"], 
+                                      stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                        subprocess.run(["pkill", "-f", "start_improved_backfill.py"], 
+                                      stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                        # Remove lock file
+                        if os.path.exists(".backfill_lock"):
+                            os.remove(".backfill_lock")
+                        time.sleep(1)  # Give it a second to clean up
+                        
+                        # Start a new backfill process
+                        subprocess.Popen(["python", "start_improved_backfill.py"], 
+                                        stdout=subprocess.PIPE, 
+                                        stderr=subprocess.PIPE)
+                        st.success("Data collection process restarted.")
+                    except Exception as e:
+                        st.error(f"Error restarting data collection: {e}")
+                        
+        except Exception as e:
+            st.error(f"Error in Data Gaps page: {e}")
             import traceback
             st.text(traceback.format_exc())
     
