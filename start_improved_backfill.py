@@ -33,6 +33,13 @@ from download_binance_data import SYMBOLS, INTERVALS, download_monthly_klines, c
 from binance_file_listing import get_date_range_for_symbol_interval
 from data_loader import create_backfill_lock, release_backfill_lock
 
+# Import gap filler module (will be safely ignored if not available)
+try:
+    from gap_filler import check_technical_indicators_completeness, run_gap_analysis
+    GAP_FILLER_AVAILABLE = True
+except ImportError:
+    GAP_FILLER_AVAILABLE = False
+
 # Lock file
 LOCK_FILE = ".backfill_lock"
 PROGRESS_FILE = "backfill_progress.json"
@@ -295,6 +302,46 @@ def run_improved_backfill(symbols=None, intervals=None, continuous=False):
         print(f"Total candles processed: {total_candles}")
         print(f"Total time: {total_time:.1f} seconds ({(total_time/60):.1f} minutes)")
         print("=" * 80 + "\n")
+        
+        # Run gap filler if available
+        if GAP_FILLER_AVAILABLE:
+            print("\n" + "=" * 80)
+            print("RUNNING GAP DETECTION AND FILLING")
+            print("=" * 80)
+            
+            try:
+                # First check for missing indicators
+                print("\nChecking for missing technical indicators...")
+                indicator_results = check_technical_indicators_completeness(
+                    symbols=symbols,
+                    intervals=intervals,
+                    lookback_days=90
+                )
+                
+                print(f"\nFound {indicator_results['total_missing']} missing indicators")
+                
+                # Only run gap analysis if we're not in continuous mode
+                if not continuous:
+                    # Then check for data gaps
+                    print("\nChecking for gaps in historical data...")
+                    gap_results = run_gap_analysis(
+                        symbols=symbols,
+                        intervals=intervals,
+                        lookback_days=90,
+                        max_gaps=10
+                    )
+                    
+                    print(f"\nFound {gap_results['total_gaps']} data gaps")
+                    print(f"Successfully filled {gap_results['filled_gaps']} gaps")
+                    print(f"Failed to fill {gap_results['failed_gaps']} gaps")
+                    
+                print("\n" + "=" * 80)
+                print("GAP FILLING COMPLETE")
+                print("=" * 80 + "\n")
+            except Exception as e:
+                logging.error(f"Error in gap filling process: {e}")
+                logging.error(traceback.format_exc())
+                print(f"\n⚠️ Error in gap filling process: {e}")
 
         # Update progress to mark completion
         with open(PROGRESS_FILE, 'r') as f:

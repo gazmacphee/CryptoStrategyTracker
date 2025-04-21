@@ -323,8 +323,8 @@ def run_gap_analysis(symbols: List[str]=None, intervals: List[str]=None,
     Run a full gap analysis for multiple symbols and intervals.
     
     Args:
-        symbols: List of symbols to check
-        intervals: List of intervals to check
+        symbols: List of symbols to check, uses DEFAULT_SYMBOLS if None
+        intervals: List of intervals to check, uses DEFAULT_INTERVALS if None
         lookback_days: Number of days to look back for gaps
         max_gaps: Maximum number of gaps to fill per symbol/interval
         
