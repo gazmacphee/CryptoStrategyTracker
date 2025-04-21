@@ -2,10 +2,11 @@
 UI Components for Machine Learning Predictions
 
 This module provides Streamlit UI components for:
-1. Training ML models
-2. Displaying predictions
-3. Showing model performance metrics
+1. Training ML models and ensembles
+2. Displaying predictions with sentiment and market regime analysis
+3. Showing model performance metrics and backtesting results
 4. Managing continuous learning
+5. Generating optimized trading strategies
 """
 
 import os
@@ -26,6 +27,11 @@ import joblib
 
 # Local imports
 from ml_prediction import MLPredictor, train_all_models, predict_for_all, continuous_learning_cycle
+from ml_ensemble import EnsemblePredictor, train_ensemble_models
+from ml_market_regime import MarketRegimeDetector, train_all_regime_models
+from ml_sentiment_integration import SentimentIntegrator, integrate_sentiment_with_prediction
+from ml_backtesting import MLBacktester, run_all_backtests
+from ml_trading_strategy import TradingStrategyGenerator, generate_all_trading_strategies
 from binance_api import get_available_symbols
 from utils import timeframe_to_interval, get_timeframe_options
 
@@ -39,7 +45,16 @@ def render_ml_predictions_tab():
     st.header("Machine Learning Price Predictions")
     
     # Create subtabs for different ML functionalities
-    subtabs = st.tabs(["Predictions", "Model Training", "Performance Metrics", "Continuous Learning"])
+    subtabs = st.tabs([
+        "Predictions", 
+        "Model Training", 
+        "Market Regime", 
+        "Sentiment Analysis", 
+        "Backtesting", 
+        "Trading Strategies", 
+        "Performance Metrics", 
+        "Continuous Learning"
+    ])
     
     # Render each subtab
     with subtabs[0]:
@@ -49,9 +64,21 @@ def render_ml_predictions_tab():
         render_training_subtab()
     
     with subtabs[2]:
-        render_metrics_subtab()
+        render_market_regime_subtab()
     
     with subtabs[3]:
+        render_sentiment_analysis_subtab()
+    
+    with subtabs[4]:
+        render_backtesting_subtab()
+    
+    with subtabs[5]:
+        render_trading_strategy_subtab()
+    
+    with subtabs[6]:
+        render_metrics_subtab()
+    
+    with subtabs[7]:
         render_continuous_learning_subtab()
 
 def render_predictions_subtab():
