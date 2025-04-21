@@ -1,12 +1,11 @@
 """
-Reset and Start Script
+Reset and Start Script (Simplified)
 
 This script serves as the main entry point for the application.
 It performs the following tasks:
-1. Resets the database if needed
+1. Resets the database
 2. Creates fresh tables
-3. Starts a background process to download and process historical data
-4. Launches the Streamlit application
+3. Starts the original Streamlit application without dependency injection
 """
 
 import os
@@ -14,10 +13,8 @@ import sys
 import logging
 import subprocess
 import time
-import signal
 import psycopg2
 from datetime import datetime
-import threading
 
 # Configure logging
 logging.basicConfig(
@@ -90,22 +87,21 @@ def reset_database():
 
 
 def create_tables():
-    """Create fresh database tables"""
+    """Create fresh database tables using the original database.py module"""
     logger.info("Creating fresh database tables...")
     
-    # Initialize container first
-    from src.config.initialize import initialize_container
-    initialize_container()
-    
-    # Then use the database module
-    from src.data.database import create_tables as create_db_tables
-    create_db_tables()
-    
-    logger.info("Fresh tables created successfully")
+    try:
+        # Use the original database module
+        from database import create_tables as create_db_tables
+        create_db_tables()
+        logger.info("Fresh tables created successfully")
+    except Exception as e:
+        logger.error(f"Error creating tables: {e}")
+        sys.exit(1)
 
 
 def start_backfill():
-    """Start the backfill process in the background"""
+    """Start a simple backfill process directly"""
     logger.info("Starting backfill process...")
     
     # Clear any existing lock file
@@ -113,49 +109,24 @@ def start_backfill():
         os.remove(".backfill_lock")
         logger.info("Removed existing backfill lock file")
     
-    # Test Binance API availability
+    # Run the original backfill script directly
     try:
-        import requests
-        response = requests.get("https://api.binance.com/api/v3/ping", timeout=5)
-        if response.status_code == 200:
-            logger.info("Binance API is available. The application will use real-time data.")
-            
-            # Check if API keys are set
-            if "BINANCE_API_KEY" in os.environ and "BINANCE_API_SECRET" in os.environ:
-                logger.info("Binance API keys found. Using authenticated API access.")
-            else:
-                logger.info("Binance API keys not found. Using public API access.")
-        else:
-            logger.warning("Binance API is not available. The application will use backfilled historical data.")
-    except Exception as e:
-        logger.warning(f"Error testing Binance API: {e}")
-        logger.warning("Binance API may not be available. The application will use backfilled historical data.")
-    
-    # Import and initialize the container correctly
-    from src.config.initialize import initialize_container
-    
-    # Get the container with all services initialized
-    container = initialize_container()
-    
-    # Get backfill service from the container
-    backfill_service = container.get("backfill_service")
-    
-    # Start backfill
-    result = backfill_service.start_backfill()
-    
-    if result['status'] == 'started':
+        # Run in background
+        subprocess.Popen(["python", "backfill_database.py"],
+                        stdout=open("backfill.log", "w"),
+                        stderr=subprocess.STDOUT)
         logger.info("Backfill process started successfully")
-    else:
-        logger.error(f"Error starting backfill: {result}")
+    except Exception as e:
+        logger.error(f"Error starting backfill: {e}")
 
 
 def start_streamlit():
-    """Start the Streamlit application"""
+    """Start the Streamlit application using the original app.py"""
     logger.info("Starting Streamlit application...")
     
     try:
-        # Use the new src/app.py module
-        subprocess.run(["streamlit", "run", "src/app.py", "--server.port", "5000"], check=True)
+        # Use the original app.py instead of src/app.py
+        subprocess.run(["streamlit", "run", "app.py", "--server.port", "5000"], check=True)
     except subprocess.CalledProcessError as e:
         logger.error(f"Error starting Streamlit application: {e}")
         sys.exit(1)
@@ -169,16 +140,9 @@ def main():
     print("=" * 80)
     logger.info("Starting application setup...")
     
-    # Process command line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Reset and start the application')
-    parser.add_argument('--no-reset', action='store_true', help='Skip database reset')
-    args = parser.parse_args()
-    
-    if not args.no_reset:
-        print("[1/3] Resetting database...")
-        reset_database()
-        print("✅ Database reset complete")
+    print("[1/3] Resetting database...")
+    reset_database()
+    print("✅ Database reset complete")
     
     print("[2/3] Creating fresh tables...")
     create_tables()
