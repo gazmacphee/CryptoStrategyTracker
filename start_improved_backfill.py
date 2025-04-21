@@ -114,15 +114,17 @@ def process_symbol_interval(symbol, interval, max_months=36):
             logging.warning(f"Could not get date range from Binance for {symbol}/{interval}. Using fallback approach.")
             print(f"  ⚠️ Could not get file listings from Binance for {symbol}/{interval}. Using fallback time range.")
 
-            # Use current date as reference, limited to last known good date
+            # Use current date as reference, but ensure we don't request data that doesn't exist yet
             current_date = date.today()
-            MAX_AVAILABLE_DATE = date(2024, 4, 17)  # Last known good date
-            reference_date = min(current_date, MAX_AVAILABLE_DATE)
+            # Set a safer reference date to avoid future data requests
+            safe_max_date = date(min(current_date.year, 2025), min(current_date.month, 12), min(current_date.day, 28))
+            
+            # Use a dynamic approach based on current date
             lookback_years = 1  # Reduced lookback to ensure data availability
-
+            
             # Calculate start date as 1 year before the reference date
-            min_date = reference_date.replace(year=reference_date.year - lookback_years)
-            max_date = reference_date
+            min_date = safe_max_date.replace(year=safe_max_date.year - lookback_years)
+            max_date = safe_max_date
 
             # Take a more targeted approach: focus on most recent data first
             # Start with the most recent 6 months
@@ -136,9 +138,11 @@ def process_symbol_interval(symbol, interval, max_months=36):
             min_date = min_date.date()
             max_date = max_date.date()
 
-        # Using a fixed reference date to avoid issues with future dates
-        reference_date = date(2024, 12, 31)
-
+        # Using a dynamic reference date that's always now or earlier
+        # This ensures we never request data from the future
+        today = date.today()
+        reference_date = date(min(today.year, 2025), min(today.month, 12), min(today.day, 28))
+        
         if max_date > reference_date:
             logging.info(f"Limiting max date to reference date {reference_date} (was {max_date})")
             max_date = reference_date
