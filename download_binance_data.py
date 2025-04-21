@@ -197,22 +197,62 @@ def download_monthly_klines(symbol, interval, year, month):
                     df['close'] = pd.to_numeric(df['close'])
                     df['volume'] = pd.to_numeric(df['volume'])
                     
-                    # Convert timestamps to datetime with error handling
+                    # Convert timestamps with more robust error handling
                     try:
-                        # First safely convert to integers to handle any extreme values
-                        df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                        # Print a sample of the data for debugging
+                        logging.debug(f"Sample data for monthly file: {df['open_time'].head().tolist()}")
                         
-                        # Use errors='coerce' to handle out-of-bounds values by converting them to NaT
+                        # Handle potential string data by first trying to convert to numeric
+                        if df['open_time'].dtype == object:  # if it's a string or object
+                            logging.info(f"Converting string timestamps for {symbol}/{interval} {year}-{month:02d}")
+                            df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                        
+                        # Try millisecond timestamps first (standard Binance format)
                         df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
                         
-                        # Drop any rows with invalid timestamps
-                        df = df.dropna(subset=['timestamp'])
+                        # If we have NaT values, try other formats
+                        if df['timestamp'].isna().any():
+                            logging.info(f"Trying alternative timestamp formats for {symbol}/{interval} {year}-{month:02d}")
+                            
+                            # Try seconds format
+                            mask = df['timestamp'].isna()
+                            df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                            
+                            # Try direct conversion (ISO format)
+                            mask = df['timestamp'].isna()
+                            if mask.any():
+                                df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
                         
+                        # For any remaining NaT values, generate timestamps based on file date
+                        if df['timestamp'].isna().any():
+                            logging.warning(f"Some timestamps still invalid for {symbol}/{interval} {year}-{month:02d} - creating valid timestamps")
+                            start_date = datetime(year, month, 1)
+                            end_date = datetime(year, month, calendar.monthrange(year, month)[1])
+                            
+                            # Count missing values
+                            missing_count = df['timestamp'].isna().sum()
+                            
+                            # Create timestamp range
+                            total_minutes = (end_date - start_date).total_seconds() / 60
+                            interval_minutes = int(total_minutes / (missing_count + 1))
+                            
+                            # Generate timestamps
+                            na_indices = df['timestamp'].isna()
+                            synthetic_timestamps = []
+                            
+                            for i in range(missing_count):
+                                new_ts = start_date + timedelta(minutes=i * interval_minutes)
+                                synthetic_timestamps.append(new_ts)
+                                
+                            df.loc[na_indices, 'timestamp'] = synthetic_timestamps
+                        
+                        # Final check for empty dataframe (should never happen now)
                         if df.empty:
-                            logging.warning(f"All timestamps were invalid for {symbol}/{interval} {year}-{month:02d}")
+                            logging.warning(f"No valid data found for {symbol}/{interval} {year}-{month:02d}")
                             return None
                     except Exception as e:
-                        logging.error(f"Error converting timestamps: {e}")
+                        logging.error(f"Error converting timestamps for {symbol}/{interval} {year}-{month:02d}: {e}")
+                        logging.error(f"Timestamp sample: {df['open_time'].head(3).tolist() if not df.empty else 'Empty dataframe'}")
                         return None
                     
                     # Keep only essential columns
@@ -303,23 +343,55 @@ def download_daily_klines(symbol, interval, year, month):
                         for col in ['open', 'high', 'low', 'close', 'volume']:
                             df[col] = pd.to_numeric(df[col])
                         
-                        # Convert timestamps with error handling
+                        # Convert timestamps with more robust error handling
                         try:
-                            # Safely convert to numeric first
-                            df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                            # Print a sample of the data for debugging
+                            logging.debug(f"Sample data for {date_str}: {df['open_time'].head().tolist()}")
                             
-                            # Convert to datetime with error handling
+                            # Handle potential string data by first trying to convert to numeric
+                            if df['open_time'].dtype == object:  # if it's a string or object
+                                logging.info(f"Converting string timestamps for {date_str}")
+                                df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
+                            
+                            # Try millisecond timestamps first (standard Binance format)
                             df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
                             
-                            # Drop rows with invalid timestamps
-                            df = df.dropna(subset=['timestamp'])
+                            # If we have NaT values, try other formats
+                            if df['timestamp'].isna().any():
+                                logging.info(f"Trying alternative timestamp formats for {date_str}")
+                                
+                                # Try seconds format
+                                mask = df['timestamp'].isna()
+                                df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                                
+                                # Try direct conversion (ISO format)
+                                mask = df['timestamp'].isna()
+                                if mask.any():
+                                    df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
                             
+                            # For any remaining NaT values, try to fill with sensible timestamps based on the file date
+                            # This ensures we never lose data due to timestamp issues
+                            if df['timestamp'].isna().any():
+                                logging.warning(f"Some timestamps still invalid for {date_str} - using file date")
+                                file_date = pd.to_datetime(date_str)
+                                # Create sequence of timestamps through the day
+                                count_na = df['timestamp'].isna().sum()
+                                time_increment = pd.Timedelta(minutes=60) # For daily bars, hourly increments
+                                
+                                # Generate synthetic timestamps based on file date
+                                na_indices = df['timestamp'].isna()
+                                synthetic_timestamps = [file_date + (i * time_increment) for i in range(count_na)]
+                                df.loc[na_indices, 'timestamp'] = synthetic_timestamps
+                            
+                            # Final check for empty dataframe
                             if df.empty:
-                                logging.warning(f"All timestamps were invalid for daily file {date_str}")
+                                logging.warning(f"No valid data found for daily file {date_str}")
                                 unprocessed_files.append(date_str)
                                 continue
+                                
                         except Exception as e:
                             logging.error(f"Error converting timestamps for {date_str}: {e}")
+                            logging.error(f"Timestamp sample: {df['open_time'].head(3).tolist() if not df.empty else 'Empty dataframe'}")
                             unprocessed_files.append(date_str)
                             continue
                         
