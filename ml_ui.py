@@ -918,6 +918,921 @@ def render_metrics_subtab():
     else:
         st.error("Selected model not found.")
 
+def render_market_regime_subtab():
+    """
+    Render the Market Regime Detection subtab
+    """
+    st.subheader("Market Regime Detection")
+    
+    st.markdown("""
+    Market regime detection identifies the current market conditions (trending, ranging, volatile) 
+    to help optimize trading strategies and predictions for different market environments.
+    """)
+    
+    # Sidebar for controls
+    st.sidebar.header("Market Regime Settings")
+    
+    # Get available symbols
+    available_symbols = get_available_symbols()
+    default_symbol = "BTCUSDT"
+    if default_symbol not in available_symbols and available_symbols:
+        default_symbol = available_symbols[0]
+    
+    # Symbol selection
+    symbol = st.sidebar.selectbox(
+        "Select Cryptocurrency",
+        options=available_symbols,
+        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0,
+        key="regime_symbol"
+    )
+    
+    # Timeframe selection
+    timeframe_options = get_timeframe_options()
+    interval = st.sidebar.selectbox(
+        "Select Timeframe",
+        options=list(timeframe_options.keys()),
+        index=4,  # Default to 4h
+        key="regime_interval"
+    )
+    binance_interval = timeframe_to_interval(interval)
+    
+    # Actions
+    detect_regime = st.sidebar.button("Detect Current Regime")
+    train_model = st.sidebar.button("Train Regime Model")
+    
+    # Check if model exists
+    model_path = os.path.join('models', f"{symbol}_{binance_interval}_regime_model.joblib")
+    model_exists = os.path.exists(model_path)
+    
+    if not model_exists:
+        st.warning(f"No trained regime detection model exists for {symbol}/{binance_interval}. Please train a model first.")
+    
+    # Main content area
+    if detect_regime and model_exists:
+        with st.spinner(f"Detecting market regime for {symbol}/{interval}..."):
+            try:
+                # Initialize regime detector
+                detector = MarketRegimeDetector(symbol, binance_interval)
+                
+                # Detect current regime
+                regime_info = detector.detect_current_regime()
+                
+                if regime_info:
+                    # Display current regime
+                    current_regime = regime_info['current_regime']['name']
+                    
+                    # Set regime color based on type
+                    if current_regime == "RANGING":
+                        regime_color = "blue"
+                    elif current_regime == "TRENDING_UP":
+                        regime_color = "green"
+                    elif current_regime == "TRENDING_DOWN":
+                        regime_color = "red"
+                    elif current_regime == "VOLATILE":
+                        regime_color = "purple"
+                    else:
+                        regime_color = "gray"
+                    
+                    # Display regime info
+                    st.success("Market regime detected successfully!")
+                    
+                    # Show current regime
+                    st.markdown(f"### Current Market Regime: <span style='color:{regime_color}'>{current_regime}</span>", unsafe_allow_html=True)
+                    
+                    # Display regime stability
+                    stability = regime_info['current_regime']['stability']
+                    st.markdown(f"Regime stability: **{stability}** periods")
+                    
+                    # Display price info
+                    price_info = regime_info['price_info']
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric(
+                            "Current Price",
+                            f"${price_info['current_price']:.2f}",
+                            delta=None
+                        )
+                    
+                    with col2:
+                        if price_info['price_change_24h'] is not None:
+                            st.metric(
+                                "24h Change",
+                                "",
+                                delta=f"{price_info['price_change_24h']*100:.2f}%",
+                                delta_color="normal" if price_info['price_change_24h'] >= 0 else "inverse"
+                            )
+                        else:
+                            st.metric("24h Change", "N/A", delta=None)
+                    
+                    with col3:
+                        st.metric(
+                            "Volatility",
+                            f"{price_info['volatility']:.2f}%",
+                            delta=None
+                        )
+                    
+                    # Display next likely regime
+                    next_regime = regime_info['next_likely_regime']
+                    if next_regime['name'] != "UNKNOWN" and next_regime['probability'] is not None:
+                        st.markdown(f"### Next Likely Regime")
+                        st.markdown(f"**{next_regime['name']}** (Probability: {next_regime['probability']*100:.1f}%)")
+                    
+                    # Get trading strategy for this regime
+                    strategy = detector.get_trading_strategy_for_regime(current_regime)
+                    
+                    # Display recommended trading strategy
+                    st.markdown("### Recommended Trading Strategy")
+                    st.markdown(f"**{strategy['name']}**")
+                    st.markdown(f"{strategy['description']}")
+                    
+                    # Display strategy details
+                    with st.expander("Strategy Details"):
+                        st.markdown("#### Key Indicators")
+                        st.write(", ".join(strategy['indicators']))
+                        
+                        st.markdown("#### Recommended Timeframes")
+                        st.write(", ".join(strategy['timeframes']))
+                        
+                        st.markdown("#### Risk Level")
+                        st.write(strategy['risk_level'])
+                        
+                        st.markdown("#### Stop Loss")
+                        st.write(strategy['stop_loss'])
+                        
+                        st.markdown("#### Take Profit")
+                        st.write(strategy['take_profit'])
+                    
+                    # Display regime history chart
+                    st.markdown("### Recent Regime History")
+                    
+                    # Get regime history
+                    regime_history = regime_info['current_regime']['recent_history']
+                    
+                    # Map regime labels to names
+                    regime_names = []
+                    for label in regime_history:
+                        if hasattr(detector, 'metadata') and 'regime_mapping' in detector.metadata:
+                            regime_name = detector.metadata['regime_mapping'].get(
+                                str(label), detector.REGIME_TYPES.get(0, "UNKNOWN")
+                            )
+                        else:
+                            regime_name = detector.REGIME_TYPES.get(label, "UNKNOWN")
+                        regime_names.append(regime_name)
+                    
+                    # Create a bar chart of recent regimes
+                    fig = go.Figure()
+                    
+                    # Define colors for regimes
+                    colors = {
+                        "RANGING": "blue",
+                        "TRENDING_UP": "green",
+                        "TRENDING_DOWN": "red",
+                        "VOLATILE": "purple",
+                        "UNKNOWN": "gray"
+                    }
+                    
+                    # Add bars for regime history
+                    for i, regime in enumerate(reversed(regime_names)):
+                        fig.add_trace(go.Bar(
+                            x=[i],
+                            y=[1],
+                            name=regime,
+                            marker_color=colors.get(regime, "gray"),
+                            text=regime,
+                            hoverinfo="text"
+                        ))
+                    
+                    # Update layout
+                    fig.update_layout(
+                        title="Recent Regime History (Most Recent on Right)",
+                        showlegend=False,
+                        height=200,
+                        yaxis=dict(showticklabels=False, showgrid=False),
+                        xaxis=dict(showticklabels=False, showgrid=False)
+                    )
+                    
+                    # Show chart
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tips for this regime
+                    st.markdown("### Tips for Current Regime")
+                    
+                    if current_regime == "RANGING":
+                        st.markdown("""
+                        - Look for overbought/oversold conditions using RSI and Bollinger Bands
+                        - Enter trades near support and resistance levels
+                        - Use tighter stop losses and lower profit targets
+                        - Consider mean reversion strategies
+                        """)
+                    elif current_regime == "TRENDING_UP":
+                        st.markdown("""
+                        - Focus on long positions in the direction of the trend
+                        - Look for pullbacks as entry opportunities
+                        - Use trailing stops to lock in profits
+                        - Consider trend-following indicators like moving averages and MACD
+                        """)
+                    elif current_regime == "TRENDING_DOWN":
+                        st.markdown("""
+                        - Be cautious with long positions against the trend
+                        - Look for bounces as potential short opportunities
+                        - Use tighter stop losses for counter-trend trades
+                        - Watch for bearish divergences in indicators
+                        """)
+                    elif current_regime == "VOLATILE":
+                        st.markdown("""
+                        - Reduce position sizes due to increased risk
+                        - Look for breakout setups with momentum
+                        - Use wider stop losses to avoid being stopped out by volatility
+                        - Consider waiting for volatility to settle before entering new positions
+                        """)
+                else:
+                    st.error("Failed to detect market regime. There may not be enough data.")
+            except Exception as e:
+                st.error(f"Error detecting market regime: {str(e)}")
+    
+    if train_model:
+        with st.spinner(f"Training market regime detection model for {symbol}/{interval}..."):
+            try:
+                # Initialize regime detector
+                detector = MarketRegimeDetector(symbol, binance_interval)
+                
+                # Train model
+                success = detector.train_regime_model(lookback_days=90)
+                
+                if success:
+                    st.success(f"Successfully trained market regime detection model for {symbol}/{interval}!")
+                    
+                    # Detect current regime with new model
+                    regime_info = detector.detect_current_regime()
+                    
+                    if regime_info:
+                        current_regime = regime_info['current_regime']['name']
+                        st.info(f"Current market regime: {current_regime}")
+                else:
+                    st.error("Failed to train market regime detection model. There may not be enough data.")
+            except Exception as e:
+                st.error(f"Error training market regime detection model: {str(e)}")
+    
+    # Information about market regimes
+    with st.expander("About Market Regimes"):
+        st.markdown("""
+        ### Understanding Market Regimes
+        
+        Market regimes are distinct market environments with different characteristics that require different trading approaches.
+        
+        #### Main Regime Types:
+        
+        **Ranging Markets**
+        - Prices move sideways between support and resistance levels
+        - Mean reversion strategies work well
+        - Lower volatility and more predictable boundaries
+        
+        **Trending Markets (Up/Down)**
+        - Prices show a consistent directional movement
+        - Trend-following strategies work well
+        - Pullbacks offer entry opportunities in the trend direction
+        
+        **Volatile Markets**
+        - Rapid price movements with high volatility
+        - Increased risk requires smaller position sizes
+        - Breakout strategies can be effective
+        
+        #### How Regime Detection Works:
+        
+        Our regime detection model uses machine learning to analyze multiple technical indicators and price patterns to identify the current market regime. It looks at:
+        
+        - Trend strength indicators like ADX
+        - Volatility measures like ATR and Bollinger Band Width
+        - Price momentum and moving average relationships
+        - Support/resistance interactions
+        
+        By understanding the current regime, you can adapt your trading strategy to current market conditions rather than using a one-size-fits-all approach.
+        """)
+
+def render_sentiment_analysis_subtab():
+    """
+    Render the Sentiment Analysis subtab
+    """
+    st.subheader("Sentiment Analysis Integration")
+    
+    st.markdown("""
+    This feature integrates market sentiment data with technical price predictions to create 
+    more comprehensive forecasts that factor in both market sentiment and price patterns.
+    """)
+    
+    # Sidebar for controls
+    st.sidebar.header("Sentiment Settings")
+    
+    # Get available symbols
+    available_symbols = get_available_symbols()
+    default_symbol = "BTCUSDT"
+    if default_symbol not in available_symbols and available_symbols:
+        default_symbol = available_symbols[0]
+    
+    # Symbol selection
+    symbol = st.sidebar.selectbox(
+        "Select Cryptocurrency",
+        options=available_symbols,
+        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0,
+        key="sentiment_symbol"
+    )
+    
+    # Timeframe selection
+    timeframe_options = get_timeframe_options()
+    interval = st.sidebar.selectbox(
+        "Select Timeframe",
+        options=list(timeframe_options.keys()),
+        index=3,  # Default to 1h
+        key="sentiment_interval"
+    )
+    binance_interval = timeframe_to_interval(interval)
+    
+    # Include news option
+    include_news = st.sidebar.checkbox("Include News Sentiment", value=True)
+    
+    # Actions
+    analyze_sentiment = st.sidebar.button("Analyze Sentiment")
+    
+    # Check if model exists
+    model_path = os.path.join('models', f"{symbol}_{binance_interval}_model.joblib")
+    model_exists = os.path.exists(model_path)
+    
+    if not model_exists:
+        st.warning(f"No trained prediction model exists for {symbol}/{binance_interval}. Please train a model first.")
+    
+    # Main content area
+    if analyze_sentiment and model_exists:
+        with st.spinner(f"Analyzing sentiment for {symbol}/{interval}..."):
+            try:
+                # Initialize sentiment integrator
+                integrator = SentimentIntegrator(symbol, binance_interval)
+                
+                # Fetch sentiment data
+                sentiment_df = integrator.fetch_sentiment_data(days_back=7)
+                
+                if sentiment_df is not None and not sentiment_df.empty:
+                    # Get sentiment summary
+                    sentiment_summary = integrator.sentiment_summary
+                    
+                    # Get news sentiment if requested
+                    if include_news:
+                        news_sentiment = integrator.get_news_sentiment(max_articles=5)
+                    else:
+                        news_sentiment = None
+                    
+                    # Initialize predictor and get a prediction
+                    predictor = MLPredictor(symbol, binance_interval)
+                    prediction_result = predictor.predict()
+                    
+                    if prediction_result and 'predicted_change' in prediction_result and 'confidence' in prediction_result:
+                        # Get technical prediction
+                        predicted_change = prediction_result['predicted_change']
+                        confidence = prediction_result['confidence']
+                        
+                        # Adjust prediction with sentiment
+                        adjusted_prediction, adjusted_confidence, sentiment_info = integrator.adjust_prediction(
+                            predicted_change, confidence, include_news=include_news
+                        )
+                        
+                        # Get explanation
+                        explanation = integrator.get_sentiment_explanation(sentiment_info)
+                        
+                        # Display results
+                        st.success("Sentiment analysis completed successfully!")
+                        
+                        # Display sentiment metrics
+                        st.markdown("### Current Sentiment Metrics")
+                        
+                        # Determine sentiment state
+                        if sentiment_summary['recent_sentiment'] > 0.5:
+                            sentiment_state = "Very Bullish"
+                            sentiment_color = "green"
+                        elif sentiment_summary['recent_sentiment'] > 0.1:
+                            sentiment_state = "Bullish"
+                            sentiment_color = "lightgreen"
+                        elif sentiment_summary['recent_sentiment'] > -0.1:
+                            sentiment_state = "Neutral"
+                            sentiment_color = "gray"
+                        elif sentiment_summary['recent_sentiment'] > -0.5:
+                            sentiment_state = "Bearish"
+                            sentiment_color = "lightcoral"
+                        else:
+                            sentiment_state = "Very Bearish"
+                            sentiment_color = "red"
+                        
+                        # Display sentiment state
+                        st.markdown(f"#### Overall Sentiment: <span style='color:{sentiment_color}'>{sentiment_state}</span>", unsafe_allow_html=True)
+                        
+                        # Display sentiment metrics
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric(
+                                "Recent Sentiment",
+                                f"{sentiment_summary['recent_sentiment']*100:.1f}%",
+                                delta=f"{sentiment_summary['sentiment_trend']*100:.1f}%",
+                                delta_color="normal" if sentiment_summary['sentiment_trend'] >= 0 else "inverse"
+                            )
+                        
+                        with col2:
+                            st.metric(
+                                "Weighted Sentiment",
+                                f"{sentiment_summary['volume_weighted_sentiment']*100:.1f}%",
+                                delta=None
+                            )
+                        
+                        with col3:
+                            st.metric(
+                                "Data Points",
+                                f"{sentiment_summary['data_points']}",
+                                delta=None
+                            )
+                        
+                        # Display news sentiment if available
+                        if news_sentiment:
+                            st.markdown("### News Sentiment")
+                            
+                            # Display news sentiment metric
+                            st.metric(
+                                "News Sentiment Score",
+                                f"{news_sentiment['average_sentiment']*100:.1f}%",
+                                delta=None
+                            )
+                            
+                            # Show most interesting headlines
+                            if news_sentiment['most_positive']:
+                                st.markdown("#### Most Bullish Headline")
+                                st.markdown(f"**{news_sentiment['most_positive']['title']}**")
+                                st.markdown(f"Source: {news_sentiment['most_positive']['source']} | Sentiment: {news_sentiment['most_positive']['sentiment']*100:.1f}%")
+                                st.markdown(f"[Read Article]({news_sentiment['most_positive']['url']})")
+                            
+                            if news_sentiment['most_negative']:
+                                st.markdown("#### Most Bearish Headline")
+                                st.markdown(f"**{news_sentiment['most_negative']['title']}**")
+                                st.markdown(f"Source: {news_sentiment['most_negative']['source']} | Sentiment: {news_sentiment['most_negative']['sentiment']*100:.1f}%")
+                                st.markdown(f"[Read Article]({news_sentiment['most_negative']['url']})")
+                        
+                        # Display prediction comparison
+                        st.markdown("### Prediction Comparison")
+                        
+                        # Create comparison table
+                        comparison_df = pd.DataFrame({
+                            'Metric': ['Predicted Change', 'Confidence'],
+                            'Technical Only': [f"{predicted_change*100:.2f}%", f"{confidence*100:.1f}%"],
+                            'With Sentiment': [f"{adjusted_prediction*100:.2f}%", f"{adjusted_confidence*100:.1f}%"],
+                            'Difference': [f"{(adjusted_prediction-predicted_change)*100:.2f}%", f"{(adjusted_confidence-confidence)*100:.1f}%"]
+                        })
+                        
+                        # Display table
+                        st.dataframe(comparison_df, use_container_width=True)
+                        
+                        # Display sentiment explanation
+                        st.markdown("### Sentiment Impact Explanation")
+                        st.markdown(explanation)
+                        
+                        # Create sentiment visualization
+                        # Sentiment Timeline
+                        if not sentiment_df.empty and 'timestamp' in sentiment_df.columns and 'sentiment_score' in sentiment_df.columns:
+                            st.markdown("### Sentiment Timeline")
+                            
+                            # Prepare data for visualization
+                            sentiment_df['timestamp'] = pd.to_datetime(sentiment_df['timestamp'])
+                            sentiment_df = sentiment_df.sort_values('timestamp')
+                            
+                            # Create figure
+                            fig = go.Figure()
+                            
+                            # Add sentiment score line
+                            fig.add_trace(go.Scatter(
+                                x=sentiment_df['timestamp'],
+                                y=sentiment_df['sentiment_score'],
+                                mode='lines+markers',
+                                name='Sentiment Score',
+                                line=dict(color='blue', width=2),
+                                marker=dict(
+                                    size=6,
+                                    color=sentiment_df['sentiment_score'].apply(
+                                        lambda x: 'green' if x > 0 else 'red'
+                                    )
+                                )
+                            ))
+                            
+                            # Add zero line
+                            fig.add_shape(
+                                type="line",
+                                x0=sentiment_df['timestamp'].min(),
+                                y0=0,
+                                x1=sentiment_df['timestamp'].max(),
+                                y1=0,
+                                line=dict(color="gray", width=1, dash="dash")
+                            )
+                            
+                            # Update layout
+                            fig.update_layout(
+                                title="Sentiment Score Over Time",
+                                xaxis_title="Date",
+                                yaxis_title="Sentiment Score",
+                                height=400
+                            )
+                            
+                            # Show chart
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.error("Could not generate a prediction for sentiment adjustment.")
+                else:
+                    st.warning("No sentiment data available for this cryptocurrency.")
+            except Exception as e:
+                st.error(f"Error analyzing sentiment: {str(e)}")
+    
+    # Information about sentiment analysis
+    with st.expander("About Sentiment Analysis"):
+        st.markdown("""
+        ### Understanding Sentiment Analysis
+        
+        Sentiment analysis measures the overall market mood toward a particular cryptocurrency by analyzing data from various sources:
+        
+        #### Data Sources:
+        - Social media (Twitter, Reddit, etc.)
+        - News articles and headlines
+        - Trading forums and discussion boards
+        - Market commentary
+        
+        #### How Sentiment Affects Prices:
+        
+        Market sentiment often drives cryptocurrency prices, sometimes more than technical factors. Strong positive sentiment can push prices higher, while negative sentiment can accelerate downtrends.
+        
+        #### Key Sentiment Metrics:
+        
+        **Recent Sentiment**  
+        The average sentiment score from the most recent data points (last 24 hours).
+        
+        **Sentiment Trend**  
+        The change in sentiment over time (positive means improving sentiment).
+        
+        **Volume-Weighted Sentiment**  
+        Sentiment weighted by the volume of mentions/discussions, giving more importance to widely-discussed sentiment.
+        
+        #### Integration with Technical Predictions:
+        
+        Our sentiment integration adjusts technical price predictions based on current market sentiment:
+        
+        - When sentiment agrees with technical indicators, confidence increases
+        - When sentiment contradicts technical indicators, confidence decreases
+        - Strong sentiment can adjust the magnitude of predicted price movements
+        
+        This combined approach provides a more holistic view of potential price movements by considering both technical patterns and market psychology.
+        """)
+
+def render_backtesting_subtab():
+    """
+    Render the Backtesting subtab
+    """
+    st.subheader("ML Prediction Backtesting")
+    
+    st.markdown("""
+    Backtest ML prediction performance on historical data to validate model accuracy
+    and understand how different models perform in various market conditions.
+    """)
+    
+    # Sidebar for controls
+    st.sidebar.header("Backtesting Settings")
+    
+    # Get available symbols
+    available_symbols = get_available_symbols()
+    default_symbol = "BTCUSDT"
+    if default_symbol not in available_symbols and available_symbols:
+        default_symbol = available_symbols[0]
+    
+    # Symbol selection
+    symbol = st.sidebar.selectbox(
+        "Select Cryptocurrency",
+        options=available_symbols,
+        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0,
+        key="backtest_symbol"
+    )
+    
+    # Timeframe selection
+    timeframe_options = get_timeframe_options()
+    interval = st.sidebar.selectbox(
+        "Select Timeframe",
+        options=list(timeframe_options.keys()),
+        index=3,  # Default to 1h
+        key="backtest_interval"
+    )
+    binance_interval = timeframe_to_interval(interval)
+    
+    # Backtest range
+    days_back = st.sidebar.slider(
+        "Backtest Period (days)",
+        min_value=30,
+        max_value=180,
+        value=90,
+        step=30,
+        help="Number of days to backtest"
+    )
+    
+    # Include additional features
+    include_regimes = st.sidebar.checkbox("Include Market Regimes", value=True)
+    include_sentiment = st.sidebar.checkbox("Include Sentiment Analysis", value=True)
+    
+    # Actions
+    run_backtest = st.sidebar.button("Run Backtest")
+    
+    # Check if model exists
+    model_path = os.path.join('models', f"{symbol}_{binance_interval}_model.joblib")
+    model_exists = os.path.exists(model_path)
+    
+    ensemble_path = os.path.join('models', f"{symbol}_{binance_interval}_ensemble_model.joblib")
+    ensemble_exists = os.path.exists(ensemble_path)
+    
+    if not model_exists and not ensemble_exists:
+        st.warning(f"No trained models exist for {symbol}/{binance_interval}. Please train a model first.")
+    
+    # Main content area
+    if run_backtest and (model_exists or ensemble_exists):
+        with st.spinner(f"Running backtest for {symbol}/{interval} over {days_back} days..."):
+            try:
+                # Initialize backtester
+                backtester = MLBacktester(symbol, binance_interval)
+                
+                # Run backtest
+                results = backtester.run_backtest(
+                    days_back=days_back,
+                    include_regimes=include_regimes,
+                    include_sentiment=include_sentiment
+                )
+                
+                if results:
+                    # Display results
+                    st.success("Backtest completed successfully!")
+                    
+                    # Display visualizations directly in a container
+                    backtester.create_performance_visualizations(render_to=st)
+                    
+                    # Get performance metrics table
+                    metrics_tables = backtester.get_performance_metrics_table()
+                    
+                    if metrics_tables and 'overall' in metrics_tables:
+                        st.markdown("### Performance Metrics Comparison")
+                        st.dataframe(metrics_tables['overall'], use_container_width=True)
+                    
+                    if metrics_tables and 'by_regime' in metrics_tables and metrics_tables['by_regime'] is not None:
+                        st.markdown("### Performance by Market Regime")
+                        st.dataframe(metrics_tables['by_regime'], use_container_width=True)
+                    
+                    # Get model recommendations
+                    recommendations = backtester.get_model_recommendations()
+                    
+                    if recommendations:
+                        st.markdown("### Model Recommendations")
+                        st.markdown(recommendations['explanation'])
+                else:
+                    st.error("Failed to run backtest. There may not be enough historical data.")
+            except Exception as e:
+                st.error(f"Error running backtest: {str(e)}")
+    
+    # Information about backtesting
+    with st.expander("About Backtesting"):
+        st.markdown("""
+        ### Understanding ML Backtesting
+        
+        Backtesting evaluates how ML prediction models would have performed on historical data, which helps us understand their strengths and weaknesses.
+        
+        #### What Backtesting Measures:
+        
+        **Direction Accuracy**  
+        The percentage of times the model correctly predicted the direction of price movement (up or down).
+        
+        **Mean Absolute Error (MAE)**  
+        The average size of prediction errors, regardless of direction.
+        
+        **RMSE (Root Mean Squared Error)**  
+        Similar to MAE but gives more weight to larger errors.
+        
+        **Model Confidence**  
+        How confident the model was in its predictions and how this correlates with accuracy.
+        
+        #### Why Backtest Across Different Regimes:
+        
+        Different models perform better in different market conditions:
+        
+        - Some models excel in trending markets but perform poorly in ranging markets
+        - Others may handle volatility well but struggle during strong trends
+        - Ensemble approaches often provide more consistent performance across regimes
+        
+        #### How to Use Backtest Results:
+        
+        - Choose the best model for current market conditions
+        - Adjust confidence thresholds based on backtest performance
+        - Understand when to trust or be skeptical of predictions
+        - Improve models by focusing on where they underperform
+        
+        Backtesting is not a guarantee of future performance, but it provides insights into how models are likely to behave in similar market conditions.
+        """)
+
+def render_trading_strategy_subtab():
+    """
+    Render the Trading Strategy subtab
+    """
+    st.subheader("ML-Based Trading Strategy Generator")
+    
+    st.markdown("""
+    Generate optimized trading strategies based on ML predictions, adapted to current market regimes
+    and sentiment analysis.
+    """)
+    
+    # Sidebar for controls
+    st.sidebar.header("Strategy Settings")
+    
+    # Get available symbols
+    available_symbols = get_available_symbols()
+    default_symbol = "BTCUSDT"
+    if default_symbol not in available_symbols and available_symbols:
+        default_symbol = available_symbols[0]
+    
+    # Symbol selection
+    symbol = st.sidebar.selectbox(
+        "Select Cryptocurrency",
+        options=available_symbols,
+        index=available_symbols.index(default_symbol) if default_symbol in available_symbols else 0,
+        key="strategy_symbol"
+    )
+    
+    # Timeframe selection
+    timeframe_options = get_timeframe_options()
+    interval = st.sidebar.selectbox(
+        "Select Timeframe",
+        options=list(timeframe_options.keys()),
+        index=3,  # Default to 1h
+        key="strategy_interval"
+    )
+    binance_interval = timeframe_to_interval(interval)
+    
+    # Risk level
+    risk_level = st.sidebar.select_slider(
+        "Risk Level",
+        options=["low", "medium", "high"],
+        value="medium",
+        help="Low risk = smaller positions, tighter stops. High risk = larger positions, wider stops"
+    )
+    
+    # Strategy options
+    optimize = st.sidebar.checkbox("Optimize Parameters", value=True, help="Optimize strategy parameters based on backtesting")
+    
+    # Actions
+    generate_strategy = st.sidebar.button("Generate Strategy")
+    simulate_strategy = st.sidebar.button("Simulate Strategy")
+    
+    # Check if model exists
+    model_path = os.path.join('models', f"{symbol}_{binance_interval}_model.joblib")
+    model_exists = os.path.exists(model_path)
+    
+    ensemble_path = os.path.join('models', f"{symbol}_{binance_interval}_ensemble_model.joblib")
+    ensemble_exists = os.path.exists(ensemble_path)
+    
+    if not model_exists and not ensemble_exists:
+        st.warning(f"No trained models exist for {symbol}/{binance_interval}. Please train a model first.")
+    
+    # Main content area
+    if generate_strategy and (model_exists or ensemble_exists):
+        with st.spinner(f"Generating trading strategy for {symbol}/{interval}..."):
+            try:
+                # Initialize strategy generator
+                generator = TradingStrategyGenerator(symbol, binance_interval)
+                
+                # Generate strategy
+                strategy = generator.generate_strategy(
+                    risk_level=risk_level,
+                    optimize=optimize
+                )
+                
+                if strategy:
+                    # Display results
+                    st.success("Trading strategy generated successfully!")
+                    
+                    # Display current market regime if available
+                    if 'market_regime' in strategy and strategy['market_regime']:
+                        st.markdown(f"### Current Market Regime: {strategy['market_regime']}")
+                    
+                    # Display strategy overview
+                    st.markdown(f"### Trading Strategy for {symbol}/{interval}")
+                    st.markdown(f"**Risk Level:** {risk_level.capitalize()}")
+                    
+                    # Display optimized parameters
+                    with st.expander("Strategy Parameters"):
+                        params = strategy['parameters']
+                        
+                        st.markdown("#### Entry Parameters")
+                        st.markdown(f"- Entry threshold: **{params['entry_threshold']*100:.1f}%**")
+                        st.markdown(f"- Confidence threshold: **{params['confidence_threshold']*100:.1f}%**")
+                        
+                        st.markdown("#### Position Sizing")
+                        st.markdown(f"- Maximum position size: **{params['max_position_size']*100:.1f}%** of capital")
+                        
+                        st.markdown("#### Risk Management")
+                        st.markdown(f"- Stop loss: **{params['stop_loss']*100:.1f}%**")
+                        st.markdown(f"- Take profit: **{params['take_profit']*100:.1f}%**")
+                        st.markdown(f"- Trailing stop: **{'Yes' if params['trailing_stop'] else 'No'}**")
+                        
+                        if params['trailing_stop']:
+                            st.markdown(f"- Trailing distance: **{params['trailing_distance']*100:.1f}%**")
+                        
+                        st.markdown("#### Advanced Options")
+                        st.markdown(f"- Use market regime: **{'Yes' if params['use_market_regime'] else 'No'}**")
+                        st.markdown(f"- Use sentiment: **{'Yes' if params['use_sentiment'] else 'No'}**")
+                        st.markdown(f"- Exit on opposite signal: **{'Yes' if params['exit_on_opposite_signal'] else 'No'}**")
+                    
+                    # Display trading plan
+                    st.markdown("### Trading Plan")
+                    st.markdown(strategy['rules']['trading_plan'])
+                else:
+                    st.error("Failed to generate trading strategy.")
+            except Exception as e:
+                st.error(f"Error generating trading strategy: {str(e)}")
+    
+    if simulate_strategy and (model_exists or ensemble_exists):
+        with st.spinner(f"Simulating trading strategy for {symbol}/{interval}..."):
+            try:
+                # Initialize strategy generator
+                generator = TradingStrategyGenerator(symbol, binance_interval)
+                
+                # Simulate strategy
+                simulation = generator.simulate_strategy(days_back=30)
+                
+                if simulation:
+                    # Display results
+                    st.success("Strategy simulation completed successfully!")
+                    
+                    # Display performance visualizations
+                    generator.create_strategy_visualizations(render_to=st)
+                    
+                    # Display trade details
+                    if simulation['trades']:
+                        st.markdown("### Trade Details")
+                        
+                        # Create trade details table
+                        trades_df = pd.DataFrame([
+                            {
+                                'Type': trade['position_type'].capitalize(),
+                                'Entry Time': pd.to_datetime(trade['entry_time']).strftime('%Y-%m-%d %H:%M'),
+                                'Exit Time': pd.to_datetime(trade['exit_time']).strftime('%Y-%m-%d %H:%M'),
+                                'Entry Price': f"${trade['entry_price']:.2f}",
+                                'Exit Price': f"${trade['exit_price']:.2f}",
+                                'P/L': f"${trade['profit_loss']:.2f}",
+                                'P/L %': f"{trade['profit_loss_pct']:.2f}%",
+                                'Duration (hrs)': f"{trade['duration']:.1f}"
+                            }
+                            for trade in simulation['trades']
+                        ])
+                        
+                        # Display table
+                        st.dataframe(trades_df, use_container_width=True)
+                else:
+                    st.error("Failed to simulate trading strategy.")
+            except Exception as e:
+                st.error(f"Error simulating trading strategy: {str(e)}")
+    
+    # Information about trading strategies
+    with st.expander("About Trading Strategies"):
+        st.markdown("""
+        ### Understanding ML-Based Trading Strategies
+        
+        Our trading strategy generator creates optimized trading rules based on ML predictions, market regimes, and backtesting results.
+        
+        #### Key Components:
+        
+        **Entry Rules**  
+        When to enter trades based on ML predictions, confidence levels, and market context.
+        
+        **Position Sizing**  
+        How much capital to allocate to each trade based on prediction confidence and risk level.
+        
+        **Exit Rules**  
+        When to exit trades using stop losses, take profits, trailing stops, and opposing signals.
+        
+        **Risk Management**  
+        Rules to protect capital and manage drawdowns across your portfolio.
+        
+        #### How Strategies Are Optimized:
+        
+        - Backtest results identify which models perform best in different market regimes
+        - Stop loss and take profit levels are adjusted based on historical volatility
+        - Position sizing is scaled based on model confidence and historical accuracy
+        - Entry thresholds are optimized based on model prediction magnitude
+        
+        #### Strategy Simulation:
+        
+        Strategy simulation shows how the trading rules would have performed on recent historical data, including:
+        
+        - Trade-by-trade P&L analysis
+        - Equity curve visualization
+        - Win/loss ratio and average trade metrics
+        - Maximum drawdown and other risk metrics
+        
+        Remember that past performance does not guarantee future results, and all trading strategies involve risk.
+        """)
+
 def render_continuous_learning_subtab():
     """
     Render the Continuous Learning subtab
