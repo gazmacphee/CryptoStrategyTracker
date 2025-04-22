@@ -49,14 +49,14 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         active_indicators = 0
         min_signals = 1  # Default to 1 since we might only have 1 strategy active
         
-        # Bollinger Bands strategy - price crosses below lower band
+        # Bollinger Bands strategy - "buy low, sell high"
         if has_bb and use_bb:
             active_indicators += 1
-            # Buy signal: Price near lower Bollinger Band
+            # Buy signal: Price near lower Bollinger Band (price is low)
             if result_df.iloc[i]['bb_percent'] < bb_threshold and result_df.iloc[i-1]['bb_percent'] >= bb_threshold:
                 buy_signals.append(True)
                 
-            # Sell signal: Price near upper Bollinger Band
+            # Sell signal: Price near upper Bollinger Band (price is high)
             if result_df.iloc[i]['bb_percent'] > (1 - bb_threshold) and result_df.iloc[i-1]['bb_percent'] <= (1 - bb_threshold):
                 sell_signals.append(True)
         
