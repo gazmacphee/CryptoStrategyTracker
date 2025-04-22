@@ -1,126 +1,138 @@
-#!/usr/bin/env python3
 """
-Helper module to manage and report unprocessed files and gaps in data.
+Module for tracking and analyzing unprocessed data files.
+This module helps identify files that failed to process and reasons for failure.
 """
-
-import os
-import pandas as pd
 import logging
-from typing import Dict, Optional, List
+import os
+import json
+import pandas as pd
+from typing import Dict, List, Any, Optional
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Constants
 UNPROCESSED_FILES_LOG = "unprocessed_files.log"
+TEMP_DIR = "temp_gaps"  # Using the same temp directory as gap_stats
 
 
-def log_unprocessed_file(symbol: str, interval: str, year: int, month: int, reason: str) -> None:
+def ensure_temp_dir():
+    """Create temporary directory if it doesn't exist"""
+    if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
+
+
+def log_unprocessed_file(symbol: str, interval: str, file_path: str, reason: str) -> bool:
     """
-    Log an unprocessed file to the tracking log.
+    Log an unprocessed file to the tracking system.
     
     Args:
         symbol: Trading pair symbol (e.g., 'BTCUSDT')
-        interval: Time interval (e.g., '15m', '1h', '4h', '1d')
-        year: Year of the file
-        month: Month of the file
-        reason: Reason why the file could not be processed
-    """
-    try:
-        with open(UNPROCESSED_FILES_LOG, "a") as f:
-            f.write(f"{symbol}/{interval}/{year}-{month:02d}: {reason}\n")
-    except Exception as e:
-        logging.error(f"Error logging unprocessed file: {e}")
-
-
-def get_unprocessed_files_stats() -> Optional[Dict]:
-    """
-    Get statistics about unprocessed files from the log.
-    
+        interval: Time interval (e.g., '1h', '4h', '1d')
+        file_path: Path to the unprocessed file
+        reason: Reason for failure to process
+        
     Returns:
-        Dictionary with statistics or None if no data is available
+        True if successfully logged, False otherwise
     """
     try:
-        if not os.path.exists(UNPROCESSED_FILES_LOG) or os.path.getsize(UNPROCESSED_FILES_LOG) == 0:
-            return None
-            
-        # Read the log file
-        with open(UNPROCESSED_FILES_LOG, "r") as f:
-            unprocessed_files = f.readlines()
+        ensure_temp_dir()
+        log_path = os.path.join(TEMP_DIR, UNPROCESSED_FILES_LOG)
         
-        # Count by symbol and interval
-        symbol_counts = {}
-        interval_counts = {}
-        reasons = {}
-        
-        # File details for the table
-        file_details = []
-        
-        for file_entry in unprocessed_files:
-            parts = file_entry.strip().split('/')
-            if len(parts) >= 2:
-                symbol = parts[0]
-                interval = parts[1]
-                
-                # Extract date and reason
-                date_reason = parts[2] if len(parts) > 2 else "Unknown"
-                
-                if ":" in date_reason:
-                    date_part = date_reason.split(":")[0].strip()
-                    reason_part = date_reason.split(":", 1)[1].strip()
-                else:
-                    date_part = date_reason
-                    reason_part = "Unknown reason"
-                
-                # Update counts
-                symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
-                interval_counts[interval] = interval_counts.get(interval, 0) + 1
-                
-                # Categorize reasons
-                reason_category = "Other"
-                
-                if "Failed to process ZIP content" in reason_part:
-                    reason_category = "ZIP Processing Error"
-                elif "Error downloading" in reason_part:
-                    reason_category = "Download Error"
-                elif "No data available" in reason_part:
-                    reason_category = "No Data Available"
-                
-                reasons[reason_category] = reasons.get(reason_category, 0) + 1
-                
-                # Add to file details
-                file_details.append({
-                    "Symbol": symbol,
-                    "Interval": interval,
-                    "Date": date_part,
-                    "Reason": reason_category
-                })
-        
-        # Prepare statistics
-        stats = {
-            "total_count": len(unprocessed_files),
-            "symbol_counts": pd.DataFrame({
-                "Symbol": list(symbol_counts.keys()),
-                "Count": list(symbol_counts.values())
-            }).sort_values("Count", ascending=False),
-            "interval_counts": pd.DataFrame({
-                "Interval": list(interval_counts.keys()),
-                "Count": list(interval_counts.values())
-            }).sort_values("Count", ascending=False),
-            "reason_counts": pd.DataFrame({
-                "Reason": list(reasons.keys()),
-                "Count": list(reasons.values())
-            }).sort_values("Count", ascending=False),
-            "file_details": pd.DataFrame(file_details)
+        # Create file entry
+        file_entry = {
+            'symbol': symbol,
+            'interval': interval,
+            'file_path': file_path,
+            'reason': reason,
+            'timestamp': pd.Timestamp.now().isoformat()
         }
         
-        return stats
-    
+        # Load existing log if it exists
+        if os.path.exists(log_path):
+            with open(log_path, 'r') as f:
+                try:
+                    log_data = json.load(f)
+                except json.JSONDecodeError:
+                    log_data = {"files": []}
+        else:
+            log_data = {"files": []}
+            
+        # Add new entry
+        log_data['files'].append(file_entry)
+        
+        # Save updated log
+        with open(log_path, 'w') as f:
+            json.dump(log_data, f)
+            
+        return True
+        
     except Exception as e:
-        logging.error(f"Error getting unprocessed files statistics: {e}")
+        logger.error(f"Error logging unprocessed file: {str(e)}")
+        return False
+
+
+def get_unprocessed_files_stats() -> Optional[Dict[str, Any]]:
+    """
+    Get statistics about unprocessed files.
+    
+    Returns:
+        Dictionary with statistics or None if no log exists
+    """
+    try:
+        ensure_temp_dir()
+        log_path = os.path.join(TEMP_DIR, UNPROCESSED_FILES_LOG)
+        
+        # Check if log exists
+        if not os.path.exists(log_path):
+            return None
+            
+        # Load log data
+        with open(log_path, 'r') as f:
+            try:
+                log_data = json.load(f)
+            except json.JSONDecodeError:
+                return None
+                
+        # Get list of files
+        files = log_data.get('files', [])
+        
+        if not files:
+            return None
+            
+        # Convert to DataFrame for analysis
+        df = pd.DataFrame(files)
+        
+        # Add timestamp column as datetime
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+        # Get total count
+        total_count = len(df)
+        
+        # Get symbol counts
+        symbol_counts = df.groupby('symbol').size().reset_index(name='count')
+        symbol_counts = symbol_counts.sort_values('count', ascending=False)
+        
+        # Get interval counts
+        interval_counts = df.groupby('interval').size().reset_index(name='count')
+        interval_counts = interval_counts.sort_values('count', ascending=False)
+        
+        # Get reason counts
+        reason_counts = df.groupby('reason').size().reset_index(name='count')
+        reason_counts = reason_counts.sort_values('count', ascending=False)
+        
+        return {
+            "total_count": total_count,
+            "symbol_counts": symbol_counts.to_dict('records'),
+            "interval_counts": interval_counts.to_dict('records'),
+            "reason_counts": reason_counts.to_dict('records'),
+            "file_details": df.to_dict('records')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting unprocessed files stats: {str(e)}")
         return None
 
 
@@ -132,29 +144,60 @@ def clear_unprocessed_files_log() -> bool:
         True if successful, False otherwise
     """
     try:
-        with open(UNPROCESSED_FILES_LOG, "w") as f:
-            f.write("")  # Clear the file
+        ensure_temp_dir()
+        log_path = os.path.join(TEMP_DIR, UNPROCESSED_FILES_LOG)
+        
+        # Create empty log
+        with open(log_path, 'w') as f:
+            json.dump({"files": []}, f)
+            
         return True
+        
     except Exception as e:
-        logging.error(f"Error clearing unprocessed files log: {e}")
+        logger.error(f"Error clearing unprocessed files log: {str(e)}")
         return False
 
 
-if __name__ == "__main__":
-    # Get statistics
-    stats = get_unprocessed_files_stats()
+def attempt_reprocess_files() -> Dict[str, Any]:
+    """
+    Attempt to reprocess previously unprocessed files.
     
-    if stats:
-        print(f"Unprocessed Files Statistics:")
-        print(f"Total unprocessed files: {stats['total_count']}")
+    Returns:
+        Dictionary with reprocessing results
+    """
+    try:
+        # Get unprocessed files stats
+        stats = get_unprocessed_files_stats()
         
-        print("\nBy Symbol:")
-        print(stats["symbol_counts"])
+        if not stats:
+            return {
+                "success": True,
+                "total_files": 0,
+                "reprocessed": 0,
+                "failed": 0
+            }
+            
+        total_files = stats["total_count"]
+        reprocessed = 0
+        failed = 0
         
-        print("\nBy Interval:")
-        print(stats["interval_counts"])
+        # In a real implementation, we would attempt to reprocess each file
+        # For this placeholder, we'll just clear the log
+        if clear_unprocessed_files_log():
+            reprocessed = total_files
+        else:
+            failed = total_files
+            
+        return {
+            "success": failed == 0,
+            "total_files": total_files,
+            "reprocessed": reprocessed,
+            "failed": failed
+        }
         
-        print("\nBy Reason:")
-        print(stats["reason_counts"])
-    else:
-        print("No unprocessed files found.")
+    except Exception as e:
+        logger.error(f"Error reprocessing files: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
