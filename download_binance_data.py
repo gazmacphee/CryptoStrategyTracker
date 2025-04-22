@@ -333,26 +333,45 @@ def download_monthly_klines(symbol, interval, year, month):
                         # Print a sample of the data for debugging
                         logging.debug(f"Sample data for monthly file: {df['open_time'].head().tolist()}")
                         
+                        # Check for any invalid/extreme values that would cause timestamp errors
+                        # Filter out obviously invalid timestamps (greater than reasonable cutoff)
+                        timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
+                        invalid_timestamps = df['open_time'] > timestamp_cutoff
+                        if invalid_timestamps.any():
+                            logging.warning(f"Found {invalid_timestamps.sum()} invalid future timestamps in {symbol}/{interval} {year}-{month:02d}, replacing with NaN")
+                            df.loc[invalid_timestamps, 'open_time'] = None
+                            
                         # Handle potential string data by first trying to convert to numeric
                         if df['open_time'].dtype == object:  # if it's a string or object
                             logging.info(f"Converting string timestamps for {symbol}/{interval} {year}-{month:02d}")
                             df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
                         
-                        # Try millisecond timestamps first (standard Binance format)
-                        df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                        # Add a safeguard to prevent timestamp conversion errors
+                        try:
+                            # Try millisecond timestamps first (standard Binance format)
+                            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                        except Exception as e:
+                            logging.error(f"Error converting timestamps to datetime: {e}")
+                            df['timestamp'] = pd.NaT  # Set all to NaT if conversion fails
                         
                         # If we have NaT values, try other formats
                         if df['timestamp'].isna().any():
                             logging.info(f"Trying alternative timestamp formats for {symbol}/{interval} {year}-{month:02d}")
                             
-                            # Try seconds format
-                            mask = df['timestamp'].isna()
-                            df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                            try:
+                                # Try seconds format
+                                mask = df['timestamp'].isna()
+                                df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                            except Exception as e:
+                                logging.error(f"Error in seconds format conversion: {e}")
                             
-                            # Try direct conversion (ISO format)
-                            mask = df['timestamp'].isna()
-                            if mask.any():
-                                df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
+                            try:
+                                # Try direct conversion (ISO format)
+                                mask = df['timestamp'].isna()
+                                if mask.any():
+                                    df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
+                            except Exception as e:
+                                logging.error(f"Error in ISO format conversion: {e}")
                         
                         # For any remaining NaT values, generate timestamps based on file date
                         if df['timestamp'].isna().any():
@@ -365,7 +384,7 @@ def download_monthly_klines(symbol, interval, year, month):
                             
                             # Create timestamp range
                             total_minutes = (end_date - start_date).total_seconds() / 60
-                            interval_minutes = int(total_minutes / (missing_count + 1))
+                            interval_minutes = max(1, int(total_minutes / (missing_count + 1)))
                             
                             # Generate timestamps
                             na_indices = df['timestamp'].isna()
@@ -406,53 +425,14 @@ def download_monthly_klines(symbol, interval, year, month):
 def calculate_and_save_indicators(df, symbol, interval):
     """
     Calculate technical indicators for a DataFrame and save to database
+    This is the main function used in the regular workflow.
     
     Args:
         df: DataFrame with OHLCV data
         symbol: Trading pair symbol
         interval: Time interval
     """
-    if df is None or df.empty:
-        logging.warning(f"No data to calculate indicators for {symbol}/{interval}")
-        return
-        
-    # Calculate technical indicators
-    df = indicators.add_bollinger_bands(df)
-    df = indicators.add_rsi(df)
-    df = indicators.add_macd(df)
-    df = indicators.add_ema(df)
-    df = indicators.add_atr(df)
-    df = indicators.add_stochastic(df)
-    
-    # Strategy parameters for tracking
-    strategy_params = {
-        "bb_window": 20,
-        "rsi_window": 14,
-        "macd_fast": 12,
-        "macd_slow": 26,
-        "macd_signal": 9,
-        "ema_short": 9,
-        "ema_long": 21,
-        "stoch_k": 14,
-        "stoch_d": 3
-    }
-    
-    # Calculate trading signals
-    df = evaluate_buy_sell_signals(df)
-    
-    # Save indicators to database
-    save_indicators(df, symbol, interval)
-    
-    # Save trading signals to dedicated table for historical tracking
-    try:
-        save_trading_signals(df, symbol, interval, 
-                         strategy_name="default_strategy", 
-                         strategy_params=strategy_params)
-        logging.info(f"Saved trading signals for {symbol}/{interval}")
-    except Exception as e:
-        logging.error(f"Error saving trading signals: {e}")
-    
-    logging.info(f"Calculated and saved indicators for {symbol}/{interval} ({len(df)} records)")
+    return calculate_and_save_indicators_with_signal_tracking(df, symbol, interval)
 
 def download_daily_klines(symbol, interval, year, month):
     """
@@ -537,29 +517,47 @@ def download_daily_klines(symbol, interval, year, month):
                             # Print a sample of the data for debugging
                             logging.debug(f"Sample data for {date_str}: {df['open_time'].head().tolist()}")
                             
+                            # Check for any invalid/extreme values that would cause timestamp errors
+                            # Filter out obviously invalid timestamps (greater than reasonable cutoff)
+                            timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
+                            invalid_timestamps = df['open_time'] > timestamp_cutoff
+                            if invalid_timestamps.any():
+                                logging.warning(f"Found {invalid_timestamps.sum()} invalid future timestamps in {date_str}, replacing with NaN")
+                                df.loc[invalid_timestamps, 'open_time'] = None
+                            
                             # Handle potential string data by first trying to convert to numeric
                             if df['open_time'].dtype == object:  # if it's a string or object
                                 logging.info(f"Converting string timestamps for {date_str}")
                                 df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
                             
-                            # Try millisecond timestamps first (standard Binance format)
-                            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                            # Add a safeguard to prevent timestamp conversion errors
+                            try:
+                                # Try millisecond timestamps first (standard Binance format)
+                                df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                            except Exception as e:
+                                logging.error(f"Error converting timestamps to datetime: {e}")
+                                df['timestamp'] = pd.NaT  # Set all to NaT if conversion fails
                             
                             # If we have NaT values, try other formats
                             if df['timestamp'].isna().any():
                                 logging.info(f"Trying alternative timestamp formats for {date_str}")
                                 
-                                # Try seconds format
-                                mask = df['timestamp'].isna()
-                                df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                                try:
+                                    # Try seconds format
+                                    mask = df['timestamp'].isna()
+                                    df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], unit='s', errors='coerce')
+                                except Exception as e:
+                                    logging.error(f"Error in seconds format conversion: {e}")
                                 
                                 # Try direct conversion (ISO format)
-                                mask = df['timestamp'].isna()
-                                if mask.any():
-                                    df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
+                                try:
+                                    mask = df['timestamp'].isna()
+                                    if mask.any():
+                                        df.loc[mask, 'timestamp'] = pd.to_datetime(df.loc[mask, 'open_time'], errors='coerce')
+                                except Exception as e:
+                                    logging.error(f"Error in ISO format conversion: {e}")
                             
-                            # For any remaining NaT values, try to fill with sensible timestamps based on the file date
-                            # This ensures we never lose data due to timestamp issues
+                            # For any remaining NaT values, use file date to create valid timestamps
                             if df['timestamp'].isna().any():
                                 logging.warning(f"Some timestamps still invalid for {date_str} - using file date")
                                 file_date = pd.to_datetime(date_str)
