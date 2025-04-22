@@ -18,6 +18,7 @@ import logging
 from database import save_historical_data, get_db_connection, save_indicators
 import indicators
 from strategy import evaluate_buy_sell_signals
+from trading_signals import save_trading_signals, create_signals_table
 from binance_file_listing import get_available_kline_files
 
 # Configure logging
