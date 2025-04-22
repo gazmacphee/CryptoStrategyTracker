@@ -74,6 +74,11 @@ def add_ema(df, window=9):
     # Calculate EMA
     df[f'ema_{window}'] = df['close'].ewm(span=window, adjust=False).mean()
     
+    # Add additional EMAs for trend analysis
+    if window == 9:  # Only add these when the primary EMA is added
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
+        df['ema_50'] = df['close'].ewm(span=50, adjust=False).mean()
+    
     return df
 
 def add_atr(df, window=14):

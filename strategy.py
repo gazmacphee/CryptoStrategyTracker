@@ -75,35 +75,52 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         if has_macd and use_macd:
             active_indicators += 1
             if use_macd_crossover:
-                # Buy signal: MACD crosses above signal line (bullish momentum starting - good time to buy)
+                # Buy signal: MACD crosses above signal line when MACD is below zero (oversold, price is low)
                 if (result_df.iloc[i]['macd'] > result_df.iloc[i]['macd_signal'] and 
-                    result_df.iloc[i-1]['macd'] <= result_df.iloc[i-1]['macd_signal']):
+                    result_df.iloc[i-1]['macd'] <= result_df.iloc[i-1]['macd_signal'] and
+                    result_df.iloc[i]['macd'] < 0):
                     buy_signals.append(True)
                     
-                # Sell signal: MACD crosses below signal line (bearish momentum starting - good time to sell)
+                # Sell signal: MACD crosses below signal line when MACD is above zero (overbought, price is high)
                 if (result_df.iloc[i]['macd'] < result_df.iloc[i]['macd_signal'] and 
-                    result_df.iloc[i-1]['macd'] >= result_df.iloc[i-1]['macd_signal']):
+                    result_df.iloc[i-1]['macd'] >= result_df.iloc[i-1]['macd_signal'] and
+                    result_df.iloc[i]['macd'] > 0):
                     sell_signals.append(True)
             else:
-                # Alternative MACD strategy: Use positive/negative MACD histogram
-                # Buy signal: Histogram turns positive (bullish momentum)
-                if result_df.iloc[i]['macd_histogram'] > 0 and result_df.iloc[i-1]['macd_histogram'] <= 0:
+                # Alternative MACD strategy: Use histogram for divergence
+                # Buy signal: Histogram turns positive in oversold territory (MACD below zero)
+                if (result_df.iloc[i]['macd_histogram'] > 0 and 
+                    result_df.iloc[i-1]['macd_histogram'] <= 0 and
+                    result_df.iloc[i]['macd'] < 0):
                     buy_signals.append(True)
                 
-                # Sell signal: Histogram turns negative (bearish momentum)
-                if result_df.iloc[i]['macd_histogram'] < 0 and result_df.iloc[i-1]['macd_histogram'] >= 0:
+                # Sell signal: Histogram turns negative in overbought territory (MACD above zero)
+                if (result_df.iloc[i]['macd_histogram'] < 0 and 
+                    result_df.iloc[i-1]['macd_histogram'] >= 0 and
+                    result_df.iloc[i]['macd'] > 0):
                     sell_signals.append(True)
         
         # EMA crossover strategy
         if has_ema:
-            # Buy signal: Short-term EMA crosses above long-term EMA (bullish trend starting)
+            # Check recent price trend for context (comparing to 50-period EMA if available)
+            is_below_trend = False
+            is_above_trend = False
+            if 'ema_50' in result_df.columns:
+                # Below trend means price is relatively low (good for buying)
+                is_below_trend = result_df.iloc[i]['close'] < result_df.iloc[i]['ema_50']
+                # Above trend means price is relatively high (good for selling)
+                is_above_trend = result_df.iloc[i]['close'] > result_df.iloc[i]['ema_50']
+            
+            # Buy signal: Short-term EMA crosses above long-term EMA when price is below longer trend (buy low)
             if (result_df.iloc[i]['ema_9'] > result_df.iloc[i]['ema_21'] and 
-                result_df.iloc[i-1]['ema_9'] <= result_df.iloc[i-1]['ema_21']):
+                result_df.iloc[i-1]['ema_9'] <= result_df.iloc[i-1]['ema_21'] and
+                (is_below_trend or 'ema_50' not in result_df.columns)):
                 buy_signals.append(True)
                 
-            # Sell signal: Short-term EMA crosses below long-term EMA (bearish trend starting)
+            # Sell signal: Short-term EMA crosses below long-term EMA when price is above longer trend (sell high)
             if (result_df.iloc[i]['ema_9'] < result_df.iloc[i]['ema_21'] and 
-                result_df.iloc[i-1]['ema_9'] >= result_df.iloc[i-1]['ema_21']):
+                result_df.iloc[i-1]['ema_9'] >= result_df.iloc[i-1]['ema_21'] and
+                (is_above_trend or 'ema_50' not in result_df.columns)):
                 sell_signals.append(True)
         
         # If we have multiple active indicators, require at least 2 for confirmation
