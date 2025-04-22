@@ -78,6 +78,9 @@ def backfill_database(full=False, background=False):
     if background:
         logging.info("Starting backfill process in background mode")
     
+    # Remove any stale lock files first
+    remove_lock_files()
+    
     # Create tables if they don't exist
     create_tables()
     
@@ -134,11 +137,18 @@ def continuous_backfill(interval_minutes=15, full=False):
     logging.info(f"Starting continuous backfill with {interval_minutes} minute intervals")
     
     while True:
+        # Make sure we remove any stale lock files before each iteration
+        remove_lock_files()
+        
         # Run backfill
         try:
             backfill_database(full=full, background=True)
         except Exception as e:
             logging.error(f"Error in continuous backfill: {e}")
+            # Force release any locks if there was an error
+            if os.path.exists(".backfill_lock"):
+                os.remove(".backfill_lock")
+                logging.info("Backfill lock released after error in continuous mode")
         
         # Wait for next interval
         logging.info(f"Sleeping for {interval_minutes} minutes until next update")
@@ -162,6 +172,9 @@ if __name__ == "__main__":
         print(f"Update interval: {args.interval} minutes")
     print("This process ensures your database has historical price data")
     print("****************************************************************")
+    
+    # Clean up any stale lock files first
+    remove_lock_files()
     
     # Create lock file immediately to prevent parallel execution
     with open(".backfill_lock", "w") as f:
