@@ -34,6 +34,14 @@ INTERVALS = ['15m', '30m', '1h', '4h', '1d']
 
 def check_binance_historical_data_installed():
     """Check if binance-historical-data is installed"""
+    # Detect if we're running on Replit
+    is_replit = 'REPL_ID' in os.environ or 'REPLIT_DB_URL' in os.environ
+    
+    # On Replit, npm global modules don't work properly
+    if is_replit:
+        logging.info("Running on Replit environment - skipping npm tools")
+        return False
+        
     # Possible paths for Windows users
     windows_paths = [
         # Standard global npm path
@@ -58,20 +66,23 @@ def check_binance_historical_data_installed():
         if result.returncode == 0:
             return 'binance-historical-data'  # Command works directly
     except FileNotFoundError:
-        logging.error("binance-historical-data not found. Installing...")
-        try:
-            subprocess.run(['npm', 'install', '-g', 'binance-historical-data'], 
-                         check=True)
-            # Try to find the path after installation
-            if os.name == 'nt':  # Windows
-                for path in windows_paths:
-                    if os.path.exists(path):
-                        logging.info(f"Found binance-historical-data at: {path}")
-                        return path
-            return 'binance-historical-data'  # Assume it's in PATH after install
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to install binance-historical-data: {e}")
-            return False
+        # Don't try to install on Replit
+        if not is_replit:
+            logging.warning("binance-historical-data not found. Installing...")
+            try:
+                subprocess.run(['npm', 'install', '-g', 'binance-historical-data'], 
+                            check=True)
+                # Try to find the path after installation
+                if os.name == 'nt':  # Windows
+                    for path in windows_paths:
+                        if os.path.exists(path):
+                            logging.info(f"Found binance-historical-data at: {path}")
+                            return path
+                return 'binance-historical-data'  # Assume it's in PATH after install
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Failed to install binance-historical-data: {e}")
+                return False
+        return False
     except Exception as e:
         logging.error(f"Error checking binance-historical-data: {e}")
         return False
@@ -170,28 +181,37 @@ def backfill_symbol_interval(symbol, interval):
     current_year = now.year
     current_month = now.month
     
-    # Try to use binance-historical-data (npm package) first
-    try:
-        # Download data in chunks
-        start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
-        current_date = start_date
+    # Detect if we're running on Replit
+    is_replit = 'REPL_ID' in os.environ or 'REPLIT_DB_URL' in os.environ
+    
+    # On Replit, always use direct Binance Data Vision downloads
+    if is_replit:
+        logging.info(f"Running on Replit - using direct Binance Data Vision downloads for {symbol}/{interval}")
+        use_direct_download = True
+    else:
+        # For non-Replit environments, try npm package first
+        try:
+            # Download data in chunks
+            start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
+            current_date = start_date
 
-        while current_date < datetime.now():
             df = download_klines(symbol, interval, current_date)
             if df is not None and not df.empty:
                 process_and_save_chunk(df, symbol, interval)
-                current_date = df['timestamp'].max() + timedelta(minutes=1)
-                logging.info(f"Processed up to {current_date}")
+                logging.info(f"Successfully used npm package for {symbol}/{interval}")
+                use_direct_download = False
+                return  # Successfully used npm package, no need for further processing
             else:
-                logging.warning(f"No data available via npm tool for {symbol} {interval} from {current_date}")
-                break
-            time.sleep(1)  # Rate limiting
-    except Exception as e:
-        logging.warning(f"Failed to use binance-historical-data npm package: {e}")
-        logging.info(f"Falling back to direct download method for {symbol}/{interval}")
-        
-        # Fallback to direct downloads from Binance Data Vision
-        # Start from 3 years ago
+                logging.warning(f"No data available via npm tool for {symbol}/{interval}")
+                use_direct_download = True
+        except Exception as e:
+            logging.warning(f"Failed to use binance-historical-data npm package: {e}")
+            logging.info(f"Falling back to direct download method for {symbol}/{interval}")
+            use_direct_download = True
+    
+    # If we reached here, we need to use direct downloads
+    if use_direct_download:
+        # Start from 3 years ago by default
         start_year = now.year - 3
         start_month = now.month
         
@@ -199,6 +219,8 @@ def backfill_symbol_interval(symbol, interval):
         if last_timestamp and last_timestamp.year < start_year:
             start_year = last_timestamp.year
             start_month = last_timestamp.month
+        
+        logging.info(f"Using direct Binance Data Vision downloads for {symbol}/{interval} from {start_year}-{start_month}")
         
         # Process each month from start date to now
         for year in range(start_year, current_year + 1):
