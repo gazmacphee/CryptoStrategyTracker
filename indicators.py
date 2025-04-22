@@ -6,6 +6,10 @@ def add_bollinger_bands(df, window=20, window_dev=2):
     if df.empty:
         return df
     
+    # Ensure numeric type consistency by converting to float
+    if 'close' in df.columns:
+        df['close'] = df['close'].astype(float)
+    
     # Calculate rolling mean and standard deviation
     df['bb_middle'] = df['close'].rolling(window=window).mean()
     rolling_std = df['close'].rolling(window=window).std()
@@ -15,7 +19,14 @@ def add_bollinger_bands(df, window=20, window_dev=2):
     df['bb_lower'] = df['bb_middle'] - (rolling_std * window_dev)
     
     # Calculate %B (relative position within Bollinger Bands)
-    df['bb_percent'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
+    # Handle potential division by zero
+    denominator = df['bb_upper'] - df['bb_lower']
+    df['bb_percent'] = 0.5  # Default to middle when bands are identical
+    
+    # Only calculate where the denominator isn't zero
+    valid_rows = denominator != 0
+    if valid_rows.any():
+        df.loc[valid_rows, 'bb_percent'] = (df.loc[valid_rows, 'close'] - df.loc[valid_rows, 'bb_lower']) / denominator[valid_rows]
     
     return df
 

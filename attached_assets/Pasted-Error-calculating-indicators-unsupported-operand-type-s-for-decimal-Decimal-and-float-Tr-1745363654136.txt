@@ -1,0 +1,37 @@
+Error calculating indicators: unsupported operand type(s) for -: 'decimal.Decimal' and 'float'
+
+Traceback (most recent call last):
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\ops\array_ops.py", line 218, in _na_arithmetic_op
+    result = func(left, right)
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\computation\expressions.py", line 242, in evaluate
+    return _evaluate(op, op_str, a, b)  # type: ignore[misc]
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\computation\expressions.py", line 73, in _evaluate_standard
+    return op(a, b)
+TypeError: unsupported operand type(s) for -: 'decimal.Decimal' and 'float'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\app.py", line 591, in main
+    df = add_bollinger_bands(df)
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\indicators.py", line 18, in add_bollinger_bands
+    df['bb_percent'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
+                        ~~~~~~~~~~~~^~~~~~~~~~~~~~~~
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\ops\common.py", line 76, in new_method
+    return method(self, other)
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\arraylike.py", line 194, in __sub__
+    return self._arith_method(other, operator.sub)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\series.py", line 6135, in _arith_method
+    return base.IndexOpsMixin._arith_method(self, other, op)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\base.py", line 1382, in _arith_method
+    result = ops.arithmetic_op(lvalues, rvalues, op)
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\ops\array_ops.py", line 283, in arithmetic_op
+    res_values = _na_arithmetic_op(left, right, op)  # type: ignore[arg-type]
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\ops\array_ops.py", line 227, in _na_arithmetic_op
+    result = _masked_arith_op(left, right, op)
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\ops\array_ops.py", line 163, in _masked_arith_op
+    result[mask] = op(xrav[mask], yrav[mask])
+                   ~~^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: unsupported operand type(s) for -: 'decimal.Decimal' and 'float'
