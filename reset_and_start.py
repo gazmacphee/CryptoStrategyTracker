@@ -18,13 +18,52 @@ from datetime import datetime
 
 # Try to load environment variables from .env file for local development
 try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    print("Loaded environment variables from .env file")
-except ImportError:
-    print("dotenv package not found. Using system environment variables only.")
+    # First try using python-dotenv if available
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        print("Loaded environment variables from .env file using python-dotenv")
+    except ImportError:
+        print("dotenv package not found. Trying manual .env file loading.")
+        
+        # Manual loading as fallback
+        import pathlib
+        env_path = pathlib.Path('.env')
+        if env_path.exists():
+            print(f"Found .env file at {env_path.absolute()}")
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # Remove quotes if present
+                    if value and value[0] == value[-1] and value[0] in ["'", "\""]:
+                        value = value[1:-1]
+                    
+                    os.environ[key] = value
+            print("Loaded environment variables from .env file manually")
+        else:
+            print("No .env file found. Using system environment variables only.")
+    
+    # Try to construct DATABASE_URL from individual parameters if it's not set
+    if "DATABASE_URL" not in os.environ and all(k in os.environ for k in ['PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE']):
+        host = os.environ.get('PGHOST')
+        port = os.environ.get('PGPORT')
+        user = os.environ.get('PGUSER')
+        password = os.environ.get('PGPASSWORD')
+        database = os.environ.get('PGDATABASE')
+        
+        database_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        os.environ['DATABASE_URL'] = database_url
+        print(f"Constructed DATABASE_URL from individual parameters: postgresql://{user}:******@{host}:{port}/{database}")
+        
 except Exception as e:
-    print(f"Failed to load environment variables from .env file: {e}")
+    print(f"Failed to load environment variables: {e}")
     print("Continuing with system environment variables only.")
 
 # Configure logging
