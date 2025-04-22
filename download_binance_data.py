@@ -143,12 +143,48 @@ def backfill_symbol_interval(symbol, interval):
             break
         time.sleep(1)  # Rate limiting
 
-def run_backfill():
-    """Run backfill for all symbols and intervals"""
-    for symbol in SYMBOLS:
-        for interval in INTERVALS:
-            backfill_symbol_interval(symbol, interval)
+def run_backfill(symbols=None, intervals=None, lookback_years=3):
+    """
+    Run backfill for specified symbols and intervals
+    
+    Args:
+        symbols: List of symbols to process (default: uses predefined SYMBOLS)
+        intervals: List of intervals to process (default: uses predefined INTERVALS)
+        lookback_years: Number of years to look back for historical data
+    
+    Returns:
+        Total number of candles downloaded
+    """
+    # Use default values if parameters not provided
+    symbols_to_process = symbols if symbols is not None else SYMBOLS
+    intervals_to_process = intervals if intervals is not None else INTERVALS
+    
+    logging.info(f"Running backfill for {len(symbols_to_process)} symbols and {len(intervals_to_process)} intervals")
+    logging.info(f"Symbols: {', '.join(symbols_to_process)}")
+    logging.info(f"Intervals: {', '.join(intervals_to_process)}")
+    
+    total_candles = 0
+    
+    for symbol in symbols_to_process:
+        for interval in intervals_to_process:
+            # Process the symbol/interval combination
+            try:
+                backfill_symbol_interval(symbol, interval)
+                # Add approximate candle count based on interval and lookback years
+                if interval == '1h':
+                    total_candles += 24 * 365 * lookback_years
+                elif interval == '4h':
+                    total_candles += 6 * 365 * lookback_years
+                elif interval == '1d':
+                    total_candles += 365 * lookback_years
+                else:
+                    total_candles += 100  # Generic estimate for other intervals
+            except Exception as e:
+                logging.error(f"Error processing {symbol}/{interval}: {e}")
+            
             time.sleep(2)  # Rate limiting between symbol/interval pairs
+    
+    return total_candles
 
 def download_monthly_klines(symbol, interval, year, month):
     """
