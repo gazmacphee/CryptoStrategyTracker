@@ -16,6 +16,17 @@ import time
 import psycopg2
 from datetime import datetime
 
+# Try to load environment variables from .env file for local development
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("Loaded environment variables from .env file")
+except ImportError:
+    print("dotenv package not found. Using system environment variables only.")
+except Exception as e:
+    print(f"Failed to load environment variables from .env file: {e}")
+    print("Continuing with system environment variables only.")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
