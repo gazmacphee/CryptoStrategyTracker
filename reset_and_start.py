@@ -155,14 +155,26 @@ def create_tables():
         sys.exit(1)
 
 
+def remove_lock_files():
+    """Remove all lock files to ensure a clean start"""
+    lock_files = ['.backfill_lock', 'backfill_progress.json.lock']
+    
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                logger.info(f"Removed lock file at startup: {lock_file}")
+                print(f"✓ Removed existing lock file: {lock_file}")
+            except Exception as e:
+                logger.error(f"Failed to remove lock file {lock_file}: {e}")
+                print(f"⚠️ Warning: Failed to remove lock file {lock_file}: {e}")
+
 def start_backfill():
     """Start a simple backfill process directly"""
     logger.info("Starting backfill process...")
     
-    # Clear any existing lock file
-    if os.path.exists(".backfill_lock"):
-        os.remove(".backfill_lock")
-        logger.info("Removed existing backfill lock file")
+    # Clear any existing lock files
+    remove_lock_files()
     
     # Run the original backfill script directly
     try:
@@ -194,6 +206,11 @@ def main():
     """Main function to run the application setup and startup"""
     print("=" * 80)
     logger.info("Starting application setup...")
+    
+    # Remove any existing lock files before doing anything else
+    print("Cleaning up lock files...")
+    remove_lock_files()
+    print("✅ Lock files removed")
     
     print("[1/3] Resetting database...")
     reset_database()

@@ -26,6 +26,20 @@ logging.basicConfig(
     ]
 )
 
+def remove_lock_files():
+    """Remove any stale lock files to ensure a clean start"""
+    lock_files = ['.backfill_lock', 'backfill_progress.json.lock']
+    
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                print(f"Removed potentially stale lock file: {lock_file}")
+                logging.info(f"Removed potentially stale lock file: {lock_file}")
+            except Exception as e:
+                logging.warning(f"Failed to remove lock file {lock_file}: {e}")
+                print(f"Warning: Failed to remove lock file {lock_file}: {e}")
+
 def get_popular_symbols(limit=10):
     """Get a list of popular cryptocurrency symbols"""
     # Default list of popular symbols if API call fails
