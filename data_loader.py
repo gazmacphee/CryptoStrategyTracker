@@ -78,9 +78,17 @@ def save_progress():
     # Update timestamp
     progress_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # Calculate overall progress based on symbols completed
+    if progress_data["total_symbols"] > 0:
+        progress_data["overall_progress"] = (progress_data["symbols_completed"] / progress_data["total_symbols"]) * 100.0
+    else:
+        progress_data["overall_progress"] = 0.0
+        
+    # Write to file
     try:
         with open(PROGRESS_FILE, 'w') as f:
             json.dump(progress_data, f, indent=2)
+        logger.info(f"Progress saved: {progress_data['overall_progress']:.1f}% complete")
     except Exception as e:
         logger.error(f"Error saving progress file: {e}")
 
@@ -99,6 +107,9 @@ def update_progress_from_database():
         # Get total expected symbols from symbols list
         symbols_list = get_available_symbols()
         progress_data["total_symbols"] = len(symbols_list)
+        
+        # Reset symbols completed counter since we're going to recalculate it
+        progress_data["symbols_completed"] = 0
         
         # For each symbol in our list, check its interval coverage
         for symbol in symbols_list:
