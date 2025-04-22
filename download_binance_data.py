@@ -222,7 +222,7 @@ def backfill_symbol_interval(symbol, interval):
                 if df is not None and not df.empty:
                     # Save to database
                     save_historical_data(df, symbol, interval)
-                    calculate_and_save_indicators(df, symbol, interval)
+                    calculate_and_save_indicators_with_signal_tracking(df, symbol, interval)
                     logging.info(f"Saved {len(df)} records for {symbol}/{interval} {year}-{month:02d}")
                 else:
                     logging.warning(f"No data available for {symbol}/{interval} for {year}-{month:02d}")
@@ -424,11 +424,33 @@ def calculate_and_save_indicators(df, symbol, interval):
     df = indicators.add_atr(df)
     df = indicators.add_stochastic(df)
     
+    # Strategy parameters for tracking
+    strategy_params = {
+        "bb_window": 20,
+        "rsi_window": 14,
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "ema_short": 9,
+        "ema_long": 21,
+        "stoch_k": 14,
+        "stoch_d": 3
+    }
+    
     # Calculate trading signals
     df = evaluate_buy_sell_signals(df)
     
     # Save indicators to database
     save_indicators(df, symbol, interval)
+    
+    # Save trading signals to dedicated table for historical tracking
+    try:
+        save_trading_signals(df, symbol, interval, 
+                         strategy_name="default_strategy", 
+                         strategy_params=strategy_params)
+        logging.info(f"Saved trading signals for {symbol}/{interval}")
+    except Exception as e:
+        logging.error(f"Error saving trading signals: {e}")
     
     logging.info(f"Calculated and saved indicators for {symbol}/{interval} ({len(df)} records)")
 
@@ -607,7 +629,7 @@ def download_daily_klines(symbol, interval, year, month):
         print(f"       ❌ No data available from daily files")
         return None
 
-def calculate_and_save_indicators(df, symbol, interval):
+def calculate_and_save_indicators_with_signal_tracking(df, symbol, interval):
     """
     Calculate technical indicators for a DataFrame and save to database
     
@@ -626,13 +648,36 @@ def calculate_and_save_indicators(df, symbol, interval):
         with_macd = indicators.add_macd(with_rsi)
         with_ema = indicators.add_ema(with_macd)
         
+        # Strategy parameters for tracking
+        strategy_params = {
+            "bb_window": 20,
+            "rsi_window": 14,
+            "macd_fast": 12,
+            "macd_slow": 26,
+            "macd_signal": 9,
+            "ema_short": 9,
+            "ema_long": 21
+        }
+        
+        # Calculate buy/sell signals
+        with_signals = evaluate_buy_sell_signals(with_ema)
+        
         # Save historical data
         save_historical_data(df, symbol, interval)
         
-        # Save indicators
-        save_indicators(with_ema, symbol, interval)
+        # Save indicators and signals to database
+        save_indicators(with_signals, symbol, interval)
         
-        return with_ema
+        # Save trading signals to dedicated table for historical tracking
+        try:
+            save_trading_signals(with_signals, symbol, interval, 
+                             strategy_name="default_strategy", 
+                             strategy_params=strategy_params)
+            logging.info(f"Saved trading signals for {symbol}/{interval}")
+        except Exception as e:
+            logging.error(f"Error saving trading signals: {e}")
+        
+        return with_signals
     except Exception as e:
         logging.error(f"Error calculating indicators for {symbol}/{interval}: {e}")
         return None

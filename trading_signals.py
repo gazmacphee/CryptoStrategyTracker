@@ -5,6 +5,7 @@ Module for handling trading signals - creation, storage, and retrieval
 import os
 import psycopg2
 import pandas as pd
+import json
 from datetime import datetime
 from database import get_db_connection
 
@@ -135,7 +136,6 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                 )
                 
                 # Convert strategy params to JSON
-                import json
                 strategy_params_json = json.dumps(strategy_params) if strategy_params else None
                 
                 # Create notes
