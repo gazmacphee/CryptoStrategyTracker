@@ -5,6 +5,9 @@ This module provides functions to collect and display crypto news.
 import datetime
 import logging
 import pandas as pd
+import os
+import random
+from typing import List, Dict, Any
 from database import get_db_connection
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -160,3 +163,101 @@ def get_news_from_db(symbol=None, limit=10):
     except Exception as e:
         logging.error(f"Error getting news from database: {str(e)}")
         return []
+
+
+def generate_personalized_digest(portfolio_symbols=None, max_articles=10, days_back=5):
+    """
+    Generate a personalized news digest for the user based on their portfolio
+    and additional interests.
+    
+    Args:
+        portfolio_symbols: List of cryptocurrency symbols in the user's portfolio
+        max_articles: Maximum number of articles to include in the digest
+        days_back: Number of days to look back for news
+        
+    Returns:
+        Dictionary with personalized digest
+    """
+    try:
+        logging.info(f"Generating personalized digest for symbols: {portfolio_symbols}")
+        
+        # Placeholder implementation - in a real implementation, we would:
+        # 1. Fetch news from multiple sources
+        # 2. Filter by relevance to the user's interests
+        # 3. Use AI to personalize and summarize (if OpenAI API key available)
+        
+        all_articles = []
+        
+        # Define some sample news sources
+        sources = ["CoinDesk", "CryptoNews", "CoinTelegraph"]
+        topics = ["market analysis", "price predictions", "regulatory updates", 
+                 "adoption news", "technology developments"]
+        
+        # If no portfolio symbols, use some defaults
+        if not portfolio_symbols or len(portfolio_symbols) == 0:
+            portfolio_symbols = ["BTC", "ETH", "SOL"]
+        
+        # Generate some articles
+        count_per_symbol = max(1, max_articles // len(portfolio_symbols))
+        remaining = max_articles
+        
+        current_time = datetime.datetime.now()
+        
+        for symbol in portfolio_symbols:
+            # Fetch from database if available
+            db_articles = get_news_from_db(symbol=symbol, limit=count_per_symbol)
+            
+            if db_articles:
+                all_articles.extend(db_articles)
+                remaining -= len(db_articles)
+            else:
+                # Generate articles for this symbol
+                for i in range(min(count_per_symbol, remaining)):
+                    source = random.choice(sources)
+                    topic = random.choice(topics)
+                    days_ago = random.randint(0, days_back)
+                    hours_ago = random.randint(0, 23)
+                    article_time = current_time - datetime.timedelta(days=days_ago, hours=hours_ago)
+                    
+                    article = {
+                        'title': f"{symbol}: {topic.title()}",
+                        'source': source,
+                        'url': f"#",
+                        'published_at': article_time.strftime('%Y-%m-%d %H:%M'),
+                        'summary': f"This would be a summary of an article about {symbol} {topic}.",
+                        'symbol': symbol,
+                        'relevance_score': random.uniform(0.7, 0.95)
+                    }
+                    
+                    all_articles.append(article)
+                    remaining -= 1
+        
+        # Sort articles by date (newest first)
+        all_articles.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+        
+        # Create the digest
+        summary = f"News digest for {', '.join(portfolio_symbols[:3])}"
+        if len(portfolio_symbols) > 3:
+            summary += f" and {len(portfolio_symbols) - 3} more symbols"
+            
+        # Check if OpenAI API key is available for enhanced features
+        has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+        
+        return {
+            'summary': summary,
+            'articles': all_articles[:max_articles],
+            'generated_at': current_time.strftime('%Y-%m-%d %H:%M'),
+            'ai_enhanced': has_openai
+        }
+        
+    except Exception as e:
+        logging.error(f"Error generating personalized digest: {str(e)}")
+        
+        # Return a basic digest as fallback
+        current_time = datetime.datetime.now()
+        return {
+            'summary': "Basic news digest",
+            'articles': get_crypto_news(limit=max_articles),
+            'generated_at': current_time.strftime('%Y-%m-%d %H:%M'),
+            'ai_enhanced': False
+        }

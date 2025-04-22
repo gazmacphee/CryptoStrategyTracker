@@ -5,8 +5,11 @@ This module provides functions to scrape and analyze sentiment data from various
 import datetime
 import pandas as pd
 import requests
+import random
+import os
 from database import save_sentiment_data, get_sentiment_data
 import logging
+from typing import Dict, List, Any, Optional, Union
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
