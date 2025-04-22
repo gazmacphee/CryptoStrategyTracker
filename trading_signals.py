@@ -57,6 +57,32 @@ def create_signals_table():
         if conn:
             conn.close()
 
+def get_last_signal(conn, symbol, interval, strategy_name="default_strategy"):
+    """
+    Get the most recent signal for a symbol and interval
+    
+    Returns:
+        Tuple of (timestamp, signal_type) or (None, None) if no signals exist
+    """
+    try:
+        cur = conn.cursor()
+        query = """
+        SELECT timestamp, signal_type 
+        FROM trading_signals 
+        WHERE symbol = %s AND interval = %s AND strategy_name = %s
+        ORDER BY timestamp DESC 
+        LIMIT 1
+        """
+        cur.execute(query, (symbol, interval, strategy_name))
+        result = cur.fetchone()
+        
+        if result:
+            return result[0], result[1]
+        return None, None
+    except Exception as e:
+        print(f"Error getting last signal: {e}")
+        return None, None
+
 def save_trading_signals(df, symbol, interval, strategy_name="default_strategy", strategy_params=None):
     """
     Save trading signals to database
@@ -84,6 +110,9 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
     try:
         cur = conn.cursor()
         
+        # Get the last signal for this symbol/interval
+        last_timestamp, last_signal_type = get_last_signal(conn, symbol, interval, strategy_name)
+        
         # Insert signals where buy_signal or sell_signal is True
         insert_query = """
         INSERT INTO trading_signals 
@@ -105,11 +134,21 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
         """
         
         signal_count = 0
+        in_position = last_signal_type == 'buy' if last_signal_type else False
         
         for idx, row in df.iterrows():
-            # Only save rows with signals
-            if row.get('buy_signal', False) or row.get('sell_signal', False):
-                signal_type = 'buy' if row.get('buy_signal', False) else 'sell'
+            # Skip rows earlier than our last saved signal
+            if last_timestamp and row['timestamp'] <= last_timestamp:
+                continue
+                
+            # Only save rows with signals that follow the correct sequence
+            has_buy_signal = row.get('buy_signal', False)
+            has_sell_signal = row.get('sell_signal', False)
+            
+            # Only process buy signals if we're not in a position
+            # Only process sell signals if we are in a position
+            if (has_buy_signal and not in_position) or (has_sell_signal and in_position):
+                signal_type = 'buy' if has_buy_signal else 'sell'
                 
                 # Calculate signal strength - default to 1.0 if not available
                 signal_strength = 1.0
@@ -163,6 +202,9 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                     strategy_params_json,
                     notes
                 ))
+                
+                # Update our in_position status after saving this signal
+                in_position = (signal_type == 'buy')
                 
                 signal_count += 1
         

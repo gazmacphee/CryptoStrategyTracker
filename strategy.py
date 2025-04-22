@@ -27,6 +27,7 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
     # Initialize signal columns
     df['buy_signal'] = False
     df['sell_signal'] = False
+    df['position'] = 0  # Track if we're in a position (0 = no position, 1 = in position)
     
     # Check if needed indicators exist
     has_bb = all(col in df.columns for col in ['bb_lower', 'bb_middle', 'bb_upper', 'bb_percent'])
@@ -36,6 +37,9 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
     
     # Create a copy to avoid SettingWithCopyWarning
     result_df = df.copy()
+    
+    # Keep track of position state (0 = no position, 1 = in position after buy)
+    in_position = False
     
     # Define conditions for buy signals
     for i in range(2, len(result_df)):
@@ -104,12 +108,24 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
         if active_indicators >= 2:
             min_signals = 2
         
-        # Set final signals based on indicator combinations
-        if len(buy_signals) >= min_signals:  # At least min_signals indicators confirm buy
+        # Set final signals based on indicator combinations and position state
+        potential_buy = len(buy_signals) >= min_signals
+        potential_sell = len(sell_signals) >= min_signals
+        
+        # Only issue a buy if we're not already in a position
+        if potential_buy and not in_position:
             result_df.iloc[i, result_df.columns.get_loc('buy_signal')] = True
+            result_df.iloc[i, result_df.columns.get_loc('position')] = 1
+            in_position = True
             
-        if len(sell_signals) >= min_signals:  # At least min_signals indicators confirm sell
+        # Only issue a sell if we're in a position from a previous buy
+        elif potential_sell and in_position:
             result_df.iloc[i, result_df.columns.get_loc('sell_signal')] = True
+            result_df.iloc[i, result_df.columns.get_loc('position')] = 0
+            in_position = False
+        else:
+            # Maintain position state in the dataframe
+            result_df.iloc[i, result_df.columns.get_loc('position')] = 1 if in_position else 0
     
     return result_df
 
@@ -122,7 +138,9 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
     backtest_df = df.copy()
     
     # Add columns for tracking portfolio value
-    backtest_df['position'] = 0
+    # Don't overwrite position if it already exists
+    if 'position' not in backtest_df.columns:
+        backtest_df['position'] = 0
     backtest_df['cash'] = initial_capital
     backtest_df['holdings'] = 0
     backtest_df['portfolio_value'] = initial_capital
@@ -130,10 +148,14 @@ def backtest_strategy(df, initial_capital=1000.0, position_size=1.0):
     # Track trades
     trades = []
     
-    # Initial state
+    # Initial state - check if already in a position
     in_position = False
     entry_price = 0
     entry_time = None
+    
+    # Initialize position state from the dataframe if available
+    if 'position' in backtest_df.columns and len(backtest_df) > 0:
+        in_position = backtest_df.iloc[0]['position'] > 0
     
     for i in range(1, len(backtest_df)):
         # Default: carry over previous values
