@@ -33,22 +33,49 @@ INTERVALS = ['15m', '30m', '1h', '4h', '1d']
 
 def check_binance_historical_data_installed():
     """Check if binance-historical-data is installed"""
+    # Possible paths for Windows users
+    windows_paths = [
+        # Standard global npm path
+        os.path.join(os.environ.get('APPDATA', ''), 'npm', 'binance-historical-data.cmd'),
+        # NPM global bin directory
+        os.path.join(os.environ.get('ProgramFiles', ''), 'nodejs', 'binance-historical-data.cmd'),
+        # Alternative path
+        os.path.join(os.environ.get('APPDATA', ''), 'npm', 'node_modules', 'binance-historical-data', 'bin', 'binance-historical-data')
+    ]
+    
+    # For Windows, first try direct paths
+    if os.name == 'nt':  # Windows
+        for path in windows_paths:
+            if os.path.exists(path):
+                logging.info(f"Found binance-historical-data at: {path}")
+                return path
+    
+    # Standard method for non-Windows or if direct path not found
     try:
-        subprocess.run(['binance-historical-data', '--version'], 
+        result = subprocess.run(['binance-historical-data', '--version'], 
                       capture_output=True, text=True)
-        return True
+        if result.returncode == 0:
+            return 'binance-historical-data'  # Command works directly
     except FileNotFoundError:
         logging.error("binance-historical-data not found. Installing...")
         try:
             subprocess.run(['npm', 'install', '-g', 'binance-historical-data'], 
                          check=True)
-            return True
+            # Try to find the path after installation
+            if os.name == 'nt':  # Windows
+                for path in windows_paths:
+                    if os.path.exists(path):
+                        logging.info(f"Found binance-historical-data at: {path}")
+                        return path
+            return 'binance-historical-data'  # Assume it's in PATH after install
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to install binance-historical-data: {e}")
             return False
     except Exception as e:
         logging.error(f"Error checking binance-historical-data: {e}")
         return False
+    
+    return False
 
 def download_klines(symbol, interval, start_date=None):
     """Download klines using binance-historical-data"""
