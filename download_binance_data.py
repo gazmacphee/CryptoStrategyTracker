@@ -79,14 +79,23 @@ def check_binance_historical_data_installed():
 
 def download_klines(symbol, interval, start_date=None):
     """Download klines using binance-historical-data"""
-    if not check_binance_historical_data_installed():
+    # Get the actual command/path to use
+    binance_cmd = check_binance_historical_data_installed()
+    if not binance_cmd:
         raise RuntimeError("binance-historical-data package not available")
         
     try:
-        cmd = ['binance-historical-data', '--symbol', symbol, '--interval', interval]
+        # Use the detected path or command
+        if isinstance(binance_cmd, str):
+            cmd = [binance_cmd, '--symbol', symbol, '--interval', interval]
+        else:
+            logging.error("Invalid binance-historical-data command type")
+            return None
+            
         if start_date:
             cmd.extend(['--startDate', start_date.strftime('%Y-%m-%d')])
-
+            
+        logging.info(f"Executing command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
@@ -155,20 +164,70 @@ def backfill_symbol_interval(symbol, interval):
     else:
         last_timestamp = None
 
-    # Download data in chunks
-    start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
-    current_date = start_date
+    # Get the current year and month
+    now = datetime.now()
+    current_year = now.year
+    current_month = now.month
+    
+    # Try to use binance-historical-data (npm package) first
+    try:
+        # Download data in chunks
+        start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
+        current_date = start_date
 
-    while current_date < datetime.now():
-        df = download_klines(symbol, interval, current_date)
-        if df is not None and not df.empty:
-            process_and_save_chunk(df, symbol, interval)
-            current_date = df['timestamp'].max() + timedelta(minutes=1)
-            logging.info(f"Processed up to {current_date}")
-        else:
-            logging.warning(f"No data available for {symbol} {interval} from {current_date}")
-            break
-        time.sleep(1)  # Rate limiting
+        while current_date < datetime.now():
+            df = download_klines(symbol, interval, current_date)
+            if df is not None and not df.empty:
+                process_and_save_chunk(df, symbol, interval)
+                current_date = df['timestamp'].max() + timedelta(minutes=1)
+                logging.info(f"Processed up to {current_date}")
+            else:
+                logging.warning(f"No data available via npm tool for {symbol} {interval} from {current_date}")
+                break
+            time.sleep(1)  # Rate limiting
+    except Exception as e:
+        logging.warning(f"Failed to use binance-historical-data npm package: {e}")
+        logging.info(f"Falling back to direct download method for {symbol}/{interval}")
+        
+        # Fallback to direct downloads from Binance Data Vision
+        # Start from 3 years ago
+        start_year = now.year - 3
+        start_month = now.month
+        
+        # Special handling for older data if we need it
+        if last_timestamp and last_timestamp.year < start_year:
+            start_year = last_timestamp.year
+            start_month = last_timestamp.month
+        
+        # Process each month from start date to now
+        for year in range(start_year, current_year + 1):
+            # Determine which months to process for this year
+            months_to_process = []
+            if year == start_year:
+                # Start from the specified start month
+                months_to_process = list(range(start_month, 13))
+            elif year == current_year:
+                # End with the current month
+                months_to_process = list(range(1, current_month + 1))
+            else:
+                # Process all months for years in between
+                months_to_process = list(range(1, 13))
+            
+            # Download data for each month
+            for month in months_to_process:
+                logging.info(f"Downloading data for {symbol}/{interval} for {year}-{month:02d}")
+                df = download_monthly_klines(symbol, interval, year, month)
+                
+                if df is not None and not df.empty:
+                    # Save to database
+                    save_historical_data(df, symbol, interval)
+                    calculate_and_save_indicators(df, symbol, interval)
+                    logging.info(f"Saved {len(df)} records for {symbol}/{interval} {year}-{month:02d}")
+                else:
+                    logging.warning(f"No data available for {symbol}/{interval} for {year}-{month:02d}")
+                
+                # Respect rate limits
+                time.sleep(1)
 
 def run_backfill(symbols=None, intervals=None, lookback_years=3):
     """
@@ -342,6 +401,35 @@ def download_monthly_klines(symbol, interval, year, month):
         logging.error(f"Error downloading data for {symbol}/{interval} {year}-{month:02d}: {e}")
         print(f"       ❌ Error downloading: {str(e)}")
         return None
+
+def calculate_and_save_indicators(df, symbol, interval):
+    """
+    Calculate technical indicators for a DataFrame and save to database
+    
+    Args:
+        df: DataFrame with OHLCV data
+        symbol: Trading pair symbol
+        interval: Time interval
+    """
+    if df is None or df.empty:
+        logging.warning(f"No data to calculate indicators for {symbol}/{interval}")
+        return
+        
+    # Calculate technical indicators
+    df = indicators.add_bollinger_bands(df)
+    df = indicators.add_rsi(df)
+    df = indicators.add_macd(df)
+    df = indicators.add_ema(df)
+    df = indicators.add_atr(df)
+    df = indicators.add_stochastic(df)
+    
+    # Calculate trading signals
+    df = evaluate_buy_sell_signals(df)
+    
+    # Save indicators to database
+    save_indicators(df, symbol, interval)
+    
+    logging.info(f"Calculated and saved indicators for {symbol}/{interval} ({len(df)} records)")
 
 def download_daily_klines(symbol, interval, year, month):
     """
