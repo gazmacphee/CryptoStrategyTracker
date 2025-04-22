@@ -13,6 +13,21 @@ from database import get_db_connection, create_tables
 from binance_api import get_available_symbols
 from download_single_pair import download_and_process
 
+# Remove lock files at import time to ensure clean starts
+def _remove_stale_lock_files():
+    """Remove stale lock files at module import time"""
+    lock_files = ['.backfill_lock', 'backfill_progress.json.lock']
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                print(f"Removed potentially stale lock file at startup: {lock_file}")
+            except Exception as e:
+                print(f"Warning: Failed to remove lock file {lock_file}: {e}")
+
+# Remove lock files at module import time
+_remove_stale_lock_files()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

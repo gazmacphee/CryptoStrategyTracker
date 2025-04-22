@@ -10,6 +10,18 @@ import sys
 import subprocess
 import pathlib
 
+def remove_lock_files():
+    """Remove any existing lock files to ensure clean startup"""
+    lock_files = ['.backfill_lock', 'backfill_progress.json.lock']
+    
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                print(f"✅ Removed existing lock file: {lock_file}")
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to remove lock file {lock_file}: {e}")
+
 def main():
     # Load environment variables from .env file
     print("Loading environment variables from .env file...")
@@ -74,8 +86,12 @@ def main():
         print("Example format: DATABASE_URL=postgresql://username:password@localhost:5432/dbname")
         sys.exit(1)
     
+    # Remove any existing lock files before starting
+    print("\nChecking for and removing any existing lock files...")
+    remove_lock_files()
+    
     # Start the application
-    print("Starting the application...")
+    print("\nStarting the application...")
     print(f"Using DATABASE_URL: {os.environ['DATABASE_URL'].split('@')[1] if '@' in os.environ['DATABASE_URL'] else os.environ['DATABASE_URL']}")
     subprocess.run([sys.executable, "reset_and_start.py"])
 

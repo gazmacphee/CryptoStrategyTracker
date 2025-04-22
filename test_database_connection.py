@@ -124,10 +124,28 @@ def test_database_connection():
         
         return False
 
+def remove_lock_files():
+    """Remove any existing lock files to ensure clean startup"""
+    lock_files = ['.backfill_lock', 'backfill_progress.json.lock']
+    
+    print("\nChecking for and removing any lock files...")
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                print(f"✅ Removed existing lock file: {lock_file}")
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to remove lock file {lock_file}: {e}")
+        else:
+            print(f"✓ No {lock_file} file found")
+
 def main():
     print("=" * 80)
     print("Database Connection Test Tool")
     print("=" * 80)
+    
+    # Remove any lock files to ensure a clean start
+    remove_lock_files()
     
     # Load environment variables
     if not manual_load_env():
