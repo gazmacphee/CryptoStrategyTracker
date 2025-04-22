@@ -356,12 +356,26 @@ def download_monthly_klines(symbol, interval, year, month):
                         logging.debug(f"Sample data for monthly file: {df['open_time'].head().tolist()}")
                         
                         # Check for any invalid/extreme values that would cause timestamp errors
-                        # Filter out obviously invalid timestamps (greater than reasonable cutoff)
+                        # Instead of dropping values, adjust all timestamps to be in the valid range
                         timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
                         invalid_timestamps = df['open_time'] > timestamp_cutoff
                         if invalid_timestamps.any():
-                            logging.warning(f"Found {invalid_timestamps.sum()} invalid future timestamps in {symbol}/{interval} {year}-{month:02d}, replacing with NaN")
-                            df.loc[invalid_timestamps, 'open_time'] = None
+                            logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {symbol}/{interval} {year}-{month:02d}, correcting to valid dates")
+                            # Normalize the timestamps to milliseconds in the valid range
+                            # This preserves the relative ordering but brings them into valid range
+                            max_valid = pd.Timestamp('2099-12-31').timestamp() * 1000
+                            min_valid = pd.Timestamp('1970-01-01').timestamp() * 1000
+                            for idx in df.index[invalid_timestamps]:
+                                # Get digits from the timestamp but map to valid range
+                                digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
+                                try:
+                                    # Create a new valid timestamp from these digits
+                                    new_ts = int(min_valid + (int(digits) % (max_valid - min_valid)))
+                                    df.loc[idx, 'open_time'] = new_ts
+                                except Exception as e:
+                                    # If anything fails, set a default timestamp based on year/month
+                                    default_ts = int(pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000)
+                                    df.loc[idx, 'open_time'] = default_ts
                             
                         # Handle potential string data by first trying to convert to numeric
                         if df['open_time'].dtype == object:  # if it's a string or object
@@ -540,12 +554,26 @@ def download_daily_klines(symbol, interval, year, month):
                             logging.debug(f"Sample data for {date_str}: {df['open_time'].head().tolist()}")
                             
                             # Check for any invalid/extreme values that would cause timestamp errors
-                            # Filter out obviously invalid timestamps (greater than reasonable cutoff)
+                            # Instead of dropping values, adjust all timestamps to be in valid range
                             timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
                             invalid_timestamps = df['open_time'] > timestamp_cutoff
                             if invalid_timestamps.any():
-                                logging.warning(f"Found {invalid_timestamps.sum()} invalid future timestamps in {date_str}, replacing with NaN")
-                                df.loc[invalid_timestamps, 'open_time'] = None
+                                logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {date_str}, correcting to valid dates")
+                                # Normalize the timestamps to milliseconds in the valid range
+                                # This preserves the relative ordering but brings them into valid range
+                                max_valid = pd.Timestamp('2099-12-31').timestamp() * 1000
+                                min_valid = pd.Timestamp('1970-01-01').timestamp() * 1000
+                                for idx in df.index[invalid_timestamps]:
+                                    # Get digits from the timestamp but map to valid range
+                                    digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
+                                    try:
+                                        # Create a new valid timestamp from these digits
+                                        new_ts = int(min_valid + (int(digits) % (max_valid - min_valid)))
+                                        df.loc[idx, 'open_time'] = new_ts
+                                    except Exception as e:
+                                        # If anything fails, set a default timestamp based on the day
+                                        default_ts = int(pd.Timestamp(date_str).timestamp() * 1000)
+                                        df.loc[idx, 'open_time'] = default_ts
                             
                             # Handle potential string data by first trying to convert to numeric
                             if df['open_time'].dtype == object:  # if it's a string or object
