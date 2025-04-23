@@ -1268,3 +1268,228 @@ def get_profitable_trades(symbol, interval, min_profit_pct=0, limit=50):
     finally:
         if conn:
             conn.close()
+def save_dxy_data(df):
+    """
+    Save US Dollar Index (DXY) data to database
+    
+    Args:
+        df: DataFrame with DXY data (must have timestamp and close columns at minimum)
+        
+    Returns:
+        Boolean indicating success
+    """
+    if df.empty:
+        return False
+    
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert data row by row
+        insert_query = """
+        INSERT INTO dollar_index 
+        (timestamp, close, open, high, low, volume)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (timestamp) 
+        DO UPDATE SET
+            close = EXCLUDED.close,
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            volume = EXCLUDED.volume,
+            created_at = CURRENT_TIMESTAMP
+        """
+        
+        data_tuples = []
+        for _, row in df.iterrows():
+            # Get values with appropriate null handling
+            open_val = float(row['open']) if 'open' in row and not pd.isna(row['open']) else None
+            high_val = float(row['high']) if 'high' in row and not pd.isna(row['high']) else None
+            low_val = float(row['low']) if 'low' in row and not pd.isna(row['low']) else None
+            volume_val = float(row['volume']) if 'volume' in row and not pd.isna(row['volume']) else None
+            
+            data_tuples.append((
+                row['timestamp'],
+                float(row['close']),
+                open_val,
+                high_val,
+                low_val,
+                volume_val
+            ))
+        
+        cur.executemany(insert_query, data_tuples)
+        conn.commit()
+        
+        return True
+    except psycopg2.Error as e:
+        print(f"Error saving DXY data: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_dxy_data(start_time=None, end_time=None):
+    """
+    Get US Dollar Index data from database
+    
+    Args:
+        start_time: Start time for data (datetime or string YYYY-MM-DD)
+        end_time: End time for data (datetime or string YYYY-MM-DD)
+        
+    Returns:
+        DataFrame with DXY data
+    """
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Build query based on parameters
+        query = "SELECT timestamp, close, open, high, low, volume FROM dollar_index "
+        params = []
+        
+        if start_time or end_time:
+            query += "WHERE "
+            
+            if start_time:
+                # Convert string to datetime if needed
+                if isinstance(start_time, str):
+                    start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                query += "timestamp >= %s "
+                params.append(start_time)
+                
+                if end_time:
+                    query += "AND "
+            
+            if end_time:
+                # Convert string to datetime if needed
+                if isinstance(end_time, str):
+                    end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                query += "timestamp <= %s "
+                params.append(end_time)
+        
+        query += "ORDER BY timestamp ASC"
+        
+        # Use custom function to execute query
+        df = execute_sql_to_df(query, conn, params=tuple(params) if params else None)
+        
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching DXY data: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_liquidity_data(df):
+    """
+    Save global liquidity indicator data to database
+    
+    Args:
+        df: DataFrame with global liquidity data 
+            (must have indicator_name, timestamp, and value columns)
+        
+    Returns:
+        Boolean indicating success
+    """
+    if df.empty:
+        return False
+    
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        
+        # Insert data row by row
+        insert_query = """
+        INSERT INTO global_liquidity 
+        (indicator_name, timestamp, value)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (indicator_name, timestamp) 
+        DO UPDATE SET
+            value = EXCLUDED.value,
+            created_at = CURRENT_TIMESTAMP
+        """
+        
+        data_tuples = []
+        for _, row in df.iterrows():
+            data_tuples.append((
+                row['indicator_name'],
+                row['timestamp'],
+                float(row['value'])
+            ))
+        
+        cur.executemany(insert_query, data_tuples)
+        conn.commit()
+        
+        return True
+    except psycopg2.Error as e:
+        print(f"Error saving liquidity data: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_liquidity_data(indicator_name=None, start_time=None, end_time=None):
+    """
+    Get global liquidity data from database
+    
+    Args:
+        indicator_name: Specific indicator name to filter by (or None for all)
+        start_time: Start time for data (datetime or string YYYY-MM-DD)
+        end_time: End time for data (datetime or string YYYY-MM-DD)
+        
+    Returns:
+        DataFrame with liquidity data
+    """
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    
+    try:
+        # Build query based on parameters
+        query = "SELECT indicator_name, timestamp, value FROM global_liquidity "
+        params = []
+        where_clauses = []
+        
+        if indicator_name:
+            where_clauses.append("indicator_name = %s")
+            params.append(indicator_name)
+        
+        if start_time:
+            # Convert string to datetime if needed
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            where_clauses.append("timestamp >= %s")
+            params.append(start_time)
+        
+        if end_time:
+            # Convert string to datetime if needed
+            if isinstance(end_time, str):
+                end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            where_clauses.append("timestamp <= %s")
+            params.append(end_time)
+        
+        if where_clauses:
+            query += "WHERE " + " AND ".join(where_clauses)
+        
+        query += " ORDER BY indicator_name, timestamp ASC"
+        
+        # Use custom function to execute query
+        df = execute_sql_to_df(query, conn, params=tuple(params) if params else None)
+        
+        return df
+    except psycopg2.Error as e:
+        print(f"Error fetching liquidity data: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()

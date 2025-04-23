@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
 
-from database import get_db_connection
+from database import get_db_connection, save_dxy_data, get_dxy_data, save_liquidity_data, get_liquidity_data
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -356,6 +356,42 @@ def save_liquidity_to_database(df):
     
     return records_saved
 
+def get_dxy_data_from_api(start_date=None, end_date=None):
+    """
+    Get US Dollar Index data directly from external API
+    
+    Args:
+        start_date: Start date for data (datetime or string YYYY-MM-DD)
+        end_date: End date for data (datetime or string YYYY-MM-DD)
+        
+    Returns:
+        DataFrame with DXY data
+    """
+    # Convert string dates to datetime if needed
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # Default dates if not provided
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=365)
+    if end_date is None:
+        end_date = datetime.now()
+    
+    # Try Yahoo Finance first
+    df = fetch_dxy_data_yahoo(start_date, end_date)
+    
+    # If Yahoo fails, try Alpha Vantage
+    if df.empty and ALPHA_VANTAGE_API_KEY:
+        df = fetch_dxy_data_alpha_vantage()
+    
+    # Save to database if we got data
+    if not df.empty:
+        save_dxy_data(df)
+    
+    return df
+
 def get_dxy_data(start_date=None, end_date=None):
     """
     Get US Dollar Index data from database or fetch from external source if missing
@@ -379,44 +415,15 @@ def get_dxy_data(start_date=None, end_date=None):
     if end_date is None:
         end_date = datetime.now()
     
-    conn = get_db_connection()
-    df = pd.DataFrame()
+    # Use centralized database function to get DXY data
+    df = get_dxy_data(start_date, end_date)
     
-    try:
-        # First try to get data from database
-        query = """
-        SELECT timestamp, close, open, high, low, volume
-        FROM dollar_index
-        WHERE timestamp BETWEEN %s AND %s
-        ORDER BY timestamp
-        """
-        
-        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-        
-        # If we have no data or incomplete data, fetch from external source
-        if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
-            logger.info(f"Insufficient DXY data in database, fetching from external source")
-            
-            # Try Yahoo Finance first
-            external_df = fetch_dxy_data_yahoo(start_date, end_date)
-            
-            # If Yahoo fails, try Alpha Vantage
-            if external_df.empty and ALPHA_VANTAGE_API_KEY:
-                external_df = fetch_dxy_data_alpha_vantage()
-            
-            # Save new data to database
-            if not external_df.empty:
-                save_dxy_to_database(external_df)
-                
-                # Re-query to get all data including the newly saved records
-                df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-        
-        logger.info(f"Retrieved {len(df)} DXY records from database")
-    except Exception as e:
-        logger.error(f"Error getting DXY data: {e}")
-    finally:
-        conn.close()
+    # If we have no data or incomplete data, fetch from external source
+    if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
+        logger.info(f"Insufficient DXY data in database, fetching from external source")
+        df = get_dxy_data_from_api(start_date, end_date)
     
+    logger.info(f"Retrieved {len(df)} DXY records")
     return df
 
 def get_liquidity_data(indicator=None, start_date=None, end_date=None):
@@ -508,13 +515,15 @@ def update_economic_indicators():
         
         dxy_df = fetch_dxy_data_yahoo(start_date, end_date)
         if not dxy_df.empty:
-            save_dxy_to_database(dxy_df)
+            # Use centralized database function to save DXY data
+            save_dxy_data(dxy_df)
         
         # Update liquidity indicators
         for indicator, series_id in GLOBAL_LIQUIDITY_INDICATORS.items():
             df = fetch_fred_data(series_id, start_date, end_date)
             if not df.empty:
-                save_liquidity_to_database(df)
+                # Use centralized database function to save liquidity data
+                save_liquidity_data(df)
                 
         logger.info("Economic indicators updated successfully")
         return True
