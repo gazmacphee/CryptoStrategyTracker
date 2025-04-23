@@ -454,6 +454,45 @@ def create_tables():
         ON detected_patterns(symbol, interval, timestamp);
         """)
         
+        # Create US Dollar Index (DXY) table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS dollar_index (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP NOT NULL,
+            close NUMERIC NOT NULL,
+            open NUMERIC,
+            high NUMERIC,
+            low NUMERIC,
+            volume NUMERIC,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(timestamp)
+        );
+        """)
+        
+        # Create index for Dollar Index
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_dollar_index_timestamp
+        ON dollar_index(timestamp);
+        """)
+        
+        # Create Global Liquidity Indicators table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS global_liquidity (
+            id SERIAL PRIMARY KEY,
+            indicator_name VARCHAR(50) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            value NUMERIC NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(indicator_name, timestamp)
+        );
+        """)
+        
+        # Create index for Global Liquidity
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_global_liquidity_timestamp
+        ON global_liquidity(indicator_name, timestamp);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
