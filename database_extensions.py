@@ -125,40 +125,97 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             finally:
                 conn.close()
     
+    # Let's directly query the database for 30m data and resample it
+    if interval == '1h':
+        from datetime import datetime, timedelta
+        import pandas as pd
+        
+        # Calculate date range if not provided
+        if end_date is None:
+            end_time = datetime.now()
+        else:
+            end_time = end_date if isinstance(end_date, datetime) else datetime.strptime(end_date, '%Y-%m-%d')
+        
+        if start_date is not None:
+            start_time = start_date if isinstance(start_date, datetime) else datetime.strptime(start_date, '%Y-%m-%d')
+        else:
+            start_time = end_time - timedelta(days=lookback_days)
+            
+        # Format timestamps for SQL query
+        start_timestamp = int(start_time.timestamp() * 1000)
+        end_timestamp = int(end_time.timestamp() * 1000)
+        
+        conn = database.get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                # Query 30m data directly
+                query = """
+                    SELECT * FROM historical_data 
+                    WHERE symbol = %s AND interval = '30m' 
+                    AND timestamp BETWEEN to_timestamp(%s/1000) AND to_timestamp(%s/1000)
+                    ORDER BY timestamp ASC
+                """
+                cursor.execute(query, (symbol, start_timestamp, end_timestamp))
+                rows = cursor.fetchall()
+                
+                # Get column names
+                columns = [desc[0] for desc in cursor.description]
+                
+                # Create DataFrame
+                df_30m = pd.DataFrame(rows, columns=columns)
+                
+                if not df_30m.empty:
+                    print(f"Retrieved {len(df_30m)} rows of 30m data for {symbol}")
+                    
+                    # Convert to datetime
+                    if 'timestamp' in df_30m.columns:
+                        df_30m['timestamp'] = pd.to_datetime(df_30m['timestamp'])
+                    
+                    # Set timestamp as index for resampling
+                    df_30m = df_30m.set_index('timestamp')
+                    
+                    # Resample to 1h
+                    df_1h = df_30m.resample('1H').agg({
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum'
+                    })
+                    
+                    # Reset index to get timestamp as column again
+                    df_1h = df_1h.reset_index()
+                    
+                    # Restore the original column order and add any missing columns
+                    for col in columns:
+                        if col not in df_1h.columns and col not in ['id', 'created_at']:
+                            df_1h[col] = None
+                    
+                    # Set the interval to 1h
+                    if 'interval' in df_1h.columns:
+                        df_1h['interval'] = '1h'
+                        
+                    print(f"Successfully resampled 30m data to 1h: {len(df_1h)} rows")
+                    return df_1h
+            except Exception as e:
+                print(f"Error querying 30m data: {e}")
+            finally:
+                conn.close()
+                
+    # If we couldn't convert 30m data to 1h, fall back to the original method
     try:
-        # First try to import from binance_api
+        # Now try to import from binance_api
         from binance_api import get_historical_data as binance_get_historical_data
         
-        print(f"Getting historical data for {symbol}/{interval} using binance_api function")
+        print(f"Falling back to binance_api.get_historical_data for {symbol}/{interval}")
         df = binance_get_historical_data(symbol, interval, lookback_days, start_date, end_date)
         
-        # If we're using 30m data but need 1h, resample it
-        if use_30m and df is not None and not df.empty:
-            print(f"Resampling 30m data to 1h for {symbol}")
-            import pandas as pd
+        if df is not None and not df.empty:
+            print(f"Successfully retrieved {len(df)} rows from binance_api.get_historical_data")
+        else:
+            print(f"No data retrieved from binance_api.get_historical_data")
             
-            # Make sure timestamp is datetime
-            if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-            
-            # Set timestamp as index for resampling
-            df = df.set_index('timestamp')
-            
-            # Resample to 1h
-            df_resampled = df.resample('1H').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum'
-            })
-            
-            # Reset index to get timestamp as column again
-            df_resampled = df_resampled.reset_index()
-            
-            print(f"Resampled 30m data to 1h: original {len(df)} rows, resampled {len(df_resampled)} rows")
-            return df_resampled
-        
         return df
     except Exception as e:
         print(f"Error using binance_api.get_historical_data: {e}")

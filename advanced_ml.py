@@ -22,8 +22,13 @@ import trading_signals
 # Import database extensions to ensure all required database functions are available
 try:
     import database_extensions
+    from database_extensions import get_historical_data
 except ImportError:
     print("Warning: database_extensions module not found. Some database functions may be missing.")
+    # Create a fallback function (although we shouldn't need it)
+    def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
+        print(f"Using fallback get_historical_data for {symbol}/{interval}")
+        return None
 
 # Import ML database operations
 try:
@@ -647,14 +652,41 @@ class MultiSymbolPatternAnalyzer:
             data = {}
             
             def fetch_symbol_interval(symbol, interval):
-                # Use get_historical_data function from database module
+                # Directly import the database modules here to ensure they're available
+                import database
+                from database_extensions import get_historical_data
+                
+                print(f"Fetching data for {symbol}/{interval} with lookback of {days} days")
+                
+                # Use get_historical_data function from database_extensions module
                 df = get_historical_data(symbol, interval, lookback_days=days)
+                
                 if df is not None and not df.empty:
                     # Log the data retrieval success
-                    print(f"Retrieved {len(df)} rows for {symbol}/{interval}")
+                    print(f"Successfully retrieved {len(df)} rows for {symbol}/{interval}")
+                    
+                    # Add any required post-processing here
+                    import pandas as pd
+                    
+                    # Ensure timestamp is in datetime format
+                    if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                        df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    
+                    # Make sure we have all required columns
+                    required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                    for col in required_columns:
+                        if col not in df.columns:
+                            print(f"Warning: Required column '{col}' missing from data")
+                            return (symbol, interval), None
+                    
+                    # Sort by timestamp to ensure chronological order
+                    df = df.sort_values('timestamp')
+                    
+                    print(f"Data for {symbol}/{interval} is ready for processing with {len(df)} rows")
                     return (symbol, interval), df
                 else:
                     print(f"No data retrieved for {symbol}/{interval}")
+                
                 return (symbol, interval), None
             
             # Use ThreadPoolExecutor to parallelize data fetching
