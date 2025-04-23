@@ -132,11 +132,12 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             
             # Query the database
             cursor = conn.cursor()
+            # Fix the query to use timestamp instead of open_time
             query = """
                 SELECT * FROM historical_data 
                 WHERE symbol = %s AND interval = %s 
-                AND open_time BETWEEN %s AND %s
-                ORDER BY open_time ASC
+                AND timestamp BETWEEN to_timestamp(%s/1000) AND to_timestamp(%s/1000)
+                ORDER BY timestamp ASC
             """
             cursor.execute(query, (symbol, interval, start_timestamp, end_timestamp))
             rows = cursor.fetchall()
@@ -147,9 +148,11 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             # Create DataFrame
             df = pd.DataFrame(rows, columns=columns)
             
-            # Convert timestamp to datetime
-            if not df.empty and 'open_time' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+            # Make sure timestamp is in datetime format
+            if not df.empty and 'timestamp' in df.columns:
+                # Convert to pandas datetime if it's not already
+                if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
             
             return df
             
