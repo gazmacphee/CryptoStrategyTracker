@@ -922,34 +922,58 @@ class MultiSymbolPatternAnalyzer:
 # Utility functions
 def train_all_pattern_models():
     """Train pattern models for popular symbols and intervals"""
+    logger.info("Starting pattern model training")
     analyzer = MultiSymbolPatternAnalyzer()
-    results = analyzer.train_pattern_models()
     
-    # Ensure results is properly structured
-    if not isinstance(results, dict):
-        logger.warning("Invalid train_pattern_models result format")
+    try:
+        logger.info("Calling train_pattern_models()")
+        results = analyzer.train_pattern_models()
+        logger.info(f"Got result type: {type(results)}")
+        
+        if isinstance(results, dict):
+            logger.info(f"Result keys: {list(results.keys())}")
+        else:
+            logger.info(f"Result is not a dictionary: {results}")
+        
+        # Ensure results is properly structured
+        if not isinstance(results, dict):
+            logger.warning("Invalid train_pattern_models result format")
+            logger.info("Returning fallback empty dictionary with proper structure")
+            return {
+                'total': 0,
+                'successful': 0,
+                'details': {}
+            }
+        
+        # Ensure result has the expected keys
+        if 'total' not in results or 'successful' not in results:
+            logger.warning("Missing keys in train_pattern_models result")
+            # Try to reconstruct the dictionary if details is available
+            if 'details' in results and isinstance(results['details'], dict):
+                successful_models = sum(1 for v in results['details'].values() if v)
+                results['total'] = len(results['details'])
+                results['successful'] = successful_models
+                logger.info(f"Reconstructed results from details: total={results['total']}, successful={results['successful']}")
+            else:
+                logger.info("Could not reconstruct from details, using fallback structure")
+                results = {
+                    'total': 0,
+                    'successful': 0,
+                    'details': results.get('details', {}) if isinstance(results, dict) else {}
+                }
+        
+        logger.info(f"Returning training results: {results['successful']}/{results['total']} models trained")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error during pattern model training: {str(e)}")
+        logger.exception("Exception details:")
         return {
             'total': 0,
             'successful': 0,
-            'details': {}
+            'details': {},
+            'error': str(e)
         }
-    
-    # Ensure result has the expected keys
-    if 'total' not in results or 'successful' not in results:
-        logger.warning("Missing keys in train_pattern_models result")
-        # Try to reconstruct the dictionary if details is available
-        if 'details' in results and isinstance(results['details'], dict):
-            successful_models = sum(1 for v in results['details'].values() if v)
-            results['total'] = len(results['details'])
-            results['successful'] = successful_models
-        else:
-            results = {
-                'total': 0,
-                'successful': 0,
-                'details': results.get('details', {}) if isinstance(results, dict) else {}
-            }
-    
-    return results
 
 def get_pattern_recommendations(min_strength=0.7, max_days_old=2, limit=10):
     """Get current pattern recommendations for trading"""
