@@ -663,10 +663,30 @@ class ProcessManager:
         except KeyboardInterrupt:
             logging.info("Process monitor interrupted")
         finally:
+            # Only save state and remove the lock file
+            # DO NOT stop running processes when monitor exits
             self._save_process_state()
             self.remove_lock_file()
             logging.info("Process monitor stopped")
 
+    def keep_processes_running(self) -> None:
+        """Start all processes and ensure they remain running when this method exits."""
+        # Start all processes
+        self.start_all_processes()
+        
+        # Save current process state
+        self._save_process_state()
+        
+        # Just print status and return
+        self.print_status()
+        
+        # Don't clean up or stop processes
+        # Only remove lock file if it exists
+        if os.path.exists(".process_manager.lock"):
+            self.remove_lock_file()
+            
+        print("\nProcesses will continue running in the background!")
+        
     def cleanup(self) -> None:
         """Clean up resources and stop all processes before exiting."""
         self.stop_all_processes()
@@ -838,8 +858,8 @@ if __name__ == "__main__":
 def main():
     """Main entry point for the process manager."""
     parser = argparse.ArgumentParser(description='Process Manager for Crypto Trading Platform')
-    parser.add_argument('action', choices=['start', 'stop', 'restart', 'status', 'monitor'],
-                      help='Action to perform: start, stop, restart, status, or monitor')
+    parser.add_argument('action', choices=['start', 'stop', 'restart', 'status', 'monitor', 'run'],
+                      help='Action to perform: start, stop, restart, status, monitor, or run (start and keep running)')
     parser.add_argument('--process', help='Specific process to act on (for restart only)')
     
     args = parser.parse_args()
@@ -877,11 +897,23 @@ def main():
         
         elif args.action == 'monitor':
             manager.run_monitor()
+            
+        elif args.action == 'run':
+            # This action starts all processes and ensures they keep running
+            manager.keep_processes_running()
     
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
-    finally:
-        manager.cleanup()
+        # Only clean up if we're not trying to start or monitor processes
+        if args.action in ['stop']:
+            manager.cleanup()
+        elif args.action in ['start', 'restart', 'monitor', 'run']:
+            # For these actions, we want processes to keep running
+            # Only remove the process manager lock file
+            manager.remove_lock_file()
+        else:
+            # For status and other actions, just clean up the manager itself
+            manager.remove_lock_file()
 
 
 if __name__ == "__main__":
