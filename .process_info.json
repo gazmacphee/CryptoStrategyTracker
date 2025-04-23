@@ -1,25 +1,31 @@
 {
-  "last_update": "2025-04-23T16:59:45.315177",
+  "last_update": "2025-04-23T17:23:39.908212",
   "processes": {
     "backfill": {
-      "pid": 2801,
+      "pid": 3683,
       "status": "running",
-      "start_time": "2025-04-23T16:59:33.265209",
+      "start_time": "2025-04-23T17:23:27.857509",
       "restarts": 0
     },
     "signal_generator": {
-      "pid": 2838,
+      "pid": 3720,
       "status": "running",
-      "start_time": "2025-04-23T16:59:35.301864",
+      "start_time": "2025-04-23T17:23:29.878287",
+      "restarts": 0
+    },
+    "news_retrieval": {
+      "pid": 3754,
+      "status": "running",
+      "start_time": "2025-04-23T17:23:33.903186",
       "restarts": 0
     }
   },
   "last_run_times": {
-    "news_retrieval": "2025-04-23T16:00:28.058204",
+    "news_retrieval": "2025-04-23T17:23:33.903196",
     "sentiment_analysis": "2025-04-23T15:00:16.092535",
     "economic_indicators": "2025-04-23T10:59:11.711477",
     "ml_training": "2025-04-23T16:01:22.123380",
-    "backfill": "2025-04-23T16:59:33.265219",
-    "signal_generator": "2025-04-23T16:59:35.301910"
+    "backfill": "2025-04-23T17:23:27.857521",
+    "signal_generator": "2025-04-23T17:23:29.878306"
   }
 }
