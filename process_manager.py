@@ -22,10 +22,18 @@ import signal
 import logging
 import subprocess
 import json
-import psutil
 import argparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+# Import psutil with fallback for cross-platform compatibility
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except (ImportError, OSError):
+    PSUTIL_AVAILABLE = False
+    logging.warning("psutil not available or not working properly on this system. "
+                   "Process management will use basic OS functions instead.")
 
 # Configure logging
 logging.basicConfig(
@@ -209,11 +217,24 @@ class ProcessManager:
     @staticmethod
     def _is_process_running(pid: int) -> bool:
         """Check if a process with the given PID is running."""
-        try:
-            process = psutil.Process(pid)
-            return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        if not pid:
             return False
+            
+        # Use psutil if available
+        if PSUTIL_AVAILABLE:
+            try:
+                process = psutil.Process(pid)
+                return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, Exception):
+                return False
+        else:
+            # Fallback to basic OS check
+            try:
+                # On UNIX-like systems, sending signal 0 checks if process exists
+                os.kill(pid, 0)
+                return True
+            except (OSError, ProcessLookupError):
+                return False
 
     def start_all_processes(self) -> None:
         """Start all managed processes in priority order."""
@@ -354,35 +375,74 @@ class ProcessManager:
         
         pid = self.processes[proc_id]['pid']
         
+        # Close the log file if it exists
+        log_file = self.processes[proc_id].get('log_file')
+        if log_file and not log_file.closed:
+            log_file.close()
+        
+        if PSUTIL_AVAILABLE:
+            try:
+                process = psutil.Process(pid)
+                logging.info(f"Stopping process {proc_id} (PID {pid})...")
+                
+                # Try graceful termination first
+                process.terminate()
+                
+                # Wait for up to 5 seconds for the process to terminate
+                gone, alive = psutil.wait_procs([process], timeout=5)
+                
+                # If still alive, kill it
+                if alive:
+                    logging.warning(f"Process {proc_id} (PID {pid}) did not terminate gracefully, killing...")
+                    process.kill()
+                
+                # Update process status
+                self.processes[proc_id]['status'] = 'stopped'
+                self.processes[proc_id]['pid'] = None
+                
+                logging.info(f"Process {proc_id} stopped")
+                return True
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError) as e:
+                logging.warning(f"Process {proc_id} (PID {pid}) already terminated: {e}")
+                self.processes[proc_id]['status'] = 'stopped'
+                self.processes[proc_id]['pid'] = None
+                return True
+            except Exception as e:
+                logging.error(f"Error stopping process {proc_id} (PID {pid}) with psutil: {e}")
+                # Fall back to basic OS approach
+        
+        # Basic OS process termination (used when psutil is not available)
         try:
-            process = psutil.Process(pid)
-            logging.info(f"Stopping process {proc_id} (PID {pid})...")
+            logging.info(f"Stopping process {proc_id} (PID {pid}) using OS signals...")
+            # Try sending SIGTERM signal first for graceful shutdown
+            os.kill(pid, signal.SIGTERM)
             
-            # Try graceful termination first
-            process.terminate()
-            
-            # Wait for up to 5 seconds for the process to terminate
-            gone, alive = psutil.wait_procs([process], timeout=5)
-            
-            # If still alive, kill it
-            if alive:
-                logging.warning(f"Process {proc_id} (PID {pid}) did not terminate gracefully, killing...")
-                process.kill()
-            
-            # Close the log file if it exists
-            log_file = self.processes[proc_id].get('log_file')
-            if log_file and not log_file.closed:
-                log_file.close()
+            # Give the process a moment to terminate
+            for _ in range(10):  # Wait up to 5 seconds
+                time.sleep(0.5)
+                try:
+                    # Check if process still exists
+                    os.kill(pid, 0)
+                except OSError:
+                    # Process no longer exists
+                    break
+            else:
+                # Process still exists after waiting, try SIGKILL
+                try:
+                    logging.warning(f"Process {proc_id} (PID {pid}) did not terminate with SIGTERM, sending SIGKILL...")
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass  # Process likely already terminated
             
             # Update process status
             self.processes[proc_id]['status'] = 'stopped'
             self.processes[proc_id]['pid'] = None
-            
             logging.info(f"Process {proc_id} stopped")
             return True
             
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError) as e:
-            logging.warning(f"Process {proc_id} (PID {pid}) already terminated: {e}")
+        except (OSError, ProcessLookupError) as e:
+            logging.warning(f"Process {proc_id} (PID {pid}) already terminated or not accessible: {e}")
             self.processes[proc_id]['status'] = 'stopped'
             self.processes[proc_id]['pid'] = None
             return True
