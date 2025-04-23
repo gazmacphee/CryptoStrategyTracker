@@ -38,14 +38,6 @@ except ImportError:
         print(f"Using fallback get_historical_data for {symbol}/{interval}")
         return None
 
-# Import ML database operations
-try:
-    import db_ml_operations
-    ML_DB_AVAILABLE = True
-except ImportError:
-    print("Warning: db_ml_operations module not available. ML data will not be saved to database.")
-    ML_DB_AVAILABLE = False
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -179,45 +171,47 @@ class PatternRecognitionModel:
         for lookahead in [1, 3, 5, 10, 20]:
             df[f'future_return_{lookahead}d'] = df['close'].pct_change(periods=-lookahead)
         
+        # Lower thresholds for pattern labeling to work with limited historical data
+        
         # Label the patterns
         # 1. Double bottom (bullish)
-        df['double_bottom'] = df['potential_double_bottom'] & (df['future_return_10d'] > 0.03)
+        df['double_bottom'] = df['potential_double_bottom'] & (df['future_return_10d'] > 0.02)
         
         # 2. Double top (bearish)
-        df['double_top'] = df['potential_double_top'] & (df['future_return_10d'] < -0.03)
+        df['double_top'] = df['potential_double_top'] & (df['future_return_10d'] < -0.02)
         
         # 3. Bull flag (bullish continuation)
         df['bull_flag'] = (df['close'] > df['close'].rolling(20).mean()) & \
-                           (df['close'].pct_change(10) > 0.05) & \
+                           (df['close'].pct_change(10) > 0.03) & \
                            (df['close'].pct_change(5) < 0.02) & \
-                           (df['future_return_10d'] > 0.03)
+                           (df['future_return_10d'] > 0.02)
         
         # 4. Bear flag (bearish continuation)
         df['bear_flag'] = (df['close'] < df['close'].rolling(20).mean()) & \
-                           (df['close'].pct_change(10) < -0.05) & \
+                           (df['close'].pct_change(10) < -0.03) & \
                            (df['close'].pct_change(5) > -0.02) & \
-                           (df['future_return_10d'] < -0.03)
+                           (df['future_return_10d'] < -0.02)
         
         # 5. Support bounce (bullish)
         df['support_bounce'] = df['near_support'] & (df['close'] > df['open']) & \
-                               (df['future_return_5d'] > 0.02)
+                               (df['future_return_5d'] > 0.015)
         
         # 6. Resistance breakdown (bearish)
         df['resistance_breakdown'] = df['near_resistance'] & (df['close'] < df['open']) & \
-                                     (df['future_return_5d'] < -0.02)
+                                     (df['future_return_5d'] < -0.015)
         
         # 7. Volume-supported reversal (can be bullish or bearish)
-        df['volume_reversal'] = (df['rel_volume'] > 1.5) & \
+        df['volume_reversal'] = (df['rel_volume'] > 1.3) & \
                                 (df['close'].pct_change() * df['close'].pct_change(1) < 0) & \
-                                (abs(df['future_return_5d']) > 0.03)
+                                (abs(df['future_return_5d']) > 0.02)
         
         # 8. Momentum shift (direction depends on the shift)
         if 'rsi' in df.columns:
-            df['momentum_shift_bullish'] = (df['rsi'].shift(5) < 30) & (df['rsi'] > 40) & \
-                                           (df['future_return_10d'] > 0.04)
+            df['momentum_shift_bullish'] = (df['rsi'].shift(5) < 35) & (df['rsi'] > 40) & \
+                                           (df['future_return_10d'] > 0.02)
             
-            df['momentum_shift_bearish'] = (df['rsi'].shift(5) > 70) & (df['rsi'] < 60) & \
-                                           (df['future_return_10d'] < -0.04)
+            df['momentum_shift_bearish'] = (df['rsi'].shift(5) > 65) & (df['rsi'] < 60) & \
+                                           (df['future_return_10d'] < -0.02)
         
         # Combine all patterns and create a single target column
         pattern_columns = [
@@ -290,9 +284,14 @@ class PatternRecognitionModel:
             # Keep only rows with actual patterns for training
             pattern_data = labeled_df[labeled_df['has_pattern']]
             
-            if len(pattern_data) < 50:
+            if len(pattern_data) < 10:
                 logger.warning(f"Not enough pattern instances for {symbol}/{interval} to train pattern model")
                 return False
+                
+            # Log pattern distribution
+            logger.info(f"Found {len(pattern_data)} pattern instances for {symbol}/{interval}")
+            pattern_types = pattern_data['pattern_type'].value_counts()
+            logger.info(f"Pattern distribution: {pattern_types.to_dict()}")
             
             logger.info(f"Training pattern model for {symbol}/{interval} with {len(pattern_data)} patterns")
             
