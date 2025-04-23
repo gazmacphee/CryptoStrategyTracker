@@ -1,339 +1,153 @@
 """
-Fix for decimal.Decimal and float type incompatibility issues.
-
-This script adds a decorator to safely convert Decimal values to float
-for arithmetic operations.
+Utility module for fixing maximum recursion depth exceeded error in binance_api and database_extensions
 """
 
-import os
-import sys
-import traceback
-import logging
-from decimal import Decimal
 import pandas as pd
 import numpy as np
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("decimal_float_fix")
-
-def fix_economic_ui():
-    """Fix decimal issues in economic_ui.py"""
-    logger.info("Fixing decimal issues in economic_ui.py")
-    
-    try:
-        economic_ui_path = 'economic_ui.py'
-        if not os.path.exists(economic_ui_path):
-            logger.error(f"File not found: {economic_ui_path}")
-            return False
-        
-        with open(economic_ui_path, 'r') as f:
-            content = f.read()
-        
-        # Add a helper function to convert Decimal values to float
-        if "def safe_float_convert" not in content:
-            # Find a good spot to add the function
-            import_section_end = content.find("import plotly.subplots") + len("import plotly.subplots")
-            next_newline = content.find("\n", import_section_end)
-            
-            helper_function = """
-
-def safe_float_convert(value):
-    """Convert Decimal values to float safely"""
-    if isinstance(value, Decimal):
-        return float(value)
-    return value
-
-def ensure_float_series(series):
-    """Ensure a pandas Series contains only float values, not Decimal"""
-    if series.empty:
-        return series
-    return series.apply(safe_float_convert)
-
-"""
-            
-            # Insert the helper function after imports
-            modified_content = content[:next_newline+1] + helper_function + content[next_newline+1:]
-            
-            # Replace occurrences of direct operations on potentially Decimal columns
-            # For mean calculations
-            modified_content = modified_content.replace(
-                "dxy_df['close'].mean()",
-                "ensure_float_series(dxy_df['close']).mean()"
-            )
-            
-            # For other operations
-            modified_content = modified_content.replace(
-                "dxy_df['close'].rolling(window=20).mean()",
-                "ensure_float_series(dxy_df['close']).rolling(window=20).mean()"
-            )
-            
-            modified_content = modified_content.replace(
-                "wm2_df['value'].pct_change()",
-                "ensure_float_series(wm2_df['value']).pct_change()"
-            )
-            
-            modified_content = modified_content.replace(
-                "fed_df['value'].pct_change()", 
-                "ensure_float_series(fed_df['value']).pct_change()"
-            )
-            
-            # Write the modified content back
-            with open(economic_ui_path, 'w') as f:
-                f.write(modified_content)
-                
-            logger.info("Successfully fixed decimal issues in economic_ui.py")
-            return True
-        else:
-            logger.info("Helper function already exists in economic_ui.py")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error fixing economic_ui.py: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_indicators():
-    """Fix decimal issues in indicators.py"""
-    logger.info("Fixing decimal issues in indicators.py")
-    
-    try:
-        indicators_path = 'indicators.py'
-        if not os.path.exists(indicators_path):
-            logger.error(f"File not found: {indicators_path}")
-            return False
-        
-        with open(indicators_path, 'r') as f:
-            content = f.read()
-        
-        # Add a helper function to convert Decimal values to float
-        if "def safe_float_convert" not in content:
-            # Find a good spot to add the function
-            import_section_end = content.find("import pandas as pd") + len("import pandas as pd")
-            next_newline = content.find("\n", import_section_end)
-            
-            helper_function = """
-import numpy as np
 from decimal import Decimal
 
-def safe_float_convert(value):
-    """Convert Decimal values to float safely"""
-    if isinstance(value, Decimal):
-        return float(value)
-    return value
-
-def ensure_float_series(series):
-    """Ensure a pandas Series contains only float values, not Decimal"""
-    if series.empty:
-        return series
-    return series.apply(safe_float_convert)
-
-def ensure_float_df(df, columns=None):
-    """Ensure specified columns in DataFrame contain only float values, not Decimal"""
-    if df.empty:
-        return df
-        
-    if columns is None:
-        columns = ['open', 'high', 'low', 'close', 'volume']
-        columns = [col for col in columns if col in df.columns]
+def fix_recursion_depth_exceeded():
+    """
+    Apply a monkey patch to fix the recursion depth exceeded error.
+    This is needed because database_extensions.get_historical_data and
+    binance_api.get_historical_data call each other recursively, causing
+    maximum recursion depth to be exceeded.
+    """
+    # Import the modules to patch
+    import binance_api
+    import database_extensions
     
-    for col in columns:
-        if col in df.columns:
-            df[col] = df[col].apply(safe_float_convert)
+    # Save the original function from binance_api
+    original_binance_get_historical_data = binance_api.get_historical_data
     
-    return df
-
-"""
+    # Create a new function that doesn't redirect
+    def new_binance_get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
+        """
+        Direct version of get_historical_data that doesn't redirect to database_extensions
+        to avoid recursion issues.
+        """
+        # Skip the redirection to database_extensions and use the fallback code directly
+        try:
+            # Convert dates if provided
+            start_time = None
+            if start_date:
+                if isinstance(start_date, str):
+                    from datetime import datetime
+                    start_time = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+                elif isinstance(start_date, datetime):
+                    start_time = int(start_date.timestamp() * 1000)
             
-            # Insert the helper function after imports
-            modified_content = content[:next_newline+1] + helper_function + content[next_newline+1:]
+            end_time = None    
+            if end_date:
+                if isinstance(end_date, str):
+                    from datetime import datetime
+                    end_time = int(datetime.strptime(end_date, '%Y-%m-%d').timestamp() * 1000)
+                elif isinstance(end_date, datetime):
+                    end_time = int(end_date.timestamp() * 1000)
             
-            # Modify the add_bollinger_bands function to convert decimal values
-            modified_content = modified_content.replace(
-                "def add_bollinger_bands(df, window=20, num_std=2):",
-                "def add_bollinger_bands(df, window=20, num_std=2):\n    # Ensure we have float values, not Decimal\n    df = ensure_float_df(df)"
-            )
+            if not start_time and lookback_days:
+                # Calculate start time based on lookback_days
+                from datetime import datetime
+                end_ts = end_time if end_time else int(datetime.now().timestamp() * 1000)
+                start_time = end_ts - (lookback_days * 24 * 60 * 60 * 1000)
             
-            # Modify other indicator functions similarly
-            modified_content = modified_content.replace(
-                "def add_rsi(df, window=14):",
-                "def add_rsi(df, window=14):\n    # Ensure we have float values, not Decimal\n    df = ensure_float_df(df)"
-            )
+            # Call the get_klines_data function which doesn't redirect
+            return binance_api.get_klines_data(symbol, interval, start_time, end_time)
             
-            modified_content = modified_content.replace(
-                "def add_macd(df, fast=12, slow=26, signal=9):",
-                "def add_macd(df, fast=12, slow=26, signal=9):\n    # Ensure we have float values, not Decimal\n    df = ensure_float_df(df)"
-            )
-            
-            modified_content = modified_content.replace(
-                "def add_stoch_rsi(df, k_window=3, d_window=3, window=14):",
-                "def add_stoch_rsi(df, k_window=3, d_window=3, window=14):\n    # Ensure we have float values, not Decimal\n    df = ensure_float_df(df)"
-            )
-            
-            # Write the modified content back
-            with open(indicators_path, 'w') as f:
-                f.write(modified_content)
-                
-            logger.info("Successfully fixed decimal issues in indicators.py")
-            return True
-        else:
-            logger.info("Helper function already exists in indicators.py")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error fixing indicators.py: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_app_signals_display():
-    """Fix decimal issues in app.py signals display"""
-    logger.info("Fixing decimal issues in app.py signals display")
+        except Exception as e:
+            print(f"Error in direct binance_api.get_historical_data: {e}")
+            return pd.DataFrame()
     
-    try:
-        app_path = 'app.py'
-        if not os.path.exists(app_path):
-            logger.error(f"File not found: {app_path}")
-            return False
+    # Replace the function in binance_api with our new version
+    binance_api.get_historical_data = new_binance_get_historical_data
+    
+    # Save the original function from database_extensions
+    original_db_get_historical_data = database_extensions.get_historical_data
+    
+    # Create a new function that doesn't redirect
+    def new_db_get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
+        """
+        Direct version of get_historical_data that doesn't redirect to binance_api
+        to avoid recursion issues.
+        """
+        from datetime import datetime, timedelta
+        import pandas as pd
+        import database
         
-        with open(app_path, 'r') as f:
-            lines = f.readlines()
+        print(f"====== DATABASE_EXTENSIONS: get_historical_data called for {symbol}/{interval} =======")
         
-        # Find and fix the problematic line with '* 0.995'
-        fixed_lines = []
-        found_issue = False
+        # Calculate date range
+        if start_date is None:
+            start_date = datetime.now() - timedelta(days=lookback_days)
+        elif isinstance(start_date, str):
+            start_date = datetime.strptime(start_date, '%Y-%m-%d')
+            
+        if end_date is None:
+            end_date = datetime.now()
+        elif isinstance(end_date, str):
+            end_date = datetime.strptime(end_date, '%Y-%m-%d')
         
-        for line in lines:
-            if "buy_signals['low'] * 0.995" in line:
-                # Replace with safe conversion
-                indent = len(line) - len(line.lstrip())
-                fixed_line = ' ' * indent + "y=buy_signals['low'].apply(lambda x: float(x) * 0.995 if isinstance(x, Decimal) else x * 0.995),  # Place just below the candle\n"
-                fixed_lines.append(fixed_line)
-                found_issue = True
+        # Try to get data from database first
+        conn = database.get_db_connection()
+        if conn is None:
+            print("Could not connect to database")
+            return pd.DataFrame()
+            
+        try:
+            # Query the historical_data table directly, avoiding binance_api
+            query = """
+                SELECT * FROM historical_data
+                WHERE symbol = %s AND interval = %s AND timestamp BETWEEN %s AND %s
+                ORDER BY timestamp ASC
+            """
+            
+            df = pd.read_sql_query(
+                query, 
+                conn, 
+                params=(symbol, interval, start_date, end_date)
+            )
+            
+            # Convert Decimal columns to float for calculations
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                if col in df.columns:
+                    df[col] = df[col].astype(float)
+            
+            if not df.empty:
+                print(f"Found {len(df)} records for {symbol}/{interval}")
+                return df
             else:
-                fixed_lines.append(line)
-        
-        # Add import for Decimal if not present
-        if found_issue:
-            has_decimal_import = any("from decimal import Decimal" in line for line in lines)
-            if not has_decimal_import:
-                # Find the imports section
-                for i, line in enumerate(fixed_lines):
-                    if "import " in line:
-                        fixed_lines.insert(i, "from decimal import Decimal\n")
-                        break
-        
-        # Write the modified content back
-        if found_issue:
-            with open(app_path, 'w') as f:
-                f.writelines(fixed_lines)
+                print(f"No data found in database for {symbol}/{interval}")
+                # Instead of falling back to binance_api, we return empty DataFrame
+                return pd.DataFrame()
+                
+        except Exception as e:
+            print(f"Error fetching data from database: {e}")
+            return pd.DataFrame()
             
-            logger.info("Successfully fixed decimal issues in app.py signals display")
-            return True
-        else:
-            logger.info("No decimal issues found in app.py signals display")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error fixing app.py signals display: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-def fix_database_decimal_handling():
-    """Add decimal handling to database.py when fetching data"""
-    logger.info("Adding decimal handling to database.py")
+        finally:
+            conn.close()
     
-    try:
-        database_path = 'database.py'
-        if not os.path.exists(database_path):
-            logger.error(f"File not found: {database_path}")
-            return False
-        
-        with open(database_path, 'r') as f:
-            content = f.read()
-        
-        # Add a helper function to convert Decimal values to float
-        if "def convert_decimal_to_float" not in content:
-            # Find a good spot to add the function
-            import_section_end = content.find("import pandas as pd") + len("import pandas as pd")
-            next_newline = content.find("\n", import_section_end)
-            
-            helper_function = """
-from decimal import Decimal
+    # Replace the function in database_extensions with our new version
+    database_extensions.get_historical_data = new_db_get_historical_data
 
 def convert_decimal_to_float(df):
-    """Convert all Decimal values in a DataFrame to float"""
+    """
+    Convert all Decimal columns in a DataFrame to float type
+    
+    Args:
+        df: DataFrame that may contain Decimal columns
+        
+    Returns:
+        DataFrame with Decimal columns converted to float
+    """
+    if df is None or df.empty:
+        return df
+        
     for col in df.columns:
-        if df[col].dtype == object:  # Check for object dtype which might contain Decimal
-            # Check if first non-null value is Decimal
-            first_value = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
-            if isinstance(first_value, Decimal):
-                df[col] = df[col].apply(lambda x: float(x) if isinstance(x, Decimal) else x)
+        if df[col].dtype == 'object':
+            # Check if any values in the column are Decimal
+            sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+            if isinstance(sample, Decimal):
+                df[col] = df[col].astype(float)
+    
     return df
-
-"""
-            
-            # Insert the helper function after imports
-            modified_content = content[:next_newline+1] + helper_function + content[next_newline+1:]
-            
-            # Modify the get_ohlcv_data and similar functions to convert decimal values
-            # Find the get_ohlcv_data function
-            get_ohlcv_data_idx = modified_content.find("def get_ohlcv_data(")
-            if get_ohlcv_data_idx != -1:
-                # Find the return statement in this function
-                return_idx = modified_content.find("return df", get_ohlcv_data_idx)
-                if return_idx != -1:
-                    # Replace the return statement to include conversion
-                    modified_content = modified_content[:return_idx] + "    # Convert any Decimal values to float\n    df = convert_decimal_to_float(df)\n    " + modified_content[return_idx:]
-            
-            # Similarly for other data retrieval functions
-            for func_name in ["get_crypto_data", "get_economic_indicator", "get_trading_signals"]:
-                func_idx = modified_content.find(f"def {func_name}(")
-                if func_idx != -1:
-                    # Find the return statement in this function
-                    return_idx = modified_content.find("return df", func_idx)
-                    if return_idx != -1:
-                        # Replace the return statement to include conversion
-                        modified_content = modified_content[:return_idx] + "    # Convert any Decimal values to float\n    df = convert_decimal_to_float(df)\n    " + modified_content[return_idx:]
-            
-            # Write the modified content back
-            with open(database_path, 'w') as f:
-                f.write(modified_content)
-                
-            logger.info("Successfully added decimal handling to database.py")
-            return True
-        else:
-            logger.info("Decimal handling function already exists in database.py")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error fixing database.py: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-if __name__ == "__main__":
-    print("Starting decimal-float compatibility fixes...")
-    
-    # Fix economic_ui.py
-    print("1. Fixing decimal issues in economic_ui.py...")
-    result = fix_economic_ui()
-    print(f"Result: {'Success' if result else 'Failed'}")
-    
-    # Fix indicators.py
-    print("2. Fixing decimal issues in indicators.py...")
-    result = fix_indicators()
-    print(f"Result: {'Success' if result else 'Failed'}")
-    
-    # Fix app.py signals display
-    print("3. Fixing decimal issues in app.py signals display...")
-    result = fix_app_signals_display()
-    print(f"Result: {'Success' if result else 'Failed'}")
-    
-    # Fix database.py
-    print("4. Adding decimal handling to database.py...")
-    result = fix_database_decimal_handling()
-    print(f"Result: {'Success' if result else 'Failed'}")
-    
-    print("Decimal-float compatibility fixes completed.")
