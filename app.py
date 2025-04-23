@@ -816,10 +816,12 @@ def main():
         sell_signals = df[df['sell_signal']]
         
         if not buy_signals.empty:
+            # Convert to float before multiplication to avoid decimal.Decimal * float issues
+            buy_y_values = buy_signals['low'].astype(float) * 0.995  # Place just below the candle
             fig.add_trace(
                 go.Scatter(
                     x=buy_signals['timestamp'],
-                    y=buy_signals['low'] * 0.995,  # Place just below the candle
+                    y=buy_y_values,
                     mode='markers',
                     marker=dict(
                         symbol='triangle-up',
@@ -833,10 +835,12 @@ def main():
             )
         
         if not sell_signals.empty:
+            # Convert to float before multiplication to avoid decimal.Decimal * float issues
+            sell_y_values = sell_signals['high'].astype(float) * 1.005  # Place just above the candle
             fig.add_trace(
                 go.Scatter(
                     x=sell_signals['timestamp'],
-                    y=sell_signals['high'] * 1.005,  # Place just above the candle
+                    y=sell_y_values,
                     mode='markers',
                     marker=dict(
                         symbol='triangle-down',
