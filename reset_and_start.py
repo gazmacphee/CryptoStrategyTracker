@@ -233,6 +233,21 @@ def initialize_economic_data():
         logger.warning(f"Could not initialize economic indicators: {e}")
         print("⚠️ Economic indicators initialization skipped")
 
+def populate_additional_tables():
+    """Populate news, sentiment, ML, and other secondary tables"""
+    logger.info("Populating additional data tables...")
+    
+    try:
+        # Start the data population script in the background
+        subprocess.Popen(["python", "populate_all_tables.py"],
+                       stdout=open("population.log", "w"),
+                       stderr=subprocess.STDOUT)
+        logger.info("Additional data tables population started in background")
+        return True
+    except Exception as e:
+        logger.error(f"Error starting additional tables population: {e}")
+        return False
+
 def main():
     """Main function to run the application setup and startup"""
     print("=" * 80)
@@ -243,20 +258,24 @@ def main():
     remove_lock_files()
     print("✅ Lock files removed")
     
-    print("[1/4] Resetting database...")
+    print("[1/5] Resetting database...")
     reset_database()
     print("✅ Database reset complete")
     
-    print("[2/4] Creating fresh tables...")
+    print("[2/5] Creating fresh tables...")
     create_tables()
     print("✅ Fresh tables created")
     
-    print("[3/4] Initializing economic data...")
+    print("[3/5] Initializing economic data...")
     initialize_economic_data()
     
-    print("[4/4] Starting backfill process in background...")
+    print("[4/5] Starting backfill process in background...")
     start_backfill()
     print("✅ Backfill process started in background")
+    
+    print("[5/5] Populating ML, news and sentiment data in background...")
+    populate_additional_tables()
+    print("✅ Additional data population started in background")
     
     print("=" * 80)
     print("Database setup complete. Starting Streamlit application...")
