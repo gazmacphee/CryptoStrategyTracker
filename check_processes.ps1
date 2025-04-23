@@ -52,7 +52,9 @@ function Show-ProcessStatus {
     Write-Host "----------------" -ForegroundColor $Colors.Title
     
     foreach ($process in $processInfo.processes) {
-        $isRunning = Check-ProcessRunning($process.pid)
+        # Fix the function call syntax to avoid variable overwriting issues
+        $processId = $process.pid
+        $isRunning = Check-ProcessRunning -pid $processId
         $status = if ($isRunning) { "RUNNING" } else { "STOPPED" }
         $color = if ($isRunning) { $Colors.Running } else { $Colors.Stopped }
         
@@ -142,6 +144,8 @@ function Show-CommandHelp {
     Write-Host "-----------------" -ForegroundColor $Colors.Title
     Write-Host "Start all processes:    " -NoNewline -ForegroundColor $Colors.Info
     Write-Host "python process_manager.py start"
+    Write-Host "Start and keep running: " -NoNewline -ForegroundColor $Colors.Info
+    Write-Host "python process_manager.py run"
     Write-Host "Stop all processes:     " -NoNewline -ForegroundColor $Colors.Info
     Write-Host "python process_manager.py stop"
     Write-Host "Restart all processes:  " -NoNewline -ForegroundColor $Colors.Info

@@ -24,6 +24,7 @@ echo ===========================================================================
 echo COMMAND REFERENCE:
 echo -----------------
 echo Start all processes:    python process_manager.py start
+echo Start and keep running: python process_manager.py run
 echo Stop all processes:     python process_manager.py stop
 echo Restart all processes:  python process_manager.py restart
 echo Monitor all processes:  python process_manager.py monitor
