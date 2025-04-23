@@ -21,7 +21,7 @@ function Test-PackagesInstalled {
         "streamlit",
         "pandas",
         "numpy",
-        "psycopg2-binary",
+        "psycopg2",  # Use psycopg2 instead of psycopg2-binary
         "sqlalchemy",
         "plotly"
     )
@@ -30,12 +30,28 @@ function Test-PackagesInstalled {
     foreach ($package in $packages) {
         # Fix: Use a modified Python script that correctly handles module objects
         $pkgName = $package -replace "-", "_" # Replace hyphens with underscores for import
-        try {
-            $result = python -c "import $pkgName; print(f'✅ {pkgName} is installed')"
+        
+        # Create a temporary Python script file for this package check
+        $checkScript = @"
+try:
+    import $pkgName
+    print(f'✅ $pkgName is installed')
+except Exception as e:
+    print(f'❌ $pkgName is not installed: {e}')
+"@
+        $tempScriptPath = "temp_pkg_check_$pkgName.py"
+        $checkScript | Out-File -FilePath $tempScriptPath -Encoding utf8
+        
+        # Run the script and capture output
+        $result = python $tempScriptPath
+        
+        # Clean up
+        Remove-Item $tempScriptPath
+        
+        if ($result -match "✅") {
             Write-Host $result -ForegroundColor Green
-        }
-        catch {
-            Write-Host "❌ $package is not installed" -ForegroundColor Red
+        } else {
+            Write-Host $result -ForegroundColor Red
             $allInstalled = $false
         }
     }
