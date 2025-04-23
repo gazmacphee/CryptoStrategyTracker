@@ -126,6 +126,20 @@ else:
     DB_PASS = os.getenv("PGPASSWORD", "postgres")
     print(f"Environment variables - Host: {DB_HOST}, Port: {DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
 
+def close_db_connection(conn):
+    """
+    Safely close a database connection
+    
+    Args:
+        conn: Database connection to close
+    """
+    if conn:
+        try:
+            conn.close()
+            print("Database connection closed successfully")
+        except Exception as e:
+            print(f"Error closing database connection: {e}")
+    
 def get_db_connection():
     """Create a database connection with retry capability for various environments"""
     import time

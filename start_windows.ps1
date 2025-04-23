@@ -28,8 +28,10 @@ function Test-PackagesInstalled {
     
     $allInstalled = $true
     foreach ($package in $packages) {
+        # Fix: Use a modified Python script that correctly handles module objects
+        $pkgName = $package -replace "-", "_" # Replace hyphens with underscores for import
         try {
-            $result = python -c "import $package; print('✅ ' + $package + ' is installed')"
+            $result = python -c "import $pkgName; print(f'✅ {pkgName} is installed')"
             Write-Host $result -ForegroundColor Green
         }
         catch {
@@ -52,7 +54,23 @@ function Test-DatabaseConnection {
     Write-Host "`nTesting database connection..." -ForegroundColor Cyan
     
     try {
-        $result = python -c "from database import get_db_connection, close_db_connection; conn = get_db_connection(); success = conn is not None; close_db_connection(conn); print('✅ Database connection successful' if success else '❌ Database connection failed')"
+        # Create safer Python code that ensures proper error handling
+        $pythonScript = @"
+try:
+    from database import get_db_connection, close_db_connection
+    conn = get_db_connection()
+    success = conn is not None
+    if conn:
+        close_db_connection(conn)
+    print('✅ Database connection successful' if success else '❌ Database connection failed')
+except Exception as e:
+    print(f'❌ Database connection error: {e}')
+"@
+        $pythonScriptPath = "temp_db_check.py"
+        $pythonScript | Out-File -FilePath $pythonScriptPath -Encoding utf8
+        
+        $result = python $pythonScriptPath
+        Remove-Item $pythonScriptPath # Clean up
         
         if ($result -match "successful") {
             Write-Host $result -ForegroundColor Green
