@@ -27,10 +27,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # FRED API key for economic data
-FRED_API_KEY = os.environ.get('FRED_API_KEY')
+# Make sure to strip any whitespace or special characters
+FRED_API_KEY = os.environ.get('FRED_API_KEY', '').strip()
 
 # Alpha Vantage API key for financial data
-ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY')
+ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY', '').strip()
 
 # Yahoo Finance is used as a fallback (no API key required)
 
