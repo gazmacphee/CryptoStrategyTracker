@@ -1,52 +1,16 @@
 {
-  "last_update": "2025-04-23T18:26:59.535966",
+  "last_update": "2025-04-23T19:02:58.159261",
   "processes": {
     "backfill": {
-      "pid": 13349,
+      "pid": 16641,
       "status": "running",
-      "start_time": "2025-04-23T18:26:47.502658",
+      "start_time": "2025-04-23T19:02:46.133100",
       "restarts": 0
     },
     "signal_generator": {
-      "pid": 13387,
+      "pid": 16678,
       "status": "running",
-      "start_time": "2025-04-23T18:26:49.520701",
-      "restarts": 0
-    },
-    "news_retrieval": {
-      "pid": 13421,
-      "status": "running",
-      "start_time": "2025-04-23T18:26:53.532677",
-      "restarts": 0
-    },
-    "ml_training": {
-      "name": "ML Model Training",
-      "id": "ml_training",
-      "command": "python train_all_pattern_models.py --min-records 500",
-      "autostart": false,
-      "type": "scheduled",
-      "schedule": {
-        "interval": "daily",
-        "time": "04:00"
-      },
-      "last_run": "2025-04-23T18:28:37.414159",
-      "next_run": "2025-04-24T04:00:00.414165",
-      "dependencies": [],
-      "restarts": 0
-    },
-    "ml_pattern_analysis": {
-      "name": "ML Pattern Analysis",
-      "id": "ml_pattern_analysis",
-      "command": "python analyze_patterns_and_save.py --output pattern_analysis_results.json",
-      "autostart": false,
-      "type": "scheduled",
-      "schedule": {
-        "interval": "hourly",
-        "minute": 15
-      },
-      "last_run": "2025-04-23T18:28:37.414173",
-      "next_run": "2025-04-23T19:15:00.414174",
-      "dependencies": [],
+      "start_time": "2025-04-23T19:02:48.146812",
       "restarts": 0
     }
   },
@@ -55,7 +19,7 @@
     "sentiment_analysis": "2025-04-23T15:00:16.092535",
     "economic_indicators": "2025-04-23T10:59:11.711477",
     "ml_training": "2025-04-23T16:01:22.123380",
-    "backfill": "2025-04-23T18:26:47.502694",
-    "signal_generator": "2025-04-23T18:26:49.520714"
+    "backfill": "2025-04-23T19:02:46.133134",
+    "signal_generator": "2025-04-23T19:02:48.146824"
   }
 }
