@@ -1,16 +1,16 @@
 import pandas as pd
 import numpy as np
 
-def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbought=70, use_macd_crossover=True,
+def evaluate_buy_sell_signals(df, bb_threshold=0.25, rsi_oversold=35, rsi_overbought=65, use_macd_crossover=True,
                          use_bb=True, use_rsi=True, use_macd=True, bb_window=20, rsi_window=14,
                          macd_fast=12, macd_slow=26, macd_signal=9):
     """Evaluate buy/sell signals based on technical indicators
     
     Args:
         df: DataFrame with OHLCV data and indicators
-        bb_threshold: Bollinger Bands threshold (0.0-0.5)
-        rsi_oversold: RSI level considered oversold
-        rsi_overbought: RSI level considered overbought
+        bb_threshold: Bollinger Bands threshold (0.0-0.5) - more sensitive at 0.25
+        rsi_oversold: RSI level considered oversold - more sensitive at 35 (instead of 30)
+        rsi_overbought: RSI level considered overbought - more sensitive at 65 (instead of 70)
         use_macd_crossover: Whether to use MACD crossover signals
         use_bb: Whether to use Bollinger Bands in the strategy
         use_rsi: Whether to use RSI in the strategy
@@ -123,9 +123,9 @@ def evaluate_buy_sell_signals(df, bb_threshold=0.2, rsi_oversold=30, rsi_overbou
                 (is_above_trend or 'ema_50' not in result_df.columns)):
                 sell_signals.append(True)
         
-        # If we have multiple active indicators, require at least 2 for confirmation
-        if active_indicators >= 2:
-            min_signals = 2
+        # If we have multiple active indicators, only require one signal for confirmation
+        # This makes the strategy more sensitive and likely to generate signals
+        min_signals = 1
         
         # Set final signals based on indicator combinations and position state
         potential_buy = len(buy_signals) >= min_signals

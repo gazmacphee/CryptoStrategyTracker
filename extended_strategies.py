@@ -86,8 +86,8 @@ def dual_ma_strategy(df, fast_ma=20, slow_ma=50, use_ema=True):
     result_df['strategy_used'] = f"dual_ma_{fast_ma}_{slow_ma}_{'ema' if use_ema else 'sma'}"
     return result_df
 
-def stochastic_rsi_strategy(df, stoch_oversold=20, stoch_overbought=80, 
-                           rsi_oversold=30, rsi_overbought=70,
+def stochastic_rsi_strategy(df, stoch_oversold=25, stoch_overbought=75, 
+                           rsi_oversold=35, rsi_overbought=65,
                            position_filter=True):
     """
     Implements a strategy using both Stochastic Oscillator and RSI for confirmation.
