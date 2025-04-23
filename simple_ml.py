@@ -699,13 +699,18 @@ def train_price_models(symbol: str, interval: str, lookback_days: int = 90) -> b
         Boolean indicating success
     """
     try:
-        from binance_api import get_historical_data
+        try:
+            # Try importing from database_extensions first
+            from database import get_historical_data
+        except ImportError:
+            # Fall back to direct import if not available
+            from binance_api import get_historical_data
         
         # Get historical data
         end_date = datetime.now()
         start_date = end_date - timedelta(days=lookback_days)
         
-        df = get_historical_data(symbol, interval, start_date, end_date)
+        df = get_historical_data(symbol, interval, lookback_days=lookback_days)
         
         if df is None or len(df) < 30:
             logger.warning(f"Not enough data for {symbol}/{interval} to train models")
@@ -743,17 +748,21 @@ def predict_prices_all(symbols: List[str] = None, intervals: List[str] = None) -
     if intervals is None:
         intervals = ["1h", "4h", "1d"]
     
-    from binance_api import get_historical_data
+    try:
+        # Try importing from database_extensions first
+        from database import get_historical_data
+    except ImportError:
+        # Fall back to direct import if not available
+        from binance_api import get_historical_data
     
     prediction_count = 0
     for symbol in symbols:
         for interval in intervals:
             try:
                 # Get recent data
-                end_date = datetime.now()
-                start_date = end_date - timedelta(days=30)  # Need sufficient data for feature creation
+                lookback_days = 30  # Need sufficient data for feature creation
                 
-                df = get_historical_data(symbol, interval, start_date, end_date)
+                df = get_historical_data(symbol, interval, lookback_days=lookback_days)
                 
                 if df is None or len(df) < 20:
                     logger.warning(f"Not enough data for {symbol}/{interval} to make predictions")
