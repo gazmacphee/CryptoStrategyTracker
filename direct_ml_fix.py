@@ -76,17 +76,57 @@ def get_historical_data_direct_from_db(symbol, interval, lookback_days=30, start
         return pd.DataFrame()
         
     try:
-        # Query the historical_data table directly
+        # Let's first verify if the table exists and has data
+        check_query = "SELECT COUNT(*) FROM historical_data WHERE symbol = %s"
+        cursor = conn.cursor()
+        cursor.execute(check_query, (symbol,))
+        record_count = cursor.fetchone()[0]
+        
+        if record_count == 0:
+            logging.warning(f"No records found for {symbol} in historical_data table")
+            cursor.close()
+            return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+        # Check specifically for this interval
+        check_interval_query = "SELECT COUNT(*) FROM historical_data WHERE symbol = %s AND interval = %s"
+        cursor.execute(check_interval_query, (symbol, interval))
+        interval_count = cursor.fetchone()[0]
+        
+        if interval_count == 0:
+            logging.warning(f"No records found for {symbol}/{interval} in historical_data table")
+            cursor.close()
+            return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+        # Let's also log the date range to debug the query
+        logging.info(f"Querying data for {symbol}/{interval} between {start_date} and {end_date}")
+        
+        # Get the actual date range available in the database for this symbol/interval
+        date_query = """
+            SELECT MIN(timestamp) as min_date, MAX(timestamp) as max_date 
+            FROM historical_data
+            WHERE symbol = %s AND interval = %s
+        """
+        cursor.execute(date_query, (symbol, interval))
+        date_range = cursor.fetchone()
+        db_min_date, db_max_date = date_range[0], date_range[1]
+        
+        # Log the actual available date range
+        logging.info(f"Database has data for {symbol}/{interval} from {db_min_date} to {db_max_date}")
+        
+        # Use the available date range instead of requested range
         query = """
             SELECT * FROM historical_data
-            WHERE symbol = %s AND interval = %s AND timestamp BETWEEN %s AND %s
+            WHERE symbol = %s AND interval = %s
             ORDER BY timestamp ASC
         """
         
+        cursor.close()  # Close the cursor before using pandas
+        
+        # Use pandas to read the query results without date filtering
         df = pd.read_sql_query(
             query, 
             conn, 
-            params=(symbol, interval, start_date, end_date)
+            params=(symbol, interval)
         )
         
         if not df.empty:
