@@ -52,8 +52,12 @@ def patched_run_pattern_analysis():
 run_ml_fixed.run_pattern_analysis = patched_run_pattern_analysis
 
 # Also patch MultiSymbolPatternAnalyzer.analyze_patterns_in_data to include both columns
-if hasattr(run_ml_fixed, 'advanced_ml'):
-    original_analyze = run_ml_fixed.advanced_ml.MultiSymbolPatternAnalyzer.analyze_patterns_in_data
+# First import advanced_ml directly to make the patching work
+import advanced_ml
+
+# Now patch the analyze_patterns_in_data method
+if True:  # We know advanced_ml is now imported
+    original_analyze = advanced_ml.MultiSymbolPatternAnalyzer.analyze_patterns_in_data
     
     def patched_analyze_patterns_in_data(self, data_dict):
         """Patched version that ensures both strength columns exist"""
@@ -75,8 +79,8 @@ if hasattr(run_ml_fixed, 'advanced_ml'):
         
         return patterns
     
-    # Apply the patch
-    run_ml_fixed.advanced_ml.MultiSymbolPatternAnalyzer.analyze_patterns_in_data = patched_analyze_patterns_in_data
+    # Apply the patch directly to the advanced_ml module
+    advanced_ml.MultiSymbolPatternAnalyzer.analyze_patterns_in_data = patched_analyze_patterns_in_data
 
 # Print information
 print("\n==== Running ML Fixed with Column Name Fix ====")

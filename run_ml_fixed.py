@@ -89,8 +89,8 @@ def get_popular_symbols(limit=10):
 
 def get_common_intervals():
     """Get common trading intervals"""
-    # Default intervals
-    intervals = ['1h', '4h', '1d']
+    # Default intervals including 30m which is often populated first
+    intervals = ['30m', '1h', '4h', '1d']
     
     # If a specific interval was provided via command line, use only that
     if args.interval:
