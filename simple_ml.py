@@ -678,3 +678,93 @@ def run_strategy_backtest(df: pd.DataFrame, symbol: str, interval: str, params: 
     """
     backtest = BacktestEngine(symbol, interval)
     return backtest.run_backtest(df, params)
+    
+    
+def train_price_models(symbol: str, interval: str, lookback_days: int = 90) -> bool:
+    """
+    Train prediction models for a specific symbol and interval
+    
+    Args:
+        symbol: Trading symbol (e.g., BTCUSDT)
+        interval: Time interval (e.g., 1h, 4h, 1d)
+        lookback_days: Days of historical data to use for training
+        
+    Returns:
+        Boolean indicating success
+    """
+    try:
+        from binance_api import get_historical_data
+        
+        # Get historical data
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=lookback_days)
+        
+        df = get_historical_data(symbol, interval, start_date, end_date)
+        
+        if df is None or len(df) < 30:
+            logger.warning(f"Not enough data for {symbol}/{interval} to train models")
+            return False
+        
+        # Train simple prediction model
+        model = SimplePredictionModel(symbol, interval)
+        success = model.train(df)
+        
+        # Train market regime model (for future use)
+        # regime_model = MarketRegimeModel(symbol, interval)
+        
+        logger.info(f"Model training for {symbol}/{interval}: {'Successful' if success else 'Failed'}")
+        return success
+    
+    except Exception as e:
+        logger.error(f"Error training price models for {symbol}/{interval}: {e}")
+        return False
+
+
+def predict_prices_all(symbols: List[str] = None, intervals: List[str] = None) -> int:
+    """
+    Generate price predictions for multiple symbols and intervals
+    
+    Args:
+        symbols: List of symbols to generate predictions for
+        intervals: List of intervals to generate predictions for
+        
+    Returns:
+        Number of predictions generated
+    """
+    if symbols is None:
+        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+    
+    if intervals is None:
+        intervals = ["1h", "4h", "1d"]
+    
+    from binance_api import get_historical_data
+    
+    prediction_count = 0
+    for symbol in symbols:
+        for interval in intervals:
+            try:
+                # Get recent data
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=30)  # Need sufficient data for feature creation
+                
+                df = get_historical_data(symbol, interval, start_date, end_date)
+                
+                if df is None or len(df) < 20:
+                    logger.warning(f"Not enough data for {symbol}/{interval} to make predictions")
+                    continue
+                
+                # Load model and predict
+                model = SimplePredictionModel(symbol, interval)
+                if model.load():
+                    # Make 7-day prediction
+                    predictions = model.predict(df, days_ahead=7)
+                    if predictions is not None and len(predictions) > 0:
+                        prediction_count += len(predictions)
+                        logger.info(f"Generated {len(predictions)} predictions for {symbol}/{interval}")
+                else:
+                    logger.warning(f"Could not load model for {symbol}/{interval}")
+            
+            except Exception as e:
+                logger.error(f"Error generating predictions for {symbol}/{interval}: {e}")
+    
+    return prediction_count
