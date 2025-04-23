@@ -1,0 +1,60 @@
+python app.py
+Original DATABASE_URL from environment: postgresql://postgres:2212@localhost:5432/crypto
+Parsed URL - Host: localhost, Port: 5432, DB: crypto, User: postgres
+Trying Binance API endpoint: https://api.binance.com/api/v3
+Successfully connected to Binance API at https://api.binance.com/api/v3
+API credentials are valid on https://api.binance.com/api/v3
+API keys found - forcing use of real Binance API data
+2025-04-23 13:40:54.624 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Database tables created successfully
+2025-04-23 13:40:54.669 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2025-04-23 13:40:54,670 - INFO - Starting improved backfill process at application startup
+2025-04-23 13:40:54,678 - INFO - Starting improved backfill with 4 symbols and 3 intervals
+2025-04-23 13:40:54,678 - INFO - Started improved background backfill process (full=False, continuous=False, interval=15min)
+2025-04-23 13:40:54,678 - INFO - Symbols: BTCUSDT, ETHUSDT, BNBUSDT, ADAUSDT
+2025-04-23 13:40:54,678 - INFO - Improved backfill process started at application startup
+2025-04-23 13:40:54.678 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54,678 - INFO - Intervals: 1h, 1d, 4h
+2025-04-23 13:40:54.678 WARNING streamlit.runtime.state.session_state_proxy: Session state does not function when running a script without `streamlit run` 
+2025-04-23 13:40:54.679 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+2025-04-23 13:40:54.679 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.679 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+Successfully connected using DATABASE_URL
+Using pre-defined list of popular symbols
+2025-04-23 13:40:54.876 
+  Warning: to view this Streamlit app on a browser, run it with the following
+  command:
+
+    streamlit run app.py [ARGUMENTS]
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.877 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.878 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54.879 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54,879 - INFO - Processing BTCUSDT/1h (1/12)
+2025-04-23 13:40:54.879 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54,879 - INFO - Running backfill for 1 symbols and 1 intervals
+2025-04-23 13:40:54.879 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54,879 - INFO - Symbols: BTCUSDT
+2025-04-23 13:40:54.879 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2025-04-23 13:40:54,880 - INFO - Intervals: 1h
+2025-04-23 13:40:54,880 - INFO - Starting improved backfill process
+2025-04-23 13:40:54,880 - INFO - Processing BTCUSDT 1h
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+2025-04-23 13:40:54,880 - INFO - Starting improved backfill with 4 symbols and 3 intervals
+2025-04-23 13:40:54,880 - INFO - Started improved background backfill process (full=False, continuous=True, interval=15min)
