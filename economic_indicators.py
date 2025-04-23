@@ -392,7 +392,7 @@ def get_dxy_data_from_database(start_date=None, end_date=None):
         end_date = datetime.now()
     
     # Use centralized database function (using parameter names it expects)
-    df = get_dxy_data(start_time=start_date, end_time=end_date)
+    df = database.get_dxy_data(start_time=start_date, end_time=end_date)
     
     # Log the result
     if not df.empty:
@@ -401,6 +401,20 @@ def get_dxy_data_from_database(start_date=None, end_date=None):
         logger.warning("No DXY records found in database for specified date range")
     
     return df
+
+def get_dxy_data(start_date=None, end_date=None):
+    """
+    Get US Dollar Index data from database or fetch from external source if missing
+    
+    Args:
+        start_date: Start date for data (datetime or string YYYY-MM-DD)
+        end_date: End date for data (datetime or string YYYY-MM-DD)
+        
+    Returns:
+        DataFrame with DXY data
+    """
+    # This is the main function that should be used by the UI
+    return get_full_dxy_data(start_date, end_date)
 
 def get_full_dxy_data(start_date=None, end_date=None):
     """
@@ -427,7 +441,7 @@ def get_full_dxy_data(start_date=None, end_date=None):
     
     # First try to get data from database
     # Call the database function using the parameter names it expects (start_time, end_time)
-    df = get_dxy_data(start_time=start_date, end_time=end_date)
+    df = get_dxy_data_from_database(start_date=start_date, end_date=end_date)
     
     # If we have no data or incomplete data, fetch from external source
     if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
