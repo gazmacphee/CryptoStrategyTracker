@@ -45,26 +45,87 @@ function Check-ProcessRunning($pid) {
 function Show-ProcessStatus {
     $processInfo = Get-ProcessInfo
     if ($null -eq $processInfo) {
+        # Even if we don't have process info, try to detect known processes
+        $pythonProcesses = Get-Process -Name python -ErrorAction SilentlyContinue
+        if ($pythonProcesses) {
+            Write-Host "DETECTED PYTHON PROCESSES:" -ForegroundColor $Colors.Title
+            Write-Host "-------------------------" -ForegroundColor $Colors.Title
+            
+            # Try to identify common app processes by their command line
+            $knownProcesses = @()
+            foreach ($proc in $pythonProcesses) {
+                try {
+                    $cmdLine = (Get-WmiObject Win32_Process -Filter "ProcessId = $($proc.Id)").CommandLine
+                    
+                    # Match known application scripts
+                    if ($cmdLine -match "process_manager\.py") {
+                        $knownProcesses += [PSCustomObject]@{
+                            Name = "Process Manager"
+                            PID = $proc.Id
+                            Command = $cmdLine
+                        }
+                    }
+                    elseif ($cmdLine -match "app\.py") {
+                        $knownProcesses += [PSCustomObject]@{
+                            Name = "Streamlit App"
+                            PID = $proc.Id
+                            Command = $cmdLine
+                        }
+                    }
+                    elseif ($cmdLine -match "backfill|download") {
+                        $knownProcesses += [PSCustomObject]@{
+                            Name = "Data Backfill"
+                            PID = $proc.Id
+                            Command = $cmdLine
+                        }
+                    }
+                } catch {
+                    # Skip if we can't get command line
+                }
+            }
+            
+            # Display known processes
+            if ($knownProcesses.Count -gt 0) {
+                foreach ($proc in $knownProcesses) {
+                    Write-Host "$($proc.Name): " -NoNewline
+                    Write-Host "RUNNING" -ForegroundColor $Colors.Running -NoNewline
+                    Write-Host " (PID: $($proc.PID))"
+                    Write-Host "  Command: $($proc.Command)" -ForegroundColor $Colors.Info
+                    Write-Host
+                }
+            } else {
+                Write-Host "No recognized application processes detected." -ForegroundColor $Colors.Warning
+                Write-Host "Some Python processes are running, but they may not belong to the application." -ForegroundColor $Colors.Warning
+                Write-Host
+            }
+        }
+        
         return
     }
     
+    # If we have process info, display it as normal
     Write-Host "MANAGED PROCESSES:" -ForegroundColor $Colors.Title
     Write-Host "----------------" -ForegroundColor $Colors.Title
     
-    foreach ($process in $processInfo.processes) {
-        # Fix the function call syntax to avoid variable overwriting issues
-        $processId = $process.pid
-        $isRunning = Check-ProcessRunning -pid $processId
-        $status = if ($isRunning) { "RUNNING" } else { "STOPPED" }
-        $color = if ($isRunning) { $Colors.Running } else { $Colors.Stopped }
-        
-        Write-Host "$($process.name): " -NoNewline
-        Write-Host $status -ForegroundColor $color -NoNewline
-        Write-Host " (PID: $($process.pid))"
-        Write-Host "  Command: $($process.command)" -ForegroundColor $Colors.Info
-        Write-Host "  Last Status: $($process.status)" -ForegroundColor $Colors.Info
-        Write-Host "  Started: $($process.start_time)" -ForegroundColor $Colors.Info
+    if ($processInfo.processes.PSObject.Properties.Count -eq 0) {
+        Write-Host "No managed processes found in process info file." -ForegroundColor $Colors.Warning
         Write-Host
+    } else {
+        foreach ($process in $processInfo.processes) {
+            # Fix the function call syntax to avoid variable overwriting issues
+            $processId = $process.pid
+            $isRunning = Check-ProcessRunning -pid $processId
+            $status = if ($isRunning) { "RUNNING" } else { "STOPPED" }
+            $color = if ($isRunning) { $Colors.Running } else { $Colors.Stopped }
+            
+            Write-Host "$($process.name): " -NoNewline
+            Write-Host $status -ForegroundColor $color -NoNewline
+            Write-Host " (PID: $($process.pid))"
+            Write-Host "  Command: $($process.command)" -ForegroundColor $Colors.Info
+            Write-Host "  Last Status: $($process.status)" -ForegroundColor $Colors.Info
+            Write-Host "  Started: $($process.start_time)" -ForegroundColor $Colors.Info
+            Write-Host
+        }
     }
     
     # Show scheduled processes
@@ -80,6 +141,18 @@ function Show-ProcessStatus {
             Write-Host "  Last Run: $($process.last_run)" -ForegroundColor $Colors.Info
             Write-Host
         }
+    }
+    
+    # Show last run times for background processes
+    if ($processInfo.last_run_times -and $processInfo.last_run_times.PSObject.Properties.Count -gt 0) {
+        Write-Host "BACKGROUND PROCESSES (Last Run):" -ForegroundColor $Colors.Title
+        Write-Host "------------------------------" -ForegroundColor $Colors.Title
+        
+        $processInfo.last_run_times.PSObject.Properties | ForEach-Object {
+            Write-Host "$($_.Name): " -NoNewline
+            Write-Host "$($_.Value)" -ForegroundColor $Colors.Info
+        }
+        Write-Host
     }
 }
 
@@ -97,13 +170,31 @@ function Show-SystemInfo {
     $processManagerRunning = $false
     if ($pythonProcesses) {
         foreach ($proc in $pythonProcesses) {
-            $cmdLine = (Get-WmiObject Win32_Process -Filter "ProcessId = $($proc.Id)").CommandLine
-            if ($cmdLine -and $cmdLine -match "process_manager\.py") {
+            try {
+                $cmdLine = (Get-WmiObject Win32_Process -Filter "ProcessId = $($proc.Id)").CommandLine
+                if ($cmdLine -and $cmdLine -match "process_manager\.py") {
+                    $processManagerRunning = $true
+                    Write-Host "Process Manager: " -NoNewline
+                    Write-Host "RUNNING" -ForegroundColor $Colors.Running -NoNewline
+                    Write-Host " (PID: $($proc.Id))"
+                    break
+                }
+            } catch {
+                # Unable to retrieve command line, continue checking other processes
+            }
+        }
+    }
+    
+    # Check for process manager in another way if not found
+    if (-not $processManagerRunning) {
+        # Check if there's a .process_manager.lock file (which indicates running)
+        if (Test-Path ".process_manager.lock") {
+            $lockFileAge = (Get-Date) - (Get-Item ".process_manager.lock").LastWriteTime
+            if ($lockFileAge.TotalMinutes -lt 5) {
                 $processManagerRunning = $true
                 Write-Host "Process Manager: " -NoNewline
                 Write-Host "RUNNING" -ForegroundColor $Colors.Running -NoNewline
-                Write-Host " (PID: $($proc.Id))"
-                break
+                Write-Host " (lock file present)"
             }
         }
     }
