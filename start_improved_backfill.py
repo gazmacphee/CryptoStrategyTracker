@@ -45,8 +45,8 @@ def get_priority_symbols():
 
 def get_priority_intervals():
     """Return a list of intervals in priority order for backfilling"""
-    # Start with the most commonly used intervals
-    return ["1h", "1d", "4h", "15m", "30m"]
+    # Start with the most commonly used intervals, ensuring we only use intervals ≥30m
+    return ["1h", "1d", "4h", "30m", "2h", "6h", "8h", "12h", "3d", "1w", "1M"]
 
 def start_background_backfill(full=False, continuous=False, interval_minutes=15):
     """

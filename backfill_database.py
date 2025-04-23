@@ -45,7 +45,11 @@ def get_popular_symbols(limit=10):
     # Default list of popular symbols if API call fails
     default_symbols = [
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT",
-        "XRPUSDT", "DOTUSDT", "UNIUSDT", "LTCUSDT", "LINKUSDT"
+        "XRPUSDT", "DOTUSDT", "UNIUSDT", "LTCUSDT", "LINKUSDT",
+        "SOLUSDT", "MATICUSDT", "AVAXUSDT", "SHIBUSDT", "TRXUSDT",
+        "ATOMUSDT", "NEARUSDT", "ALGOUSDT", "FTMUSDT", "SANDUSDT",
+        "MANAUSDT", "AXSUSDT", "VETUSDT", "ICPUSDT", "FILUSDT",
+        "HBARUSDT", "EGLDUSDT", "THETAUSDT", "EOSUSDT", "AAVEUSDT"
     ]
     
     if limit < len(default_symbols):
@@ -89,12 +93,14 @@ def backfill_database(full=False, background=False):
         try:
             # Set up popular symbols and intervals for backfill
             symbols = get_popular_symbols()
-            intervals = ['1h', '4h', '1d']
+            
+            # Only use intervals 30m or larger
+            intervals = ['30m', '1h', '4h', '1d']
             
             if full:
-                # For full backfill, use more symbols and add weekly/monthly intervals
-                symbols = get_popular_symbols(limit=20)
-                intervals = ['1h', '4h', '8h', '12h', '1d', '3d', '1w', '1M']
+                # For full backfill, use more symbols and all available intervals ≥30m
+                symbols = get_popular_symbols(limit=30)
+                intervals = ['30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']
             
             # Print some information about what we're doing
             print(f"\nPreparing to download data for {len(symbols)} cryptocurrency pairs:")
