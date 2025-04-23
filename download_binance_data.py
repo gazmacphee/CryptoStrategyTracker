@@ -663,6 +663,14 @@ def download_daily_klines(symbol, interval, year, month):
     import calendar
     import pandas as pd
     
+    # Check if requested data is from the future
+    current_date = datetime.now()
+    
+    # If we're requesting data from a future year/month, skip it
+    if (year > current_date.year) or (year == current_date.year and month > current_date.month):
+        logging.warning(f"Skipping future data for {symbol}/{interval} for {year}-{month:02d} (current date: {current_date.year}-{current_date.month:02d})")
+        return None
+        
     base_url = "https://data.binance.vision/data/spot/daily/klines"
     
     # Get number of days in the month
