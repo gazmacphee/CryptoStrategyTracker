@@ -988,6 +988,103 @@ def main():
         latest_data = df.iloc[-1]
         current_price = latest_data['close']
         
+        # Check if we have a recent buy signal with exit strategies from the database
+        from trading_signals import get_recent_signals, calculate_exit_levels
+        recent_db_signals = get_recent_signals(symbol=symbol, interval=binance_interval, limit=1)
+        
+        # Variables to store exit levels
+        stop_loss_price = None
+        take_profit_price = None
+        stop_loss_method = None
+        take_profit_method = None
+        risk_reward_ratio = None
+        
+        # If we have a recent signal from the database, use its exit levels
+        if not recent_db_signals.empty and recent_db_signals.iloc[0]['signal_type'].upper() == 'BUY':
+            signal_row = recent_db_signals.iloc[0]
+            if pd.notna(signal_row['stop_loss']) and signal_row['stop_loss'] > 0:
+                stop_loss_price = signal_row['stop_loss']
+                stop_loss_method = signal_row['stop_loss_method'] if pd.notna(signal_row['stop_loss_method']) else 'Default'
+                
+            if pd.notna(signal_row['take_profit']) and signal_row['take_profit'] > 0:
+                take_profit_price = signal_row['take_profit']
+                take_profit_method = signal_row['take_profit_method'] if pd.notna(signal_row['take_profit_method']) else 'Default'
+                
+            if pd.notna(signal_row['risk_reward_ratio']):
+                risk_reward_ratio = signal_row['risk_reward_ratio']
+        # If not, calculate them on the fly for the latest signal
+        elif latest_data['buy_signal']:
+            exit_levels = calculate_exit_levels(df, current_price)
+            stop_loss_price = exit_levels['stop_loss_price']
+            take_profit_price = exit_levels['take_profit_price']
+            stop_loss_method = exit_levels['stop_loss_method']
+            take_profit_method = exit_levels['take_profit_method']
+            risk_reward_ratio = exit_levels.get('risk_reward_ratio', None)
+            
+            # If we calculated exit levels, add them to the chart
+            if stop_loss_price and take_profit_price:
+                # Add stop loss line
+                fig.add_shape(
+                    type="line",
+                    x0=df['timestamp'].iloc[-20],
+                    x1=df['timestamp'].iloc[-1],
+                    y0=stop_loss_price,
+                    y1=stop_loss_price,
+                    line=dict(color="red", width=2, dash="dash"),
+                    row=1, col=1
+                )
+                
+                # Add stop loss annotation
+                fig.add_annotation(
+                    x=df['timestamp'].iloc[-1],
+                    y=stop_loss_price,
+                    text=f"Stop Loss: ${stop_loss_price:.2f}",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowcolor="red",
+                    arrowsize=1,
+                    arrowwidth=2,
+                    ax=-80,
+                    ay=-30,
+                    bordercolor="red",
+                    borderwidth=2,
+                    borderpad=4,
+                    bgcolor="rgba(255, 255, 255, 0.8)",
+                    opacity=0.8,
+                    row=1, col=1
+                )
+                
+                # Add take profit line
+                fig.add_shape(
+                    type="line",
+                    x0=df['timestamp'].iloc[-20],
+                    x1=df['timestamp'].iloc[-1],
+                    y0=take_profit_price,
+                    y1=take_profit_price,
+                    line=dict(color="green", width=2, dash="dash"),
+                    row=1, col=1
+                )
+                
+                # Add take profit annotation
+                fig.add_annotation(
+                    x=df['timestamp'].iloc[-1],
+                    y=take_profit_price,
+                    text=f"Take Profit: ${take_profit_price:.2f}",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowcolor="green",
+                    arrowsize=1,
+                    arrowwidth=2,
+                    ax=-80,
+                    ay=30,
+                    bordercolor="green",
+                    borderwidth=2,
+                    borderpad=4,
+                    bgcolor="rgba(255, 255, 255, 0.8)",
+                    opacity=0.8,
+                    row=1, col=1
+                )
+                
         with col1:
             st.metric(
                 label=f"Current {symbol} Price",
@@ -998,13 +1095,24 @@ def main():
         with col2:
             # Display buy signal if present
             if latest_data['buy_signal']:
-                st.markdown(
-                    "<div style='background-color: rgba(0, 255, 0, 0.3); padding: 20px; border-radius: 5px; text-align: center;'>"
-                    "<h2>BUY SIGNAL</h2>"
-                    f"<p>Price: ${current_price:.2f}</p>"
-                    "</div>",
-                    unsafe_allow_html=True
-                )
+                signal_html = "<div style='background-color: rgba(0, 255, 0, 0.3); padding: 20px; border-radius: 5px; text-align: center;'>"
+                signal_html += "<h2>BUY SIGNAL</h2>"
+                signal_html += f"<p>Price: ${current_price:.2f}</p>"
+                
+                # Add exit strategy information if available
+                if stop_loss_price and take_profit_price:
+                    # Calculate potential profit and loss percentages
+                    loss_pct = ((stop_loss_price - current_price) / current_price) * 100
+                    profit_pct = ((take_profit_price - current_price) / current_price) * 100
+                    
+                    signal_html += f"<p>Stop Loss: ${stop_loss_price:.2f} ({loss_pct:.1f}%)</p>"
+                    signal_html += f"<p>Take Profit: ${take_profit_price:.2f} ({profit_pct:.1f}%)</p>"
+                    
+                    if risk_reward_ratio:
+                        signal_html += f"<p>Risk:Reward = 1:{risk_reward_ratio:.1f}</p>"
+                
+                signal_html += "</div>"
+                st.markdown(signal_html, unsafe_allow_html=True)
         
         with col3:
             # Display sell signal if present
@@ -1051,6 +1159,90 @@ def main():
             st.dataframe(signal_df, use_container_width=True)
         else:
             st.info("No recent signals detected.")
+            
+        # Historical signals from database with exit strategies
+        st.subheader("Historical Trading Signals with Exit Strategies")
+        # Import the get_recent_signals function
+        from trading_signals import get_recent_signals
+        
+        # Get signals from database
+        db_signals = get_recent_signals(symbol=symbol, interval=binance_interval, limit=10)
+        
+        if not db_signals.empty:
+            # Format signals for display
+            display_data = []
+            
+            for _, row in db_signals.iterrows():
+                signal_type = row['signal_type'].upper()
+                # Calculate risk-reward ratio if both stop loss and take profit are available
+                risk_reward = ""
+                if pd.notna(row['risk_reward_ratio']):
+                    risk_reward = f"1:{row['risk_reward_ratio']:.1f}"
+                elif pd.notna(row['stop_loss']) and pd.notna(row['take_profit']) and row['stop_loss'] > 0:
+                    # Calculate risk-reward ratio
+                    if signal_type == "BUY":
+                        risk = row['price'] - row['stop_loss']
+                        reward = row['take_profit'] - row['price']
+                    else:  # SELL
+                        risk = row['stop_loss'] - row['price']
+                        reward = row['price'] - row['take_profit']
+                    
+                    if risk > 0:
+                        risk_reward = f"1:{(reward/risk):.1f}"
+                
+                # Format stop loss and take profit with methods
+                stop_loss_info = "-"
+                if pd.notna(row['stop_loss']) and row['stop_loss'] > 0:
+                    stop_loss_info = f"${row['stop_loss']:.2f}"
+                    if pd.notna(row['stop_loss_method']):
+                        stop_loss_info += f" ({row['stop_loss_method']})"
+                
+                take_profit_info = "-"
+                if pd.notna(row['take_profit']) and row['take_profit'] > 0:
+                    take_profit_info = f"${row['take_profit']:.2f}"
+                    if pd.notna(row['take_profit_method']):
+                        take_profit_info += f" ({row['take_profit_method']})"
+                
+                # Determine signal strength
+                strength = row['signal_strength'] if pd.notna(row['signal_strength']) else 0
+                strength_display = f"{strength:.1f}" if pd.notna(strength) else "-"
+                
+                display_data.append({
+                    "Time": row['timestamp'],
+                    "Type": signal_type,
+                    "Price": f"${row['price']:.2f}",
+                    "Stop Loss": stop_loss_info,
+                    "Take Profit": take_profit_info,
+                    "Risk:Reward": risk_reward,
+                    "Strategy": row['strategy_name'] if pd.notna(row['strategy_name']) else "Default",
+                    "Strength": strength_display
+                })
+            
+            # Create DataFrame for display
+            display_df = pd.DataFrame(display_data)
+            st.dataframe(display_df, use_container_width=True)
+            
+            # Display exit strategy guidance
+            with st.expander("Exit Strategy Guidance", expanded=False):
+                st.markdown("""
+                ### Understanding Exit Strategies
+                
+                Exit strategies are crucial for successful trading. Each buy signal comes with recommended stop loss and take profit levels.
+                
+                **Stop Loss Methods:**
+                - **Support**: Based on recent price support levels
+                - **ATR**: Using Average True Range for volatility-based stops
+                - **Percent**: Simple percentage below entry price
+                
+                **Take Profit Methods:**
+                - **Resistance**: Based on recent price resistance levels
+                - **Risk-Reward**: Calculated using risk-reward ratio (e.g., 1:2, 1:3)
+                - **Recent High**: Based on recent price high
+                
+                *Remember: Always set your stop loss and take profit levels before entering a trade.*
+                """)
+        else:
+            st.info("No historical signals with exit strategies found. The database is still being populated in the background.")
         
         # Strategy Performance - Advanced Backtesting
         st.subheader("Strategy Performance")
