@@ -17,7 +17,8 @@ from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
 
-from database import get_db_connection, save_dxy_data, get_dxy_data, save_liquidity_data, get_liquidity_data
+import database
+from database import get_db_connection, save_dxy_data, save_liquidity_data, get_liquidity_data
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -392,8 +393,9 @@ def get_dxy_data_from_database(start_date=None, end_date=None):
     if end_date is None:
         end_date = datetime.now()
     
-    # Use centralized database function (using parameter names it expects)
-    df = database.get_dxy_data(start_time=start_date, end_time=end_date)
+    # Use the aliased database function that we imported
+    from database import get_dxy_data as db_get_dxy_data
+    df = db_get_dxy_data(start_time=start_date, end_time=end_date)
     
     # Log the result
     if not df.empty:
