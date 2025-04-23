@@ -1,0 +1,50 @@
+powershell -ExecutionPolicy Bypass -File start_windows.ps1
+=================================================================================
+CryptoStrategyTracker - Windows Startup
+=================================================================================
+âœ… Python 3.13.3 detected
+Checking for required packages...
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import streamlit; print('âœ… ' + streamlit + ' is installed')
+                            ~~~~~~~^~~~~~~~~~~
+TypeError: can only concatenate str (not "module") to str
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import pandas; print('âœ… ' + pandas + ' is installed')
+                         ~~~~~~~^~~~~~~~
+TypeError: can only concatenate str (not "module") to str
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import numpy; print('âœ… ' + numpy + ' is installed')
+                        ~~~~~~~^~~~~~~
+TypeError: can only concatenate str (not "module") to str
+
+  File "<string>", line 1
+    import psycopg2-binary; print('âœ… ' + psycopg2-binary + ' is installed')
+                   ^
+SyntaxError: invalid syntax
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sqlalchemy; print('âœ… ' + sqlalchemy + ' is installed')
+                             ~~~~~~~^~~~~~~~~~~~
+TypeError: can only concatenate str (not "module") to str
+
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import plotly; print('âœ… ' + plotly + ' is installed')
+                         ~~~~~~~^~~~~~~~
+TypeError: can only concatenate str (not "module") to str
+
+
+Testing database connection...
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from database import get_db_connection, close_db_connection; conn = get_db_connection(); success = conn is not None; close_db_connection(conn); print('âœ… Database connection successful' if success else 'âŒ Database connection failed')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ImportError: cannot import name 'close_db_connection' from 'database' (D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\database.py). Did you mean: 'get_db_connection'?
+Original DATABASE_URL from environment: postgresql://postgres:2212@localhost:5432/crypto Parsed URL - Host: localhost, Port: 5432, DB: crypto, User: postgres
+Check your .env file and make sure DATABASE_URL is set correctly
