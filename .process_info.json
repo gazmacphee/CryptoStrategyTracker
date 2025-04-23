@@ -1,13 +1,6 @@
 {
-  "last_update": "2025-04-23T14:32:42.950979",
-  "processes": {
-    "news_retrieval": {
-      "pid": null,
-      "status": "stopped",
-      "start_time": "2025-04-23T14:00:12.857264",
-      "restarts": 0
-    }
-  },
+  "last_update": "2025-04-23T14:34:04.010387",
+  "processes": {},
   "last_run_times": {
     "news_retrieval": "2025-04-23T14:00:12.857275",
     "sentiment_analysis": "2025-04-23T10:59:11.709435",
