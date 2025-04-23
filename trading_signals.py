@@ -239,44 +239,74 @@ def create_signals_table():
     try:
         cur = conn.cursor()
         
-        # Create trading signals table for historical tracking
+        # First check if the table exists
         cur.execute("""
-        CREATE TABLE IF NOT EXISTS trading_signals (
-            id SERIAL PRIMARY KEY,
-            symbol VARCHAR(20) NOT NULL,
-            interval VARCHAR(10) NOT NULL,
-            timestamp TIMESTAMP NOT NULL,
-            signal_type VARCHAR(10) NOT NULL,  -- 'buy', 'sell', or 'neutral'
-            signal_strength NUMERIC,           -- 0.0 to 1.0 indicating signal strength
-            price NUMERIC NOT NULL,            -- price at signal generation
-            stop_loss NUMERIC,                 -- suggested stop loss price level
-            take_profit NUMERIC,               -- suggested take profit price level
-            stop_loss_method VARCHAR(50),      -- method used to calculate stop loss
-            take_profit_method VARCHAR(50),    -- method used to calculate take profit
-            risk_reward_ratio NUMERIC,         -- risk to reward ratio (e.g., 1:2, 1:3)
-            bb_signal BOOLEAN,                 -- individual indicator signals
-            rsi_signal BOOLEAN,
-            macd_signal BOOLEAN,
-            ema_signal BOOLEAN,                -- ema crossover signals
-            strategy_name VARCHAR(100),        -- which strategy generated this signal
-            strategy_params JSONB,             -- strategy parameters used
-            notes TEXT,                        -- additional context
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(symbol, interval, timestamp, strategy_name)
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_name = 'trading_signals'
         );
         """)
+        table_exists = cur.fetchone()[0]
         
-        # Create index for faster queries
-        cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_trading_signals_symbol_interval_timestamp 
-        ON trading_signals(symbol, interval, timestamp);
-        """)
+        # If table exists, check if it has the expected structure
+        columns_valid = True
+        if table_exists:
+            try:
+                # Try a simple query to check if stop_loss column exists
+                cur.execute("SELECT stop_loss FROM trading_signals LIMIT 0;")
+            except Exception as column_error:
+                print(f"Table structure issue detected: {column_error}")
+                columns_valid = False
+                
+                # Drop the table if it exists but has issues
+                cur.execute("DROP TABLE IF EXISTS trading_signals;")
+                conn.commit()
+                print("Dropped trading_signals table to recreate with correct schema")
+                table_exists = False
+        
+        # Only create the table if it doesn't exist or had invalid columns
+        if not table_exists or not columns_valid:
+            # Create trading signals table for historical tracking
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS trading_signals (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                interval VARCHAR(10) NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                signal_type VARCHAR(10) NOT NULL,  -- 'buy', 'sell', or 'neutral'
+                signal_strength NUMERIC,           -- 0.0 to 1.0 indicating signal strength
+                price NUMERIC NOT NULL,            -- price at signal generation
+                stop_loss NUMERIC,                 -- suggested stop loss price level
+                take_profit NUMERIC,               -- suggested take profit price level
+                stop_loss_method VARCHAR(50),      -- method used to calculate stop loss
+                take_profit_method VARCHAR(50),    -- method used to calculate take profit
+                risk_reward_ratio NUMERIC,         -- risk to reward ratio (e.g., 1:2, 1:3)
+                bb_signal BOOLEAN,                 -- individual indicator signals
+                rsi_signal BOOLEAN,
+                macd_signal BOOLEAN,
+                ema_signal BOOLEAN,                -- ema crossover signals
+                strategy_name VARCHAR(100),        -- which strategy generated this signal
+                strategy_params JSONB,             -- strategy parameters used
+                notes TEXT,                        -- additional context
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, interval, timestamp, strategy_name)
+            );
+            """)
+            
+            # Create index for faster queries
+            cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trading_signals_symbol_interval_timestamp 
+            ON trading_signals(symbol, interval, timestamp);
+            """)
+            
+            print("Trading signals table created successfully")
         
         conn.commit()
-        print("Trading signals table created successfully")
         return True
     except Exception as e:
         print(f"Error creating trading signals table: {e}")
+        if conn:
+            conn.rollback()
         return False
     finally:
         if conn:
@@ -325,8 +355,10 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
     if df.empty:
         return False
     
-    # Ensure trading signals table exists
-    create_signals_table()
+    # Ensure trading signals table exists - recreate it if necessary
+    created = create_signals_table() 
+    if not created:
+        print("Warning: Failed to create or verify trading signals table")
     
     conn = get_db_connection()
     if not conn:
@@ -337,6 +369,44 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
         
         # Get the last signal for this symbol/interval
         last_timestamp, last_signal_type = get_last_signal(conn, symbol, interval, strategy_name)
+        
+        # First check if the table structure is correct by querying column names
+        cur.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'trading_signals'
+        """)
+        
+        columns = [row[0] for row in cur.fetchall()]
+        
+        # Define the columns we expect to have
+        expected_columns = [
+            'id', 'symbol', 'interval', 'timestamp', 'signal_type', 'signal_strength', 
+            'price', 'stop_loss', 'take_profit', 'stop_loss_method', 'take_profit_method', 
+            'risk_reward_ratio', 'bb_signal', 'rsi_signal', 'macd_signal', 'ema_signal', 
+            'strategy_name', 'strategy_params', 'notes', 'created_at'
+        ]
+        
+        # Check if any expected columns are missing
+        missing_columns = [col for col in expected_columns if col not in columns]
+        
+        if missing_columns:
+            print(f"Warning: Missing columns in trading_signals table: {missing_columns}")
+            print("Recreating trading signals table with correct schema")
+            
+            # Drop and recreate the table to fix schema issues
+            cur.execute("DROP TABLE IF EXISTS trading_signals")
+            conn.commit()
+            
+            # Call create_signals_table again to recreate with proper schema
+            conn.close()
+            create_signals_table()
+            
+            # Reconnect to database
+            conn = get_db_connection()
+            if not conn:
+                return False
+            cur = conn.cursor()
         
         # Insert signals where buy_signal or sell_signal is True
         insert_query = """
