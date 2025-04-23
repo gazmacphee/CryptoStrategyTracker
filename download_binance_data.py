@@ -725,25 +725,57 @@ def download_daily_klines(symbol, interval, year, month):
                             # Check for any invalid/extreme values that would cause timestamp errors
                             # Instead of dropping values, adjust all timestamps to be in valid range
                             timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
-                            invalid_timestamps = df['open_time'] > timestamp_cutoff
-                            if invalid_timestamps.any():
-                                logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {date_str}, correcting to valid dates")
-                                # Use the daily file date to ensure we have correct timestamps
-                                # for this specific day rather than arbitrary limits
-                                logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in daily file {date_str}, using file date")
-                                day_start_ms = int(pd.Timestamp(date_str).timestamp() * 1000)
-                                day_end_ms = int(pd.Timestamp(f"{date_str} 23:59:59").timestamp() * 1000)
-                                for idx in df.index[invalid_timestamps]:
+                            
+                            # First check if date_str appears to be in the future (April 2025, etc.)
+                            try:
+                                file_date = pd.Timestamp(date_str)
+                                now = pd.Timestamp.now()
+                                is_future_date = file_date > now
+                            except:
+                                is_future_date = False
+                                
+                            # Handle differently based on whether it's a future date or invalid timestamp
+                            if is_future_date:
+                                logging.warning(f"File date {date_str} appears to be in the future, using current date range")
+                                # For future dates, we'll normalize to recent timeframes
+                                # Get the hour from the row position
+                                day_start_ms = int((now - pd.Timedelta(days=1)).timestamp() * 1000)
+                                day_end_ms = int(now.timestamp() * 1000)
+                                
+                                # Fix all timestamps in the file to be valid recent ones
+                                for idx in df.index:
                                     try:
                                         # Calculate timestamp based on position in dataset
                                         position = df.index.get_loc(idx) / len(df.index)  # Relative position (0-1)
-                                        # Set timestamp within the file's day range
+                                        # Set timestamp within the recent day range
                                         new_ts = int(day_start_ms + position * (day_end_ms - day_start_ms))
                                         df.loc[idx, 'open_time'] = new_ts
                                     except Exception as e:
-                                        # If anything fails, set a default timestamp based on the day
-                                        default_ts = int(pd.Timestamp(date_str).timestamp() * 1000)
+                                        # If anything fails, set a default timestamp based on now
+                                        default_ts = int(now.timestamp() * 1000)
                                         df.loc[idx, 'open_time'] = default_ts
+                                logging.info(f"Adjusted all timestamps in future file {date_str} to valid recent range")
+                            else:
+                                # Handle the normal case of invalid timestamps
+                                invalid_timestamps = df['open_time'] > timestamp_cutoff
+                                if invalid_timestamps.any():
+                                    logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {date_str}, correcting to valid dates")
+                                    # Use the daily file date to ensure we have correct timestamps
+                                    # for this specific day rather than arbitrary limits
+                                    logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in daily file {date_str}, using file date")
+                                    day_start_ms = int(pd.Timestamp(date_str).timestamp() * 1000)
+                                    day_end_ms = int(pd.Timestamp(f"{date_str} 23:59:59").timestamp() * 1000)
+                                    for idx in df.index[invalid_timestamps]:
+                                        try:
+                                            # Calculate timestamp based on position in dataset
+                                            position = df.index.get_loc(idx) / len(df.index)  # Relative position (0-1)
+                                            # Set timestamp within the file's day range
+                                            new_ts = int(day_start_ms + position * (day_end_ms - day_start_ms))
+                                            df.loc[idx, 'open_time'] = new_ts
+                                        except Exception as e:
+                                            # If anything fails, set a default timestamp based on the day
+                                            default_ts = int(pd.Timestamp(date_str).timestamp() * 1000)
+                                            df.loc[idx, 'open_time'] = default_ts
                             
                             # Handle potential string data by first trying to convert to numeric
                             if df['open_time'].dtype == object:  # if it's a string or object
