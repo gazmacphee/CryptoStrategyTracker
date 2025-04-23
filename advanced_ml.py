@@ -654,7 +654,7 @@ class MultiSymbolPatternAnalyzer:
             def fetch_symbol_interval(symbol, interval):
                 # Directly import the database modules here to ensure they're available
                 import database
-                from database_extensions import get_historical_data
+                from database_extensions import get_historical_data, ensure_float_df, safe_float_convert
                 
                 print(f"Fetching data for {symbol}/{interval} with lookback of {days} days")
                 
@@ -668,6 +668,9 @@ class MultiSymbolPatternAnalyzer:
                     # Add any required post-processing here
                     import pandas as pd
                     
+                    # Convert any Decimal types to float for numerical operations
+                    df = ensure_float_df(df, columns=['open', 'high', 'low', 'close', 'volume'])
+                    
                     # Ensure timestamp is in datetime format
                     if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
                         df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -679,6 +682,15 @@ class MultiSymbolPatternAnalyzer:
                             print(f"Warning: Required column '{col}' missing from data")
                             return (symbol, interval), None
                     
+                    # Check for NaN values and replace them
+                    for col in ['open', 'high', 'low', 'close', 'volume']:
+                        if df[col].isna().any():
+                            print(f"Warning: Found NaN values in {col} column, filling with appropriate values")
+                            if col == 'volume':
+                                df[col] = df[col].fillna(0)
+                            else:
+                                df[col] = df[col].fillna(method='ffill').fillna(method='bfill')
+                    
                     # Sort by timestamp to ensure chronological order
                     df = df.sort_values('timestamp')
                     
@@ -686,6 +698,46 @@ class MultiSymbolPatternAnalyzer:
                     return (symbol, interval), df
                 else:
                     print(f"No data retrieved for {symbol}/{interval}")
+                    # Let's try with special handling for 1h interval
+                    if interval == '1h':
+                        print(f"Attempting special handling for 1h data via 30m data conversion")
+                        try:
+                            # Try to convert 30m data to 1h if available
+                            df_30m = get_historical_data(symbol, '30m', lookback_days=days)
+                            if df_30m is not None and not df_30m.empty:
+                                # We found 30m data, let's convert it to 1h
+                                print(f"Found {len(df_30m)} records of 30m data, converting to 1h")
+                                
+                                # Convert decimal values
+                                df_30m = ensure_float_df(df_30m)
+                                
+                                # Convert timestamp to datetime
+                                if 'timestamp' in df_30m.columns and not pd.api.types.is_datetime64_any_dtype(df_30m['timestamp']):
+                                    df_30m['timestamp'] = pd.to_datetime(df_30m['timestamp'])
+                                
+                                # Set timestamp as index for resampling
+                                df_30m = df_30m.set_index('timestamp')
+                                
+                                # Resample to 1h
+                                df_1h = df_30m.resample('1H').agg({
+                                    'open': 'first',
+                                    'high': 'max',
+                                    'low': 'min',
+                                    'close': 'last',
+                                    'volume': 'sum'
+                                })
+                                
+                                # Reset index to get timestamp as column again
+                                df_1h = df_1h.reset_index()
+                                
+                                # Set the interval to 1h
+                                if 'interval' in df_30m.columns:
+                                    df_1h['interval'] = '1h'
+                                    
+                                print(f"Successfully converted 30m data to 1h: {len(df_1h)} rows")
+                                return (symbol, interval), df_1h
+                        except Exception as e:
+                            print(f"Error in special handling for 1h data: {e}")
                 
                 return (symbol, interval), None
             

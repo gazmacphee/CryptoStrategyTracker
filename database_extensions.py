@@ -6,6 +6,33 @@ This module imports from database.py and adds additional functionality.
 import database
 from database import get_db_connection
 import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from decimal import Decimal
+
+# Helper functions for type conversion
+def safe_float_convert(value):
+    """Convert Decimal values to float safely"""
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+def ensure_float_df(df, columns=None):
+    """Ensure specified columns in DataFrame contain only float values, not Decimal"""
+    if df is None or df.empty:
+        return df
+        
+    if columns is None:
+        # Get all numeric columns
+        numeric_columns = df.select_dtypes(include=['number', 'object']).columns
+        columns = [col for col in numeric_columns]
+    
+    # Apply the conversion to each column
+    for col in columns:
+        if col in df.columns:
+            df[col] = df[col].apply(safe_float_convert)
+    
+    return df
 
 def get_symbols_from_database(limit=None):
     """
