@@ -176,28 +176,43 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
         if conn:
             try:
                 cursor = conn.cursor()
-                # Query 30m data directly
-                query = """
-                    SELECT * FROM historical_data 
-                    WHERE symbol = %s AND interval = '30m' 
-                    AND timestamp BETWEEN to_timestamp(%s/1000) AND to_timestamp(%s/1000)
-                    ORDER BY timestamp ASC
-                """
-                cursor.execute(query, (symbol, start_timestamp, end_timestamp))
-                rows = cursor.fetchall()
+                # Query 30m data directly - first check if we have any data
+                check_query = "SELECT COUNT(*) FROM historical_data WHERE symbol = %s AND interval = '30m'"
+                cursor.execute(check_query, (symbol,))
+                count = cursor.fetchone()[0]
+                print(f"Found {count} total records of 30m data for {symbol}")
                 
-                # Get column names
-                columns = [desc[0] for desc in cursor.description]
-                
-                # Create DataFrame
-                df_30m = pd.DataFrame(rows, columns=columns)
-                
-                if not df_30m.empty:
-                    print(f"Retrieved {len(df_30m)} rows of 30m data for {symbol}")
+                if count > 0:
+                    # Just get all the data and then filter in Python for simplicity (to avoid timestamp formatting issues)
+                    query = """
+                        SELECT * FROM historical_data 
+                        WHERE symbol = %s AND interval = '30m'
+                        ORDER BY timestamp ASC
+                    """
+                    cursor.execute(query, (symbol,))
+                    rows = cursor.fetchall()
                     
-                    # Convert to datetime
-                    if 'timestamp' in df_30m.columns:
-                        df_30m['timestamp'] = pd.to_datetime(df_30m['timestamp'])
+                    # Get column names
+                    columns = [desc[0] for desc in cursor.description]
+                    
+                    # Create DataFrame
+                    df_30m = pd.DataFrame(rows, columns=columns)
+                    
+                    if not df_30m.empty:
+                        print(f"Retrieved {len(df_30m)} rows of 30m data for {symbol}")
+                        
+                        # Convert any Decimal values to float
+                        df_30m = ensure_float_df(df_30m)
+                        
+                        # Convert to datetime
+                        if 'timestamp' in df_30m.columns:
+                            df_30m['timestamp'] = pd.to_datetime(df_30m['timestamp'])
+                        
+                        # Filter to our date range if needed
+                        if len(df_30m) > lookback_days * 48:  # 48 30-minute periods per day 
+                            # Filter to the date range we want
+                            df_30m = df_30m[(df_30m['timestamp'] >= start_time) & (df_30m['timestamp'] <= end_time)]
+                            print(f"Filtered to {len(df_30m)} rows in date range")
                     
                     # Set timestamp as index for resampling
                     df_30m = df_30m.set_index('timestamp')
