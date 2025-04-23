@@ -1,0 +1,37 @@
+An error occurred in the Economic Indicators tab: The truth value of a DataFrame is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().
+
+Traceback (most recent call last):
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\app.py", line 3091, in main
+    render_economic_indicators_tab(current_symbol)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\economic_ui.py", line 75, in render_economic_indicators_tab
+    render_correlation_analysis(crypto_symbol, start_date, end_date)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\economic_ui.py", line 501, in render_correlation_analysis
+    corr_df['Interpretation'] = corr_df['Correlation'].apply(interpret_correlation)
+                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\series.py", line 4924, in apply
+    ).apply()
+      ~~~~~^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\apply.py", line 1427, in apply
+    return self.apply_standard()
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\apply.py", line 1507, in apply_standard
+    mapped = obj._map_values(
+        mapper=curried, na_action=action, convert=self.convert_dtype
+    )
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\base.py", line 921, in _map_values
+    return algorithms.map_array(arr, mapper, na_action=na_action, convert=convert)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\algorithms.py", line 1743, in map_array
+    return lib.map_infer(values, mapper, convert=convert)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "lib.pyx", line 2972, in pandas._libs.lib.map_infer
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\economic_ui.py", line 490, in interpret_correlation
+    if corr > 0.7:
+       ^^^^^^^^^^
+  File "D:\VSCODE_DATA_AND_CODE\TRADINGAPP\CryptoStrategyTracker\venv\Lib\site-packages\pandas\core\generic.py", line 1577, in __nonzero__
+    raise ValueError(
+    ...<2 lines>...
+    )
+ValueError: The truth value of a DataFrame is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().

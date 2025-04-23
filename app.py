@@ -296,12 +296,15 @@ def main():
     
     # Now that st.set_page_config has been called, we can safely import ml_ui
     try:
-        from ml_ui import render_ml_predictions_tab as ml_render_function
+        # Import in a way that avoids potential set_page_config conflicts
+        import importlib
+        ml_ui = importlib.import_module('ml_ui')
         global render_ml_predictions_tab
-        render_ml_predictions_tab = ml_render_function
-    except ImportError:
+        render_ml_predictions_tab = ml_ui.render_ml_predictions_tab
+        logging.info("ML UI module loaded successfully")
+    except Exception as e:
         # Keep using the default function if ml_ui can't be imported
-        pass
+        logging.warning(f"Failed to import ML UI module - using fallback mode: {e}")
     
     # Show initial message about data loading
     if 'initial_message_shown' not in st.session_state:
