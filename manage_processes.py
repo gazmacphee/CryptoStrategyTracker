@@ -42,6 +42,7 @@ def ensure_process_manager_exists():
 
 def is_process_manager_running():
     """Check if the process manager is already running."""
+    # First check via lock file
     if os.path.exists(LOCK_FILE):
         try:
             with open(LOCK_FILE, 'r') as f:
@@ -58,60 +59,75 @@ def is_process_manager_running():
         except Exception:
             pass
     
+    # Second, check if it's running as a Replit workflow
+    try:
+        workflow_check = subprocess.run(
+            ["ps", "aux"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if "process_manager.py monitor" in workflow_check.stdout:
+            return True
+    except Exception:
+        pass
+        
     return False
 
 def start_processes():
     """Start all data processes."""
     ensure_process_manager_exists()
     
-    if is_process_manager_running():
-        print("Process manager is already running. Use 'status' to check running processes.")
-        return
-
+    # Check if the ProcessManager workflow is already running
     try:
-        # First, initialize processes
-        print("Initializing all processes...")
-        result = subprocess.run(
-            ["python", PROCESS_MANAGER, "start"],
+        workflow_check = subprocess.run(
+            ["ps", "aux"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
         
-        print(result.stdout)
-        
-        # Then, start the workflow to monitor them
-        try:
-            # Check if the ProcessManager workflow exists and is running
-            workflow_check = subprocess.run(
-                ["ps", "aux"],
+        if "process_manager.py monitor" in workflow_check.stdout:
+            print("Process monitor is already running in a workflow.")
+            print("Starting processes...")
+            
+            # If monitor is running, just initialize the processes
+            result = subprocess.run(
+                ["python", PROCESS_MANAGER, "start"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
             
-            if "process_manager.py monitor" in workflow_check.stdout:
-                print("Process monitor is already running in a workflow.")
-            else:
-                print("Starting process monitor workflow...")
-                # Use the workflow system instead of running directly
-                # This will be handled by the Replit environment
-                print("Process monitor started.")
-                print("Note: To see the monitor logs, check the ProcessManager workflow.")
-        except Exception as monitor_error:
-            logging.error(f"Error starting monitor workflow: {monitor_error}")
-            # Fallback to running directly
-            print("Falling back to starting monitor directly...")
-            subprocess.Popen(
-                ["python", PROCESS_MANAGER, "monitor"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True  # Detach from parent process
-            )
+            print(result.stdout)
+            print("Processes initialized successfully.")
+            return
+    except Exception:
+        # Continue with normal startup if we can't check workflow status
+        pass
+    
+    # If we got here, the monitor isn't running or we couldn't check
+    try:
+        # Start only the initialization part with a reasonable timeout
+        print("Initializing processes...")
+        result = subprocess.run(
+            ["python", PROCESS_MANAGER, "start"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30  # 30 second timeout for initialization
+        )
+        
+        print(result.stdout)
+        
+        print("Processes initialized. Starting process monitor...")
+        print("The ProcessManager workflow should be running in the background.")
+        print("Use 'python manage_processes.py status' to check process status.")
             
-        print("Process manager initialized all processes successfully.")
-        print("Use 'status' to check the status of all processes.")
-            
+    except subprocess.TimeoutExpired:
+        print("Process initialization is taking longer than expected, but is running.")
+        print("This is normal during first startup. Check status in a minute.")
     except Exception as e:
         logging.error(f"Error starting processes: {e}")
         print(f"Error: {e}")

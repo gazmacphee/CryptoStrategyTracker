@@ -19,18 +19,34 @@ The process management system provides a central way to start, stop, and monitor
 ### Starting All Processes
 To start all background processes:
 ```bash
-python manage_processes.py start
+python start_processes.py
 ```
 
-This will start the process manager in monitor mode, which will:
-1. Start all defined processes in priority order
-2. Monitor their health and restart if they fail
-3. Schedule processes to run according to their defined schedules
+This will:
+1. Initialize all defined processes in priority order
+2. Start the process manager in the background as a Replit workflow
+3. Monitor processes for health and restart if they fail
+4. Schedule processes to run according to their defined schedules
 
-### Stopping All Processes
-To gracefully stop all running processes:
+If processes are already running and you want to force a restart:
 ```bash
+python start_processes.py --force
+```
+
+### Using the Process Manager
+For day-to-day management:
+```bash
+# Start processes (or use start_processes.py for first-time setup)
+python manage_processes.py start
+
+# Stop all processes
 python manage_processes.py stop
+
+# Check status of all processes
+python manage_processes.py status
+
+# Manually trigger a data backfill
+python manage_processes.py backfill
 ```
 
 ### Checking Process Status
@@ -39,11 +55,11 @@ To check the status of all processes:
 python manage_processes.py status
 ```
 
-### Manually Running Backfill
-To manually trigger a data backfill:
-```bash
-python manage_processes.py backfill
-```
+This will show:
+- Running status of each process
+- Process ID (PID) if running
+- Command being executed
+- Last run time and next scheduled run time
 
 ## Advanced Usage
 
