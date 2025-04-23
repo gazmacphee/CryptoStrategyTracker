@@ -266,6 +266,35 @@ class ProcessManager:
         
         # Check dependencies
         for dep in config.get('dependencies', []):
+            # Special case for backfill, which might be running outside the process manager
+            if dep == "backfill":
+                # Check if a backfill process is running using ps command
+                is_backfill_running = False
+                try:
+                    ps_output = subprocess.run(
+                        ["ps", "aux"], 
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    ).stdout
+                    
+                    for line in ps_output.split('\n'):
+                        if "backfill_database.py" in line and "python" in line:
+                            is_backfill_running = True
+                            break
+                except Exception:
+                    # If we can't check, assume it's not running
+                    is_backfill_running = False
+                
+                # Also check for the backfill lock file as an indicator
+                if os.path.exists(BACKFILL_LOCK_FILE):
+                    is_backfill_running = True
+                    
+                if is_backfill_running:
+                    # Backfill is running outside our process management
+                    continue
+            
+            # Standard dependency check
             if dep not in self.processes or not self.processes[dep].get('pid'):
                 logging.warning(f"Cannot start {config['name']} - dependency {dep} not running")
                 return
@@ -447,6 +476,9 @@ class ProcessManager:
             
             # Check if the process is actually running
             is_running = False
+            external_pid = None
+            
+            # First check our managed process
             if pid:
                 is_running = self._is_process_running(pid)
                 
@@ -454,6 +486,35 @@ class ProcessManager:
                 if not is_running and proc_info.get('status') == 'running':
                     proc_info['status'] = 'stopped'
                     proc_info['pid'] = None
+            
+            # Special case for backfill process which might be running outside our control
+            if proc_id == "backfill" and not is_running:
+                # Check if a backfill process is running using ps command
+                try:
+                    ps_output = subprocess.run(
+                        ["ps", "aux"], 
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    ).stdout
+                    
+                    for line in ps_output.split('\n'):
+                        if "backfill_database.py" in line and "python" in line:
+                            parts = line.split()
+                            if len(parts) > 1:
+                                try:
+                                    external_pid = int(parts[1])
+                                    is_running = True
+                                    break
+                                except ValueError:
+                                    pass
+                except Exception:
+                    # If we can't check, assume it's not running
+                    pass
+                
+                # Also check for the backfill lock file as an indicator
+                if os.path.exists(BACKFILL_LOCK_FILE):
+                    is_running = True
             
             # Get the last run time
             last_run = self.last_run_times.get(proc_id)
@@ -469,7 +530,7 @@ class ProcessManager:
             status[proc_id] = {
                 'name': config['name'],
                 'status': 'running' if is_running else proc_info.get('status', 'not started'),
-                'pid': pid if is_running else None,
+                'pid': external_pid or (pid if is_running else None),
                 'start_time': proc_info.get('start_time'),
                 'restarts': proc_info.get('restarts', 0),
                 'last_run': last_run_str,
