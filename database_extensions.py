@@ -96,12 +96,70 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
         DataFrame with OHLCV and timestamp data
     """
     print(f"====== DATABASE_EXTENSIONS: get_historical_data called for {symbol}/{interval} =======")
+    
+    # Check if we need to use 30m data for 1h interval
+    use_30m = False
+    if interval == '1h':
+        # Query db to see if we have 1h data
+        conn = database.get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM historical_data WHERE symbol = %s AND interval = %s", (symbol, interval))
+                count = cursor.fetchone()[0]
+                print(f"Found {count} records for {symbol}/{interval}")
+                
+                if count == 0:
+                    # No 1h data found, check for 30m data
+                    cursor.execute("SELECT COUNT(*) FROM historical_data WHERE symbol = %s AND interval = '30m'", (symbol,))
+                    count_30m = cursor.fetchone()[0]
+                    print(f"Found {count_30m} records for {symbol}/30m")
+                    
+                    if count_30m > 0:
+                        print(f"Will use 30m data and resample to 1h")
+                        use_30m = True
+                        # Adjust interval for query
+                        interval = '30m'
+            except Exception as e:
+                print(f"Error checking database for data: {e}")
+            finally:
+                conn.close()
+    
     try:
         # First try to import from binance_api
         from binance_api import get_historical_data as binance_get_historical_data
         
         print(f"Getting historical data for {symbol}/{interval} using binance_api function")
-        return binance_get_historical_data(symbol, interval, lookback_days, start_date, end_date)
+        df = binance_get_historical_data(symbol, interval, lookback_days, start_date, end_date)
+        
+        # If we're using 30m data but need 1h, resample it
+        if use_30m and df is not None and not df.empty:
+            print(f"Resampling 30m data to 1h for {symbol}")
+            import pandas as pd
+            
+            # Make sure timestamp is datetime
+            if 'timestamp' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Set timestamp as index for resampling
+            df = df.set_index('timestamp')
+            
+            # Resample to 1h
+            df_resampled = df.resample('1H').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            })
+            
+            # Reset index to get timestamp as column again
+            df_resampled = df_resampled.reset_index()
+            
+            print(f"Resampled 30m data to 1h: original {len(df)} rows, resampled {len(df_resampled)} rows")
+            return df_resampled
+        
+        return df
     except Exception as e:
         print(f"Error using binance_api.get_historical_data: {e}")
         print(f"Falling back to database query for {symbol}/{interval}")
@@ -133,7 +191,13 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             
             # Query the database
             cursor = conn.cursor()
-            # Fix the query to use timestamp instead of open_time
+            # Use a simplified query first to check what's in the database
+            check_query = "SELECT COUNT(*) FROM historical_data WHERE symbol = %s AND interval = %s"
+            cursor.execute(check_query, (symbol, interval))
+            count = cursor.fetchone()[0]
+            print(f"Found {count} records for {symbol}/{interval} in database")
+            
+            # Now query with date range
             query = """
                 SELECT * FROM historical_data 
                 WHERE symbol = %s AND interval = %s 
