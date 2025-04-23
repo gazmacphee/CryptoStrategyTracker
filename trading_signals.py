@@ -219,13 +219,15 @@ def calculate_exit_levels(df, entry_price, stop_loss_method='support',
     reward = take_profit - entry_price
     actual_rr = reward / risk if risk > 0 else 0
     
-    return {
-        'stop_loss': stop_loss,
-        'take_profit': take_profit,
+    # Convert all numeric values to standard Python float to prevent np.float64 errors
+    result = {
+        'stop_loss': float(stop_loss) if stop_loss is not None else None,
+        'take_profit': float(take_profit) if take_profit is not None else None,
         'stop_loss_method': sl_method,
         'take_profit_method': tp_method,
-        'risk_reward_ratio': actual_rr
+        'risk_reward_ratio': float(actual_rr) if actual_rr is not None else None
     }
+    return result
 
 def create_signals_table():
     """Create the trading signals table if it doesn't exist"""
@@ -461,19 +463,19 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                     notes += f"Take profit: {take_profit:.2f} ({take_profit_method}), "
                     notes += f"Risk-reward: 1:{risk_reward_ratio:.2f}"
                 
-                # Insert the signal
+                # Ensure all numeric values are in Python float format to prevent np.float64 errors
                 cur.execute(insert_query, (
                     symbol,
                     interval,
                     row['timestamp'],
                     signal_type,
-                    signal_strength,
+                    float(signal_strength) if signal_strength is not None else None,
                     float(row['close']),
-                    stop_loss,
-                    take_profit,
+                    float(stop_loss) if stop_loss is not None else None,
+                    float(take_profit) if take_profit is not None else None,
                     stop_loss_method,
                     take_profit_method,
-                    risk_reward_ratio,
+                    float(risk_reward_ratio) if risk_reward_ratio is not None else None,
                     bb_signal,
                     rsi_signal,
                     macd_signal,
