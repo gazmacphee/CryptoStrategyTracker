@@ -2287,8 +2287,8 @@ def main():
             # Display personalized recommendations
             st.subheader("Personalized Recommendations")
             
-            # Create three columns for recommendations
-            if digest['recommendations']:
+            # Create three columns for recommendations - recommendations might not be available
+            if 'recommendations' in digest and digest['recommendations']:
                 cols = st.columns(min(3, len(digest['recommendations'])))
                 
                 for i, (col, rec) in enumerate(zip(cols, digest['recommendations'])):
@@ -2441,7 +2441,7 @@ def main():
                     sentiment_data = sentiment_data[~sentiment_data['source'].isin(["Twitter", "Reddit"])]
                 
                 # If we still have data after filtering
-                if not sentiment_data.empty:
+                if isinstance(sentiment_data, pd.DataFrame) and not sentiment_data.empty:
                     # Get summary metrics
                     summary = get_sentiment_summary(sentiment_data)
                     
