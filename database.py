@@ -493,6 +493,34 @@ def create_tables():
         ON global_liquidity(indicator_name, timestamp);
         """)
         
+        # Create trading signals table for historical tracking
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS trading_signals (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            signal_type VARCHAR(10) NOT NULL,  -- 'buy', 'sell', or 'neutral'
+            signal_strength NUMERIC,           -- 0.0 to 1.0 indicating signal strength
+            price NUMERIC NOT NULL,            -- price at signal generation
+            bb_signal BOOLEAN,                 -- individual indicator signals
+            rsi_signal BOOLEAN,
+            macd_signal BOOLEAN,
+            ema_signal BOOLEAN,                -- ema crossover signals
+            strategy_name VARCHAR(100),        -- which strategy generated this signal
+            strategy_params JSONB,             -- strategy parameters used
+            notes TEXT,                        -- additional context
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, interval, timestamp, strategy_name)
+        );
+        """)
+        
+        # Create index for trading signals
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_trading_signals_symbol_interval_timestamp 
+        ON trading_signals(symbol, interval, timestamp);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
