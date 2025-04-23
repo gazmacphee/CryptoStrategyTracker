@@ -14,6 +14,12 @@ import os
 import logging
 from typing import Dict, List, Tuple, Optional, Union
 
+# Import database extensions to ensure all required database functions are available
+try:
+    import database_extensions
+except ImportError:
+    print("Warning: database_extensions module not found. Some database functions may be missing.")
+
 # Import ML database operations
 try:
     from db_ml_operations import save_ml_prediction, save_ml_model_performance

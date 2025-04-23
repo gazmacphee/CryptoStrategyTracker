@@ -19,6 +19,12 @@ import concurrent.futures
 import database
 import trading_signals
 
+# Import database extensions to ensure all required database functions are available
+try:
+    import database_extensions
+except ImportError:
+    print("Warning: database_extensions module not found. Some database functions may be missing.")
+
 # Import ML database operations
 try:
     import db_ml_operations
