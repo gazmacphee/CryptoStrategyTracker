@@ -623,16 +623,17 @@ class MultiSymbolPatternAnalyzer:
             Dictionary mapping (symbol, interval) to dataframes
         """
         try:
-            from app import get_data, get_available_symbols
+            # Use database_extensions to ensure needed functions
+            import database_extensions
+            
+            # Get data access functions from database module
+            from database import get_historical_data, get_available_symbols
             
             # Get popular symbols if not specified
             if symbols is None or len(symbols) == 0:
-                if hasattr(get_available_symbols, '__call__'):
-                    symbols = get_available_symbols(limit=self.max_symbols)
-                else:
-                    # Default symbols
-                    symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'SOLUSDT',
-                              'DOGEUSDT', 'DOTUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT']
+                # Use the get_available_symbols function
+                symbols = get_available_symbols(limit=self.max_symbols)
+                print(f"Using {len(symbols)} symbols from get_available_symbols")
             
             # Default intervals if not specified
             if intervals is None or len(intervals) == 0:
