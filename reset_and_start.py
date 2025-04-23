@@ -154,6 +154,15 @@ def create_tables():
         # Use the original database module
         from database import create_tables as create_db_tables
         create_db_tables()
+        
+        # Create economic indicator tables
+        try:
+            from economic_indicators import create_economic_indicator_tables
+            create_economic_indicator_tables()
+            logger.info("Economic indicator tables created successfully")
+        except Exception as e:
+            logger.warning(f"Warning: Could not create economic indicator tables: {e}")
+            
         logger.info("Fresh tables created successfully")
     except Exception as e:
         logger.error(f"Error creating tables: {e}")
@@ -207,6 +216,23 @@ def start_streamlit():
         sys.exit(0)
 
 
+def initialize_economic_data():
+    """Initialize economic indicators data if possible"""
+    logger.info("Initializing economic indicators data...")
+    
+    try:
+        from economic_indicators import update_economic_indicators
+        update_result = update_economic_indicators()
+        if update_result:
+            logger.info("Economic indicators data initialized successfully")
+            print("✅ Economic indicators initialized")
+        else:
+            logger.warning("Could not fully initialize economic indicators data")
+            print("⚠️ Economic indicators initialization incomplete (some data may be missing)")
+    except Exception as e:
+        logger.warning(f"Could not initialize economic indicators: {e}")
+        print("⚠️ Economic indicators initialization skipped")
+
 def main():
     """Main function to run the application setup and startup"""
     print("=" * 80)
@@ -217,15 +243,18 @@ def main():
     remove_lock_files()
     print("✅ Lock files removed")
     
-    print("[1/3] Resetting database...")
+    print("[1/4] Resetting database...")
     reset_database()
     print("✅ Database reset complete")
     
-    print("[2/3] Creating fresh tables...")
+    print("[2/4] Creating fresh tables...")
     create_tables()
     print("✅ Fresh tables created")
     
-    print("[3/3] Starting backfill process in background...")
+    print("[3/4] Initializing economic data...")
+    initialize_economic_data()
+    
+    print("[4/4] Starting backfill process in background...")
     start_backfill()
     print("✅ Backfill process started in background")
     
