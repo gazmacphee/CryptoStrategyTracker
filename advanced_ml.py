@@ -613,7 +613,50 @@ class MultiSymbolPatternAnalyzer:
     def __init__(self, max_symbols=10, max_intervals=3):
         self.max_symbols = max_symbols
         self.max_intervals = max_intervals
-        self.pattern_model = PatternRecognitionModel(rebuild_models=True)
+        self.pattern_model = PatternRecognitionModel()
+        
+    def analyze_patterns_in_data(self, data_dict):
+        """
+        Analyze patterns in prepared data provided as a dictionary
+        
+        Args:
+            data_dict: Dictionary mapping (symbol, interval) tuples to dataframes with OHLCV and indicators
+            
+        Returns:
+            DataFrame with detected patterns across all symbols/intervals
+        """
+        import pandas as pd
+        
+        if not data_dict:
+            logging.warning("No data provided for pattern analysis")
+            return pd.DataFrame()
+            
+        all_patterns = []
+        
+        for (symbol, interval), df in data_dict.items():
+            if df.empty:
+                continue
+                
+            try:
+                # Get patterns for this symbol/interval
+                patterns = self.pattern_model.detect_patterns(df, symbol, interval)
+                
+                if not patterns.empty:
+                    patterns['symbol'] = symbol
+                    patterns['interval'] = interval
+                    patterns['detected_at'] = pd.Timestamp.now()
+                    all_patterns.append(patterns)
+            except Exception as e:
+                logging.error(f"Error analyzing patterns for {symbol}/{interval}: {e}")
+                
+        if all_patterns:
+            # Combine all pattern dataframes
+            combined_patterns = pd.concat(all_patterns, ignore_index=True)
+            return combined_patterns
+        else:
+            # Return empty DataFrame with expected columns
+            return pd.DataFrame(columns=['symbol', 'interval', 'timestamp', 'pattern_type', 
+                                          'strength', 'expected_direction', 'detected_at'])
         
     def get_symbols_data(self, symbols=None, intervals=None, days=30):
         """

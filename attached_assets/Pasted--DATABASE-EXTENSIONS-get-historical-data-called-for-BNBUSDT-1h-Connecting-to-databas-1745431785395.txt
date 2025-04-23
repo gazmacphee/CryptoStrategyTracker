@@ -1,0 +1,47 @@
+====== DATABASE_EXTENSIONS: get_historical_data called for BNBUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Found 26814 records for ETHUSDT/1h
+Falling back to binance_api.get_historical_data for ETHUSDT/1h
+Redirecting historical data request for ETHUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for ETHUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Found 26814 records for BTCUSDT/1h
+Falling back to binance_api.get_historical_data for BTCUSDT/1h
+Redirecting historical data request for BTCUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for BTCUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Successfully connected using DATABASE_URL
+Successfully connected using DATABASE_URL
+Found 26815 records for BNBUSDT/1h
+Falling back to binance_api.get_historical_data for BNBUSDT/1h
+Redirecting historical data request for BNBUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for BNBUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Found 26814 records for ETHUSDT/1h
+Falling back to binance_api.get_historical_data for ETHUSDT/1h
+Redirecting historical data request for ETHUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for ETHUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Found 26815 records for ADAUSDT/1h
+Falling back to binance_api.get_historical_data for ADAUSDT/1h
+Redirecting historical data request for ADAUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for ADAUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Found 26814 records for BTCUSDT/1h
+Falling back to binance_api.get_historical_data for BTCUSDT/1h
+Redirecting historical data request for BTCUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for BTCUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Successfully connected using DATABASE_URL
+Successfully connected using DATABASE_URL
+Found 26815 records for BNBUSDT/1h
+Falling back to binance_api.get_historical_data for BNBUSDT/1h
+Redirecting historical data request for BNBUSDT/1h to database_extensions
+====== DATABASE_EXTENSIONS: get_historical_data called for BNBUSDT/1h =======
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Successfully connected using DATABASE_URL
+Found 26814 records for ETHUSDT/1h
