@@ -147,23 +147,31 @@ def reset_database():
 
 
 def create_tables():
-    """Create fresh database tables using the original database.py module"""
+    """Create fresh database tables using the ensure_tables module"""
     logger.info("Creating fresh database tables...")
     
     try:
-        # Use the original database module
-        from database import create_tables as create_db_tables
-        create_db_tables()
+        # Use the comprehensive table creation script
+        import ensure_tables
+        all_tables_created = ensure_tables.ensure_all_tables()
         
-        # Create economic indicator tables
-        try:
-            from economic_indicators import create_economic_indicator_tables
-            create_economic_indicator_tables()
-            logger.info("Economic indicator tables created successfully")
-        except Exception as e:
-            logger.warning(f"Warning: Could not create economic indicator tables: {e}")
+        if all_tables_created:
+            logger.info("Fresh tables created successfully - all tables verified")
+        else:
+            logger.warning("Some tables may be missing. Check table_creation.log for details.")
             
-        logger.info("Fresh tables created successfully")
+            # Fallback to traditional table creation
+            logger.info("Attempting traditional table creation as fallback...")
+            from database import create_tables as create_db_tables
+            create_db_tables()
+            
+            # Create economic indicator tables
+            try:
+                from economic_indicators import create_economic_indicator_tables
+                create_economic_indicator_tables()
+                logger.info("Economic indicator tables created using fallback method")
+            except Exception as e:
+                logger.warning(f"Warning: Could not create economic indicator tables: {e}")
     except Exception as e:
         logger.error(f"Error creating tables: {e}")
         sys.exit(1)

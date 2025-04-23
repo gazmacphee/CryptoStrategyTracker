@@ -106,6 +106,45 @@ except Exception as e:
     }
 }
 
+# Function to verify all tables are created
+function Test-TablesCreated {
+    Write-Host "`nVerifying database tables..." -ForegroundColor Cyan
+    
+    try {
+        # Create Python script to verify tables
+        $pythonScript = @"
+try:
+    from ensure_tables import verify_tables_exist
+    result = verify_tables_exist()
+    if result:
+        print('✅ All required database tables exist')
+    else:
+        print('❌ Some required database tables are missing')
+except Exception as e:
+    print(f'❌ Error verifying tables: {e}')
+"@
+        $pythonScriptPath = "temp_tables_check.py"
+        $pythonScript | Out-File -FilePath $pythonScriptPath -Encoding utf8
+        
+        $result = python $pythonScriptPath
+        Remove-Item $pythonScriptPath # Clean up
+        
+        if ($result -match "All required database tables exist") {
+            Write-Host $result -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host $result -ForegroundColor Red
+            Write-Host "Tables will be created during application startup" -ForegroundColor Yellow
+            return $false
+        }
+    }
+    catch {
+        Write-Host "❌ Error testing tables: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
 # Function to start all processes
 function Start-CryptoApp {
     Write-Host "`nStarting CryptoStrategyTracker..." -ForegroundColor Cyan
@@ -113,6 +152,12 @@ function Start-CryptoApp {
     # First make sure the process manager is stopped
     Write-Host "Ensuring clean start by stopping any running processes..." -ForegroundColor Yellow
     python process_manager.py stop --force
+    
+    # Check if tables need to be created
+    $tablesOk = Test-TablesCreated
+    if (-not $tablesOk) {
+        Write-Host "Will ensure all tables are created during startup..." -ForegroundColor Yellow
+    }
     
     # Then start the application
     Write-Host "Starting application..." -ForegroundColor Green
