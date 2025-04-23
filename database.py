@@ -357,6 +357,103 @@ def create_tables():
         ON sentiment_data(symbol, source, timestamp);
         """)
         
+        # Create news data table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS news_data (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20),
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source VARCHAR(100) NOT NULL,
+            url TEXT,
+            author VARCHAR(100),
+            published_at TIMESTAMP NOT NULL,
+            sentiment_score NUMERIC,
+            relevance_score NUMERIC,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # Create index for news data
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_news_symbol_published
+        ON news_data(symbol, published_at);
+        """)
+        
+        # Create ML predictions table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS ml_predictions (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            prediction_timestamp TIMESTAMP NOT NULL,
+            target_timestamp TIMESTAMP NOT NULL,
+            model_name VARCHAR(100) NOT NULL,
+            predicted_price NUMERIC,
+            predicted_change_pct NUMERIC,
+            confidence_score NUMERIC,
+            features_used JSONB,
+            prediction_type VARCHAR(20) NOT NULL,  -- price, direction, pattern
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, interval, prediction_timestamp, target_timestamp, model_name)
+        );
+        """)
+        
+        # Create index for ML predictions
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ml_predictions_symbol_interval
+        ON ml_predictions(symbol, interval, prediction_timestamp);
+        """)
+        
+        # Create ML model performance tracking table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS ml_model_performance (
+            id SERIAL PRIMARY KEY,
+            model_name VARCHAR(100) NOT NULL,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            training_timestamp TIMESTAMP NOT NULL,
+            accuracy NUMERIC,
+            precision NUMERIC,
+            recall NUMERIC,
+            f1_score NUMERIC,
+            mse NUMERIC,
+            mae NUMERIC,
+            training_params JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(model_name, symbol, interval, training_timestamp)
+        );
+        """)
+        
+        # Create index for ML model performance
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ml_performance_model
+        ON ml_model_performance(model_name, symbol, interval);
+        """)
+        
+        # Create detected patterns table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS detected_patterns (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            interval VARCHAR(10) NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            pattern_type VARCHAR(50) NOT NULL,
+            pattern_strength NUMERIC NOT NULL,
+            expected_outcome VARCHAR(20) NOT NULL,  -- bullish, bearish, neutral
+            confidence_score NUMERIC NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, interval, timestamp, pattern_type)
+        );
+        """)
+        
+        # Create index for detected patterns
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_patterns_symbol_interval
+        ON detected_patterns(symbol, interval, timestamp);
+        """)
+        
         conn.commit()
         print("Database tables created successfully")
     except psycopg2.Error as e:
