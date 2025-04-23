@@ -586,6 +586,88 @@ def get_recent_signals(symbol=None, interval=None, start_time=None, limit=100):
         if conn:
             conn.close()
 
+def get_available_strategies():
+    """
+    Get a list of all unique strategy names in the database
+    
+    Returns:
+        List of strategy names
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        query = "SELECT DISTINCT strategy_name FROM trading_signals ORDER BY strategy_name"
+        cur.execute(query)
+        strategies = [row[0] for row in cur.fetchall() if row[0]]
+        return strategies
+    except Exception as e:
+        print(f"Error fetching available strategies: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_available_intervals_with_signals():
+    """
+    Get a list of all unique intervals that have signals in the database
+    
+    Returns:
+        List of intervals
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        query = "SELECT DISTINCT interval FROM trading_signals ORDER BY interval"
+        cur.execute(query)
+        intervals = [row[0] for row in cur.fetchall() if row[0]]
+        return intervals
+    except Exception as e:
+        print(f"Error fetching available intervals: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_signal_hold_duration(signal_type, interval):
+    """
+    Get suggested hold duration for a signal based on signal type and interval
+    
+    Args:
+        signal_type: Type of signal ('buy' or 'sell')
+        interval: Time interval of the signal
+        
+    Returns:
+        String with suggested hold duration
+    """
+    if signal_type.lower() != 'buy':
+        return "N/A"
+    
+    # Map interval to typical hold duration
+    interval_to_duration = {
+        '1m': '30 minutes to 1 hour',
+        '3m': '1-3 hours',
+        '5m': '2-5 hours',
+        '15m': '4-12 hours',
+        '30m': '8-24 hours',
+        '1h': '1-3 days',
+        '2h': '2-5 days',
+        '4h': '3-7 days',
+        '6h': '4-10 days',
+        '8h': '5-15 days',
+        '12h': '1-3 weeks',
+        '1d': '2-6 weeks',
+        '3d': '1-3 months',
+        '1w': '1-6 months'
+    }
+    
+    return interval_to_duration.get(interval, "Unknown")
+
 def get_signal_statistics(symbol=None, interval=None, days=30):
     """
     Get statistics about trading signals
