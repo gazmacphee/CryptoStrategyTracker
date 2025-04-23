@@ -48,9 +48,11 @@ except Exception as e:
         # Clean up
         Remove-Item $tempScriptPath
         
-        if ($result -match "✅") {
+        if ($result -match "✅|installed") {
+            # The package is installed, display in green
             Write-Host $result -ForegroundColor Green
         } else {
+            # The package is not installed
             Write-Host $result -ForegroundColor Red
             $allInstalled = $false
         }
@@ -58,7 +60,7 @@ except Exception as e:
     
     if (-not $allInstalled) {
         Write-Host "`nSome packages are missing. Run the following command to install them:" -ForegroundColor Yellow
-        Write-Host "pip install -r requirements.txt" -ForegroundColor Cyan
+        Write-Host "pip install -r dependencies.txt" -ForegroundColor Cyan
         return $false
     }
     
@@ -139,7 +141,7 @@ if (-not $packagesOk) {
     $response = Read-Host "Would you like to install the missing packages now? (y/n)"
     if ($response -eq "y") {
         Write-Host "Installing required packages..." -ForegroundColor Cyan
-        pip install -r requirements.txt
+        pip install -r dependencies.txt
         $packagesOk = Test-PackagesInstalled
         if (-not $packagesOk) { exit 1 }
     }
