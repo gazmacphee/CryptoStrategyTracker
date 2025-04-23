@@ -125,7 +125,12 @@ def reset_database():
         "trades",
         "portfolio",
         "benchmarks",
-        "sentiment_data"
+        "sentiment_data",
+        "news_data",
+        "ml_predictions",
+        "ml_model_performance",
+        "detected_patterns",
+        "trading_signals"
     ]
     
     for table in tables:

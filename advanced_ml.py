@@ -519,6 +519,37 @@ class PatternRecognitionModel:
             recent_patterns = patterns[(patterns['days_since_signal'] < 3) & 
                                        (patterns['pattern_strength'] > 0.65)].copy()
             
+            # Save detected patterns to database
+            try:
+                import database as db
+                for _, row in recent_patterns.iterrows():
+                    # Determine expected outcome from pattern type
+                    pattern_type = row['pattern_type']
+                    expected_outcome = 'neutral'
+                    if 'bullish' in pattern_type or 'support' in pattern_type or 'bounce' in pattern_type:
+                        expected_outcome = 'bullish'
+                    elif 'bearish' in pattern_type or 'resistance' in pattern_type:
+                        expected_outcome = 'bearish'
+                    
+                    # Create description
+                    description = f"{pattern_type.replace('_', ' ').title()} pattern detected with {row['pattern_strength']:.2f} strength. "
+                    description += f"Expected price change: {row['expected_return'] * 100:.1f}%"
+                    
+                    # Save to database
+                    db.save_detected_pattern(
+                        symbol=symbol,
+                        interval=interval,
+                        timestamp=row['timestamp'],
+                        pattern_type=pattern_type,
+                        pattern_strength=float(row['pattern_strength']),
+                        expected_outcome=expected_outcome,
+                        confidence_score=float(row['prediction_confidence']),
+                        description=description
+                    )
+                logger.info(f"Saved {len(recent_patterns)} detected patterns to database for {symbol}/{interval}")
+            except Exception as e:
+                logger.error(f"Error saving patterns to database: {e}")
+            
             return recent_patterns
             
         except Exception as e:
