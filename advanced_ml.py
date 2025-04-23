@@ -19,6 +19,12 @@ import concurrent.futures
 import database
 import trading_signals
 
+# Import ML database operations
+try:
+    import db_ml_operations
+except ImportError:
+    print("Warning: db_ml_operations module not available. ML data will not be saved to database.")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -521,7 +527,7 @@ class PatternRecognitionModel:
             
             # Save detected patterns to database
             try:
-                import database as db
+                from db_ml_operations import save_detected_pattern
                 for _, row in recent_patterns.iterrows():
                     # Determine expected outcome from pattern type
                     pattern_type = row['pattern_type']
@@ -536,7 +542,7 @@ class PatternRecognitionModel:
                     description += f"Expected price change: {row['expected_return'] * 100:.1f}%"
                     
                     # Save to database
-                    db.save_detected_pattern(
+                    save_detected_pattern(
                         symbol=symbol,
                         interval=interval,
                         timestamp=row['timestamp'],
