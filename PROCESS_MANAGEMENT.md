@@ -134,6 +134,24 @@ All processes write to their own log files:
     └─► economic_indicators.py (Economic Data Updates)
 ```
 
+## Replit Workflow Integration
+
+The process management system has special integration with Replit workflows:
+
+1. Use `restart_workflows.py` to restart the ProcessManager workflow if it stops
+2. The system properly detects externally running processes (such as backfill processes)
+3. Dependencies are verified before starting dependent processes
+4. The backfill process can run both as a managed process and an independent process
+
+## External Process Detection
+
+The process manager has enhanced detection for externally running processes:
+
+1. Uses multiple detection methods (PID checks, PS command, lock files)
+2. Special handling for critical processes like the backfill process  
+3. Can detect processes started by other means (such as via Streamlit)
+4. Properly manages dependencies when processes run outside the manager
+
 ## Troubleshooting
 
 If processes are not starting or stopping correctly:
@@ -145,6 +163,14 @@ If processes are not starting or stopping correctly:
    ```bash
    ps aux | grep python
    kill <PID>
+   ```
+5. If you need to restart the process manager workflow:
+   ```bash
+   python restart_workflows.py
+   ```
+6. To force a specific process to run regardless of schedule:
+   ```bash
+   python process_manager.py restart --process <process_id>
    ```
 
 ## Windows Compatibility
