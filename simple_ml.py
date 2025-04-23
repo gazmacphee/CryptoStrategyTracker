@@ -8,10 +8,19 @@ import numpy as np
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
 import joblib
 import os
 import logging
 from typing import Dict, List, Tuple, Optional, Union
+
+# Import ML database operations
+try:
+    from db_ml_operations import save_ml_prediction, save_ml_model_performance
+    ML_DB_AVAILABLE = True
+except ImportError:
+    print("Warning: db_ml_operations module not available. ML data will not be saved to database.")
+    ML_DB_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -121,6 +130,55 @@ class SimplePredictionModel:
                 'scaler_y': self.scaler_y
             }, self.model_path)
             
+            # Evaluate and save model performance metrics
+            if ML_DB_AVAILABLE:
+                try:
+                    # Split data for validation
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    y_pred = self.model.predict(X_test)
+                    
+                    # Calculate performance metrics
+                    mse = ((y_pred - y_test) ** 2).mean()
+                    mae = abs(y_pred - y_test).mean()
+                    
+                    # For regression tasks, we use MSE/MAE as primary metrics
+                    # Convert predictions to binary (up/down) for classification metrics
+                    y_pred_class = (y_pred > y_test).astype(int)
+                    y_test_class = (y_test > y_test.mean()).astype(int)
+                    
+                    # Calculate classification metrics for directional accuracy
+                    accuracy = (y_pred_class == y_test_class).mean()
+                    
+                    # Avoid division by zero warnings
+                    if sum(y_test_class) > 0 and sum(y_pred_class) > 0:
+                        precision = (y_pred_class & y_test_class).sum() / max(1, sum(y_pred_class))
+                        recall = (y_pred_class & y_test_class).sum() / max(1, sum(y_test_class))
+                        f1 = 2 * precision * recall / max(0.001, precision + recall)
+                    else:
+                        precision = recall = f1 = 0.0
+                    
+                    # Save metrics to database
+                    save_ml_model_performance(
+                        model_name='simple_price_predictor',
+                        symbol=self.symbol,
+                        interval=self.interval,
+                        training_timestamp=datetime.now(),
+                        accuracy=float(accuracy),
+                        precision_score=float(precision),
+                        recall=float(recall),
+                        f1_score=float(f1),
+                        mse=float(mse),
+                        mae=float(mae),
+                        training_params={
+                            'n_estimators': 50,
+                            'max_depth': 10,
+                            'features_used': self.feature_columns
+                        }
+                    )
+                    logger.info(f"Saved model performance metrics to database for {self.symbol}/{self.interval}")
+                except Exception as e:
+                    logger.error(f"Error saving model performance metrics: {e}")
+            
             logger.info(f"Model trained and saved to {self.model_path}")
             return True
             
@@ -212,6 +270,36 @@ class SimplePredictionModel:
                     'upper_bound': upper_bound,
                     'confidence': confidence
                 })
+                
+                # Save prediction to database if available
+                if ML_DB_AVAILABLE:
+                    try:
+                        # Calculate percent change based on latest known price
+                        predicted_change_pct = (pred_value - last_known_price) / last_known_price
+                        
+                        # Create features used dictionary (simplified)
+                        features_used = {
+                            'lookback_days': 10,
+                            'indicators': [col for col in self.feature_columns if col in df.columns],
+                            'price_features': ['close', 'open', 'high', 'low'],
+                            'model_type': 'RandomForestRegressor'
+                        }
+                        
+                        # Save prediction to database
+                        save_ml_prediction(
+                            symbol=self.symbol,
+                            interval=self.interval,
+                            prediction_timestamp=datetime.now(),
+                            target_timestamp=pred_date,
+                            model_name='simple_price_predictor',
+                            predicted_price=float(pred_value),
+                            predicted_change_pct=float(predicted_change_pct),
+                            confidence_score=float(confidence),
+                            features_used=features_used,
+                            prediction_type='price'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error saving prediction to database: {e}")
                 
                 # Update current_input for the next prediction
                 # This is a simplified approach - we would need to update all features in a real model

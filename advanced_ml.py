@@ -801,14 +801,54 @@ class MultiSymbolPatternAnalyzer:
                 else pattern_row['expected_return']
             }
             
-            # Save to database
-            return trading_signals.save_trading_signals(
+            # Save to database as trading signal
+            signal_saved = trading_signals.save_trading_signals(
                 signal_df, 
                 pattern_row['symbol'], 
                 pattern_row['interval'],
                 strategy_name="pattern_recognition",
                 strategy_params=strategy_params
             )
+            
+            # Also save as detected pattern in the ML database if available
+            try:
+                # Check if db_ml_operations is imported and available
+                if 'db_ml_operations' in globals():
+                    # Format expected outcome description
+                    direction = pattern_row['predicted_direction']
+                    expected_return = pattern_row['expected_return']
+                    if isinstance(expected_return, str):
+                        try:
+                            expected_return = float(expected_return.replace('%', '')) / 100
+                        except:
+                            expected_return = 0.0
+                    
+                    expected_outcome = f"{'Increase' if direction == 'bullish' else 'Decrease'} of approximately {expected_return*100:.2f}%"
+                    
+                    # Create a description based on pattern type
+                    pattern_type = pattern_row['pattern_type']
+                    if pattern_type in PATTERN_TYPES:
+                        description = PATTERN_TYPES[pattern_type]
+                    else:
+                        description = f"{direction.capitalize()} pattern detected"
+                    
+                    # Save to the detected_patterns table
+                    db_ml_operations.save_detected_pattern(
+                        symbol=pattern_row['symbol'],
+                        interval=pattern_row['interval'],
+                        timestamp=pattern_row['timestamp'],
+                        pattern_type=pattern_type,
+                        pattern_strength=float(pattern_row['pattern_strength']),
+                        expected_outcome=expected_outcome,
+                        confidence_score=float(pattern_row['pattern_strength']),
+                        description=description,
+                        detection_timestamp=datetime.now()
+                    )
+                    logger.info(f"Saved pattern {pattern_type} for {pattern_row['symbol']}/{pattern_row['interval']} to ML database")
+            except Exception as e:
+                logger.error(f"Error saving detected pattern to ML database: {e}")
+            
+            return signal_saved
             
         except Exception as e:
             logger.error(f"Error saving trading opportunity: {e}")
