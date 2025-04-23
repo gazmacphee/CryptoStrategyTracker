@@ -463,6 +463,46 @@ def get_recent_klines_from_api(symbol, interval, start_time=None, end_time=None,
     print("All Binance API endpoints failed for recent data. Returning empty dataset.")
     return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
+def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
+    """
+    Get historical data for a symbol and interval.
+    This is a wrapper around get_klines_data to provide a consistent interface for ML modules.
+    
+    Args:
+        symbol: Trading pair symbol (e.g., 'BTCUSDT')
+        interval: Time interval (e.g., '1h', '1d')
+        lookback_days: Number of days to look back
+        start_date: Optional specific start date (overrides lookback_days)
+        end_date: Optional specific end date (defaults to now)
+        
+    Returns:
+        DataFrame with OHLCV and timestamp data
+    """
+    # Calculate start and end times based on inputs
+    if end_date is None:
+        end_time = datetime.now()
+    else:
+        end_time = end_date if isinstance(end_date, datetime) else datetime.strptime(end_date, '%Y-%m-%d')
+    
+    if start_date is not None:
+        start_time = start_date if isinstance(start_date, datetime) else datetime.strptime(start_date, '%Y-%m-%d')
+    else:
+        start_time = end_time - timedelta(days=lookback_days)
+    
+    # Get data from klines data function
+    df = get_klines_data(symbol, interval, start_time, end_time)
+    
+    # Ensure we have the expected columns and format
+    if not df.empty:
+        # Make sure we have a timestamp column
+        if 'timestamp' not in df.columns and 'open_time' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms')
+        elif 'timestamp' not in df.columns:
+            # Create timestamp from index if needed
+            df['timestamp'] = df.index
+    
+    return df
+
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
     """
     Fetch klines (candlestick) data using a hybrid approach:
