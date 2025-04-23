@@ -994,13 +994,25 @@ if __name__ == "__main__":
     # Test the pattern recognition functionality
     print("Training pattern models...")
     train_results = train_all_pattern_models()
-    print(f"Training completed: {train_results['successful']}/{train_results['total']} models trained")
+    
+    # Get keys safely with defaults as a precaution
+    total = train_results.get('total', 0)
+    successful = train_results.get('successful', 0)
+    print(f"Training completed: {successful}/{total} models trained")
+    print(f"Full results: {train_results}")
     
     print("\nAnalyzing current market patterns...")
     recommendations = get_pattern_recommendations()
     
-    if not recommendations.empty:
-        print(f"\nFound {len(recommendations)} trading opportunities:")
-        print(recommendations[['symbol', 'interval', 'pattern_type', 'predicted_direction', 'pattern_strength', 'expected_return']])
-    else:
+    if not isinstance(recommendations, pd.DataFrame):
+        print("Error: recommendations is not a DataFrame")
+        print(f"Type: {type(recommendations)}")
+        print(f"Value: {recommendations}")
+    elif recommendations.empty:
         print("No trading opportunities detected at this time")
+    else:
+        print(f"\nFound {len(recommendations)} trading opportunities:")
+        display_cols = ['symbol', 'interval', 'pattern_type', 'predicted_direction', 'pattern_strength', 'expected_return']
+        # Only select columns that exist in the DataFrame
+        available_cols = [col for col in display_cols if col in recommendations.columns]
+        print(recommendations[available_cols])
