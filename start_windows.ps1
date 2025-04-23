@@ -1,135 +1,132 @@
-# PowerShell script to start the CryptoApp on Windows
-Write-Host "======================================================" -ForegroundColor Green
-Write-Host "CryptoApp Windows Startup Script" -ForegroundColor Green
-Write-Host "======================================================" -ForegroundColor Green
-Write-Host ""
-
-# Define variables
-$APP_SCRIPT = "app.py"
-$PROCESS_MANAGER = "process_manager.py"
-$STREAMLIT_PORT = 5000
+# Start script for CryptoStrategyTracker on Windows
+# This script handles the proper startup of all components
 
 # Function to check if Python is installed
-function Check-Python {
+function Test-PythonInstalled {
     try {
         $pythonVersion = python --version
-        Write-Host "Python found: $pythonVersion" -ForegroundColor Green
+        Write-Host "✅ $pythonVersion detected" -ForegroundColor Green
         return $true
     }
     catch {
-        Write-Host "Python not found in PATH. Please install Python and ensure it's in your PATH." -ForegroundColor Red
+        Write-Host "❌ Python not found. Please install Python 3.8 or higher" -ForegroundColor Red
         return $false
     }
 }
 
-# Function to check if PostgreSQL is installed
-function Check-PostgreSQL {
+# Function to check if required packages are installed
+function Test-PackagesInstalled {
+    Write-Host "Checking for required packages..." -ForegroundColor Cyan
+    $packages = @(
+        "streamlit",
+        "pandas",
+        "numpy",
+        "psycopg2-binary",
+        "sqlalchemy",
+        "plotly"
+    )
+    
+    $allInstalled = $true
+    foreach ($package in $packages) {
+        try {
+            $result = python -c "import $package; print('✅ ' + $package + ' is installed')"
+            Write-Host $result -ForegroundColor Green
+        }
+        catch {
+            Write-Host "❌ $package is not installed" -ForegroundColor Red
+            $allInstalled = $false
+        }
+    }
+    
+    if (-not $allInstalled) {
+        Write-Host "`nSome packages are missing. Run the following command to install them:" -ForegroundColor Yellow
+        Write-Host "pip install -r requirements.txt" -ForegroundColor Cyan
+        return $false
+    }
+    
+    return $true
+}
+
+# Function to check database connection
+function Test-DatabaseConnection {
+    Write-Host "`nTesting database connection..." -ForegroundColor Cyan
+    
     try {
-        $pgVersion = psql --version
-        Write-Host "PostgreSQL found: $pgVersion" -ForegroundColor Green
-        return $true
+        $result = python -c "from database import get_db_connection, close_db_connection; conn = get_db_connection(); success = conn is not None; close_db_connection(conn); print('✅ Database connection successful' if success else '❌ Database connection failed')"
+        
+        if ($result -match "successful") {
+            Write-Host $result -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host $result -ForegroundColor Red
+            Write-Host "Check your .env file and make sure DATABASE_URL is set correctly" -ForegroundColor Yellow
+            return $false
+        }
     }
     catch {
-        Write-Host "PostgreSQL not found in PATH." -ForegroundColor Yellow
-        Write-Host "If you've installed PostgreSQL, make sure it's in your PATH." -ForegroundColor Yellow
-        Write-Host "You may need to run setup_local_database.ps1 first." -ForegroundColor Yellow
+        Write-Host "❌ Error testing database connection: $_" -ForegroundColor Red
         return $false
     }
 }
 
-# Function to start the main app
-function Start-App {
-    Write-Host ""
-    Write-Host "Starting Streamlit application..." -ForegroundColor Green
+# Function to start all processes
+function Start-CryptoApp {
+    Write-Host "`nStarting CryptoStrategyTracker..." -ForegroundColor Cyan
     
-    # Start app in a new PowerShell window
-    Start-Process powershell -ArgumentList "-Command", "cd '$PWD'; streamlit run $APP_SCRIPT --server.port $STREAMLIT_PORT"
+    # First make sure the process manager is stopped
+    Write-Host "Ensuring clean start by stopping any running processes..." -ForegroundColor Yellow
+    python process_manager.py stop --force
     
-    Write-Host "Streamlit application started in a new window." -ForegroundColor Green
-    Write-Host "The app will be available at: http://localhost:$STREAMLIT_PORT" -ForegroundColor Cyan
-}
-
-# Function to start the process manager
-function Start-ProcessManager {
-    Write-Host ""
-    Write-Host "Starting process manager..." -ForegroundColor Green
+    # Then start the application
+    Write-Host "Starting application..." -ForegroundColor Green
+    python reset_and_start.py
     
-    # Start directly instead of using manage_processes.py
-    Start-Process powershell -ArgumentList "-Command", "cd '$PWD'; python $PROCESS_MANAGER start"
-    
-    Write-Host "Process manager started in a new window." -ForegroundColor Green
+    # Print status information
+    Write-Host "`n=================================================================================" -ForegroundColor Green
+    Write-Host "CryptoStrategyTracker is now running!" -ForegroundColor Green
+    Write-Host "=================================================================================" -ForegroundColor Green
+    Write-Host "Access the web interface at: http://localhost:5000" -ForegroundColor Cyan
+    Write-Host "Check process status with: .\check_processes.ps1" -ForegroundColor Cyan
+    Write-Host "Stop all processes with:   python process_manager.py stop" -ForegroundColor Cyan
+    Write-Host "=================================================================================" -ForegroundColor Green
 }
 
 # Main execution
-if (-not (Check-Python)) {
-    Write-Host "Please install Python and try again." -ForegroundColor Red
-    exit 1
-}
+Write-Host "=================================================================================" -ForegroundColor Cyan
+Write-Host "CryptoStrategyTracker - Windows Startup" -ForegroundColor Cyan
+Write-Host "=================================================================================" -ForegroundColor Cyan
 
-if (-not (Check-PostgreSQL)) {
-    $response = Read-Host "Do you want to continue without PostgreSQL? (y/n)"
-    if ($response -ne "y") {
-        Write-Host "Please install PostgreSQL and run setup_local_database.ps1 first." -ForegroundColor Yellow
+$pythonOk = Test-PythonInstalled
+if (-not $pythonOk) { exit 1 }
+
+$packagesOk = Test-PackagesInstalled
+if (-not $packagesOk) { 
+    $response = Read-Host "Would you like to install the missing packages now? (y/n)"
+    if ($response -eq "y") {
+        Write-Host "Installing required packages..." -ForegroundColor Cyan
+        pip install -r requirements.txt
+        $packagesOk = Test-PackagesInstalled
+        if (-not $packagesOk) { exit 1 }
+    }
+    else {
         exit 1
     }
 }
 
-# Check for environment file
-if (-not (Test-Path ".env")) {
-    Write-Host "Warning: .env file not found. Running setup_local_database.ps1..." -ForegroundColor Yellow
-    
-    if (Test-Path "setup_local_database.ps1") {
-        & .\setup_local_database.ps1
+$dbOk = Test-DatabaseConnection
+if (-not $dbOk) {
+    $response = Read-Host "Would you like to set up the database now? (y/n)"
+    if ($response -eq "y") {
+        Write-Host "Running database setup script..." -ForegroundColor Cyan
+        ./setup_local_database.ps1
+        $dbOk = Test-DatabaseConnection
+        if (-not $dbOk) { exit 1 }
     }
     else {
-        Write-Host "setup_local_database.ps1 not found. Creating basic .env file..." -ForegroundColor Yellow
-        
-        @"
-# Database configuration
-PGHOST=localhost
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=2212
-PGDATABASE=crypto
-DATABASE_URL=postgresql://postgres:2212@localhost:5432/crypto
-
-# Reset database on startup (set to false after first run)
-RESET_DATABASE=true
-
-# API Keys
-BINANCE_API_KEY=
-BINANCE_API_SECRET=
-FRED_API_KEY=
-ALPHA_VANTAGE_API_KEY=
-OPENAI_API_KEY=
-"@ | Out-File -FilePath ".env" -Encoding utf8
-        
-        Write-Host "Basic .env file created. You may need to update API keys." -ForegroundColor Yellow
+        exit 1
     }
-}
-
-# Create .streamlit directory and config if needed
-if (-not (Test-Path ".streamlit")) {
-    New-Item -ItemType Directory -Path ".streamlit" | Out-Null
-    
-    @"
-[server]
-headless = true
-address = "0.0.0.0"
-port = $STREAMLIT_PORT
-"@ | Out-File -FilePath ".streamlit/config.toml" -Encoding utf8
-    
-    Write-Host "Created Streamlit configuration" -ForegroundColor Green
 }
 
 # Start the application
-Start-App
-
-# Start the process manager
-Start-ProcessManager
-
-Write-Host ""
-Write-Host "======================================================" -ForegroundColor Green
-Write-Host "CryptoApp has been started!" -ForegroundColor Green
-Write-Host "Main application: http://localhost:$STREAMLIT_PORT" -ForegroundColor Cyan
-Write-Host "======================================================" -ForegroundColor Green
+Start-CryptoApp
