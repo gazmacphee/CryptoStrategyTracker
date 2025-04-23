@@ -12,8 +12,25 @@ import os
 
 import download_binance_data as dbd
 import data_loader
-from database import create_tables
+from database import create_tables, get_db_connection
 from binance_api import get_available_symbols
+
+# Import ML modules for automatic pattern detection
+try:
+    import advanced_ml
+    ML_AVAILABLE = True
+    logging.info("Advanced ML module available for pattern detection")
+except ImportError:
+    ML_AVAILABLE = False
+    logging.warning("Advanced ML module not available - pattern detection disabled")
+    
+# Import ML database operations
+try:
+    import db_ml_operations
+    ML_DB_AVAILABLE = True
+except ImportError:
+    logging.warning("db_ml_operations module not available - ML data will not be saved to database")
+    ML_DB_AVAILABLE = False
 
 # Configure logging
 log_file = "binance_data_download.log"
@@ -39,6 +56,92 @@ def remove_lock_files():
             except Exception as e:
                 logging.warning(f"Failed to remove lock file {lock_file}: {e}")
                 print(f"Warning: Failed to remove lock file {lock_file}: {e}")
+
+def check_for_ml_analysis():
+    """
+    Check if we have sufficient data in the database to run machine learning analysis.
+    If sufficient data is found, runs pattern detection and saves results.
+    
+    Returns:
+        Number of patterns detected and saved
+    """
+    if not ML_AVAILABLE or not ML_DB_AVAILABLE:
+        logging.warning("ML or DB modules not available - skipping pattern detection")
+        return 0
+    
+    # Define the minimum data requirements for pattern analysis
+    MIN_CANDLES = 5000  # Need at least this many candles for a symbol/interval
+    MIN_SYMBOLS = 3     # Need at least this many symbols with sufficient data
+    
+    conn = get_db_connection()
+    if not conn:
+        logging.error("Could not connect to database to check for ML analysis")
+        return 0
+    
+    # Check the most popular symbols for sufficient data
+    symbols = get_popular_symbols(limit=8)  # Start with the most popular ones
+    intervals = ['1h', '4h', '1d']          # Focus on the most commonly used intervals
+    
+    symbols_with_sufficient_data = []
+    
+    try:
+        cur = conn.cursor()
+        
+        # Check each symbol/interval combination for sufficient data
+        for symbol in symbols:
+            for interval in intervals:
+                cur.execute("""
+                    SELECT COUNT(*) FROM historical_data 
+                    WHERE symbol = %s AND interval = %s
+                """, (symbol, interval))
+                
+                count = cur.fetchone()[0]
+                
+                if count >= MIN_CANDLES:
+                    symbols_with_sufficient_data.append((symbol, interval))
+                    logging.info(f"Found sufficient data for ML analysis: {symbol}/{interval} ({count} candles)")
+                else:
+                    logging.info(f"Insufficient data for ML analysis: {symbol}/{interval} ({count} candles)")
+        
+        conn.close()
+        
+        # If we have enough symbols with sufficient data, run pattern detection
+        if len(symbols_with_sufficient_data) >= MIN_SYMBOLS:
+            logging.info(f"Running ML pattern detection on {len(symbols_with_sufficient_data)} symbol/interval pairs")
+            
+            # First, train all pattern models
+            try:
+                training_results = advanced_ml.train_all_pattern_models()
+                logging.info(f"Pattern model training completed: {training_results['successful']}/{training_results['total']} models trained")
+            except Exception as e:
+                logging.error(f"Error training pattern models: {e}")
+                return 0
+            
+            # Now analyze current patterns
+            try:
+                patterns = advanced_ml.analyze_all_market_patterns()
+                logging.info(f"Pattern analysis complete - found patterns: {not patterns.empty}")
+            except Exception as e:
+                logging.error(f"Error analyzing market patterns: {e}")
+                return 0
+            
+            # Save high-confidence recommendations
+            try:
+                saved_count = advanced_ml.save_current_recommendations()
+                logging.info(f"Saved {saved_count} pattern-based trading signals")
+                return saved_count
+            except Exception as e:
+                logging.error(f"Error saving pattern recommendations: {e}")
+                return 0
+        else:
+            logging.info(f"Not enough symbols with sufficient data for ML analysis. Found {len(symbols_with_sufficient_data)}, need {MIN_SYMBOLS}")
+            return 0
+    
+    except Exception as e:
+        logging.error(f"Error checking for ML analysis readiness: {e}")
+        if conn:
+            conn.close()
+        return 0
 
 def get_popular_symbols(limit=10):
     """Get a list of popular cryptocurrency symbols"""
@@ -120,6 +223,18 @@ def backfill_database(full=False, background=False):
             print(f"BACKFILL COMPLETED - Downloaded {total_candles} total candles")
             if total_candles > 0:
                 print("Your database now contains historical cryptocurrency price data!")
+                
+                # Check if we have enough data for ML analysis
+                if ML_AVAILABLE and ML_DB_AVAILABLE:
+                    print("Checking if sufficient data is available for ML pattern detection...")
+                    patterns_found = check_for_ml_analysis()
+                    
+                    if patterns_found > 0:
+                        print(f"✅ ML pattern analysis complete - {patterns_found} trading patterns detected and saved!")
+                        logging.info(f"ML pattern analysis complete - {patterns_found} patterns saved")
+                    else:
+                        print("ℹ️ Not enough data yet for ML pattern detection.")
+                        logging.info("Not enough data yet for ML pattern detection")
             else:
                 print("No new data was needed. Your database is already up to date!")
             print("*" * 80 + "\n")
@@ -149,6 +264,20 @@ def continuous_backfill(interval_minutes=15, full=False):
         # Run backfill
         try:
             backfill_database(full=full, background=True)
+            
+            # Run ML pattern detection separately (not tied to backfill success)
+            # This ensures ML runs even on incremental updates that don't add significant data
+            if ML_AVAILABLE and ML_DB_AVAILABLE:
+                logging.info("Running ML pattern detection as part of continuous backfill...")
+                try:
+                    patterns_found = check_for_ml_analysis()
+                    if patterns_found > 0:
+                        logging.info(f"Continuous ML analysis complete - {patterns_found} patterns saved")
+                    else:
+                        logging.info("Continuous ML analysis - no new patterns detected")
+                except Exception as ml_error:
+                    logging.error(f"Error running ML analysis in continuous mode: {ml_error}")
+            
         except Exception as e:
             logging.error(f"Error in continuous backfill: {e}")
             # Force release any locks if there was an error
