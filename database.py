@@ -1199,8 +1199,19 @@ def get_benchmark_data(name, start_time, end_time):
         if conn:
             conn.close()
 
-def save_sentiment_data(symbol, source, timestamp, sentiment_score, volume):
-    """Save sentiment data to database"""
+def save_sentiment_data(symbol, source, timestamp, sentiment_score, post_volume=0, sentiment_ratio=0.0, discussion_intensity=0.0):
+    """
+    Save sentiment data to database
+    
+    Args:
+        symbol: Cryptocurrency symbol (e.g., 'BTC')
+        source: Source of sentiment data (e.g., 'twitter', 'reddit')
+        timestamp: Timestamp for the sentiment data
+        sentiment_score: Sentiment score (0.0-1.0)
+        post_volume: Volume of posts analyzed (optional)
+        sentiment_ratio: Ratio of positive to negative sentiment (-1.0 to 1.0) (optional)
+        discussion_intensity: Intensity of discussion (0.0-1.0) (optional)
+    """
     conn = get_db_connection()
     if not conn:
         return False
@@ -1208,19 +1219,58 @@ def save_sentiment_data(symbol, source, timestamp, sentiment_score, volume):
     try:
         cur = conn.cursor()
         
+        # Check if the sentiment_data table has the needed columns
+        # If not, add them with ALTER TABLE
+        try:
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'sentiment_data' AND column_name = 'sentiment_ratio'
+            """)
+            if not cur.fetchone():
+                # Add sentiment_ratio column
+                cur.execute("ALTER TABLE sentiment_data ADD COLUMN sentiment_ratio FLOAT DEFAULT 0.0")
+            
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'sentiment_data' AND column_name = 'discussion_intensity'
+            """)
+            if not cur.fetchone():
+                # Add discussion_intensity column
+                cur.execute("ALTER TABLE sentiment_data ADD COLUMN discussion_intensity FLOAT DEFAULT 0.0")
+                
+            # Rename volume to post_volume if needed
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'sentiment_data' AND column_name = 'volume'
+            """)
+            if cur.fetchone():
+                # Check if post_volume already exists
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'sentiment_data' AND column_name = 'post_volume'
+                """)
+                if not cur.fetchone():
+                    # Rename volume to post_volume
+                    cur.execute("ALTER TABLE sentiment_data RENAME COLUMN volume TO post_volume")
+        except Exception as e:
+            print(f"Error checking or altering sentiment_data table: {e}")
+        
+        # New query with updated columns
         query = """
         INSERT INTO sentiment_data 
-        (symbol, source, timestamp, sentiment_score, volume)
-        VALUES (%s, %s, %s, %s, %s)
+        (symbol, source, timestamp, sentiment_score, post_volume, sentiment_ratio, discussion_intensity)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (symbol, source, timestamp) 
         DO UPDATE SET
             sentiment_score = EXCLUDED.sentiment_score,
-            volume = EXCLUDED.volume,
+            post_volume = EXCLUDED.post_volume,
+            sentiment_ratio = EXCLUDED.sentiment_ratio,
+            discussion_intensity = EXCLUDED.discussion_intensity,
             created_at = CURRENT_TIMESTAMP
         RETURNING id
         """
         
-        cur.execute(query, (symbol, source, timestamp, sentiment_score, volume))
+        cur.execute(query, (symbol, source, timestamp, sentiment_score, post_volume, sentiment_ratio, discussion_intensity))
         sentiment_id = cur.fetchone()[0]
         conn.commit()
         
@@ -1241,7 +1291,10 @@ def get_sentiment_data(symbol, sources=None, start_time=None, end_time=None):
     try:
         # Base query
         query = """
-        SELECT symbol, source, timestamp, sentiment_score, volume
+        SELECT symbol, source, timestamp, sentiment_score, 
+               COALESCE(post_volume, 0) as post_volume,
+               COALESCE(sentiment_ratio, 0) as sentiment_ratio, 
+               COALESCE(discussion_intensity, 0) as discussion_intensity
         FROM sentiment_data
         WHERE symbol = %s
         """
