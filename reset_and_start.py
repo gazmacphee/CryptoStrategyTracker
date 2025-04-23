@@ -246,6 +246,22 @@ def populate_additional_tables():
     logger.info("Populating additional data tables...")
     
     try:
+        # Apply ML fixes to prevent recursion errors
+        try:
+            # First, check if we have the ML fix module
+            if os.path.exists("direct_ml_fix.py"):
+                logger.info("ML fix module found, applying fixes...")
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import direct_ml_fix
+                if direct_ml_fix.fix_ml_modules():
+                    logger.info("Successfully applied ML module recursion fixes")
+                else:
+                    logger.warning("Failed to apply ML module fixes - ML operations may fail")
+            else:
+                logger.warning("ML fix module not found - ML functions may experience recursion errors")
+        except Exception as ml_fix_err:
+            logger.error(f"Error applying ML fixes: {ml_fix_err}")
+            
         # Start the data population script in the background
         subprocess.Popen(["python", "populate_all_tables.py"],
                        stdout=open("population.log", "w"),
