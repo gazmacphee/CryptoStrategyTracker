@@ -11,6 +11,10 @@ A comprehensive Streamlit-based cryptocurrency trading analysis platform that pr
 - Interactive candlestick charts
 - Background database updates
 - Clean, simplified architecture
+- Advanced machine learning pattern recognition
+- Automated trading recommendations
+- Multi-timeframe market analysis
+- Economic indicator correlation analysis
 
 ## Prerequisites
 
@@ -124,26 +128,89 @@ The project has been cleaned up and organized for better maintainability:
 
 ```
 /
-├── app.py                    # Main Streamlit application
-├── reset_and_start.py        # Application entry point script
-├── database.py               # Database operations
-├── binance_api.py            # Binance API integration
-├── download_binance_data.py  # Data downloading functionality
-├── backfill_database.py      # Database backfill operations
-├── indicators.py             # Technical indicators calculation
-├── strategy.py               # Trading strategy evaluation
-├── utils.py                  # Utility functions
-├── data/                     # Data storage directory
-├── models/                   # Saved ML models directory
-└── legacy_archive/           # Archive of old/unused files
-    ├── documentation/        # Project documentation
-    ├── json/                 # JSON configuration files
-    ├── logs/                 # Log files
-    ├── scripts/              # Utility scripts
-    ├── ml_modules/           # ML modules
-    ├── src/                  # Old modular architecture
-    └── archive/              # Additional archived files
+├── app.py                         # Main Streamlit application
+├── reset_and_start.py             # Application entry point script
+├── database.py                    # Core database operations
+├── database_extensions.py         # Advanced database functions
+├── binance_api.py                 # Binance API integration
+├── download_binance_data.py       # Data downloading functionality
+├── backfill_database.py           # Database backfill operations
+├── indicators.py                  # Technical indicators calculation
+├── strategy.py                    # Trading strategy evaluation
+├── advanced_ml.py                 # Advanced machine learning pattern recognition
+├── direct_ml_fix.py               # ML recursion fix implementation
+├── run_ml_fixed.py                # ML execution module
+├── train_all_pattern_models.py    # Pattern model training utility
+├── analyze_patterns_and_save.py   # Pattern analysis and recommendation tool
+├── test_ml_integration.py         # Comprehensive ML testing utility
+├── check_ml_data.py               # Database data verification utility
+├── process_manager.py             # Background process orchestration
+├── update_ml_process_config.py    # ML process scheduling configuration
+├── utils.py                       # Utility functions
+├── data/                          # Data storage directory
+├── models/                        # Saved ML models directory
+│   └── pattern_recognition/       # Pattern recognition models
+└── legacy_archive/                # Archive of old/unused files
+    ├── documentation/             # Project documentation
+    ├── json/                      # JSON configuration files
+    ├── logs/                      # Log files
+    ├── scripts/                   # Utility scripts
+    ├── ml_modules/                # Legacy ML modules
+    ├── src/                       # Old modular architecture
+    └── archive/                   # Additional archived files
 ```
+
+## Machine Learning Capabilities
+
+The platform includes sophisticated machine learning capabilities for pattern recognition and trading recommendations:
+
+### Pattern Recognition
+
+- Automatically detects chart patterns (e.g., support/resistance bounces, momentum shifts, double bottoms)
+- Trains models on historical price data to recognize profitable trading patterns
+- Analyzes patterns across multiple symbols and timeframes
+
+### Trading Recommendations
+
+- Generates actionable trading signals based on recognized patterns
+- Assigns confidence scores to each recommendation
+- Provides entry, exit, and stop-loss levels for each trade
+
+### ML Architecture
+
+- Database-first approach: All ML operations use data stored in PostgreSQL
+- On-demand model training: New models are trained as sufficient data becomes available
+- Scheduled pattern analysis: Hourly checks for new trading opportunities
+- Integrated with process manager for reliable execution
+
+### Using the ML Features
+
+1. **Training Models**
+   ```
+   python train_all_pattern_models.py
+   ```
+   This script:
+   - Checks for symbols with sufficient historical data
+   - Trains pattern recognition models
+   - Saves models to the `models/pattern_recognition/` directory
+
+2. **Analyzing Patterns**
+   ```
+   python analyze_patterns_and_save.py
+   ```
+   This script:
+   - Analyzes patterns across all markets
+   - Identifies high-confidence trading opportunities
+   - Saves recommendations to the database
+
+3. **Testing ML Integration**
+   ```
+   python test_ml_integration.py
+   ```
+   This script:
+   - Tests all ML components end-to-end
+   - Verifies data accessibility, model training, and pattern detection
+   - Reports success/failure status for each component
 
 ## Customization
 
@@ -151,6 +218,7 @@ The project has been cleaned up and organized for better maintainability:
 - Adjust trading parameters in the UI
 - Modify technical indicators in `indicators.py`
 - Change trading strategies in `strategy.py`
+- Adjust pattern detection thresholds in `advanced_ml.py`
 
 ## Data Management
 
