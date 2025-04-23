@@ -675,7 +675,8 @@ def calculate_correlation(crypto_df, dxy_df=None, liquidity_df=None):
         joined = crypto_df[['close']].join(dxy_df[['close']], how='inner', lsuffix='_crypto', rsuffix='_dxy')
         
         if not joined.empty and len(joined) > 5:  # Need at least a few data points
-            correlation = joined['close_crypto'].corr(joined['close_dxy'])
+            # Convert to float to avoid Decimal type issues
+            correlation = joined['close_crypto'].astype(float).corr(joined['close_dxy'].astype(float))
             results.append({
                 'indicator': 'US Dollar Index (DXY)',
                 'correlation': correlation,
@@ -692,7 +693,8 @@ def calculate_correlation(crypto_df, dxy_df=None, liquidity_df=None):
             joined = crypto_df[['close']].join(group[['value']], how='inner')
             
             if not joined.empty and len(joined) > 5:
-                correlation = joined['close'].corr(joined['value'])
+                # Convert to float to avoid Decimal type issues
+                correlation = joined['close'].astype(float).corr(joined['value'].astype(float))
                 results.append({
                     'indicator': indicator,
                     'correlation': correlation,

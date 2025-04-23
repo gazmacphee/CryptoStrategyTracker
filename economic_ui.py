@@ -117,11 +117,11 @@ def render_dxy_analysis(crypto_symbol, start_date, end_date):
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Show data statistics
+        # Show data statistics - convert to float to avoid decimal.Decimal issues
         st.subheader("Dollar Index Statistics")
         st.write(f"Data Points: {len(dxy_df)}")
-        st.write(f"Average: {dxy_df['close'].mean():.2f}")
-        st.write(f"Range: {dxy_df['close'].min():.2f} - {dxy_df['close'].max():.2f}")
+        st.write(f"Average: {float(dxy_df['close'].astype(float).mean()):.2f}")
+        st.write(f"Range: {float(dxy_df['close'].astype(float).min()):.2f} - {float(dxy_df['close'].astype(float).max()):.2f}")
         
         return
     
@@ -278,11 +278,11 @@ def render_liquidity_analysis(crypto_symbol, start_date, end_date):
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Show data statistics
+        # Show data statistics - convert to float to avoid decimal.Decimal issues
         st.subheader(f"{selected_indicator} Statistics")
         st.write(f"Data Points: {len(liquidity_df)}")
-        st.write(f"Average: ${liquidity_df['value'].mean():,.2f} million")
-        st.write(f"Range: ${liquidity_df['value'].min():,.2f} - ${liquidity_df['value'].max():,.2f} million")
+        st.write(f"Average: ${float(liquidity_df['value'].astype(float).mean()):,.2f} million")
+        st.write(f"Range: ${float(liquidity_df['value'].astype(float).min()):,.2f} - ${float(liquidity_df['value'].astype(float).max()):,.2f} million")
         
         # Provide information about the indicator
         st.subheader("About this Indicator")
@@ -364,7 +364,8 @@ def render_liquidity_analysis(crypto_symbol, start_date, end_date):
         )
         
         if not merged_df.empty and len(merged_df) >= 3:  # Need at least a few data points
-            correlation = merged_df['liquidity_value'].corr(merged_df['crypto_close'])
+            # Convert to float to avoid Decimal type issues
+            correlation = merged_df['liquidity_value'].astype(float).corr(merged_df['crypto_close'].astype(float))
             
             # Display correlation
             st.subheader("Correlation Analysis")
