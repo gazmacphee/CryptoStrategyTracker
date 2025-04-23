@@ -231,12 +231,13 @@ def calculate_exit_levels(df, entry_price, stop_loss_method='support',
 
 def create_signals_table():
     """Create the trading signals table if it doesn't exist"""
-    conn = get_db_connection()
-    if not conn:
-        print("Failed to connect to database, cannot create trading signals table")
-        return False
-    
+    conn = None
     try:
+        conn = get_db_connection()
+        if not conn:
+            print("Failed to connect to database, cannot create trading signals table")
+            return False
+        
         cur = conn.cursor()
         
         # First check if the table exists
@@ -251,18 +252,62 @@ def create_signals_table():
         # If table exists, check if it has the expected structure
         columns_valid = True
         if table_exists:
-            try:
-                # Try a simple query to check if stop_loss column exists
-                cur.execute("SELECT stop_loss FROM trading_signals LIMIT 0;")
-            except Exception as column_error:
-                print(f"Table structure issue detected: {column_error}")
+            # Close this connection and create a new one for the column check
+            # This prevents transaction aborts from affecting the rest of the operation
+            conn.close()
+            conn = get_db_connection()
+            if not conn:
+                print("Failed to reconnect to database after checking table existence")
+                return False
+            
+            cur = conn.cursor()
+            
+            # Check if all expected columns exist
+            cur.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'trading_signals'
+            """)
+            
+            columns = [row[0] for row in cur.fetchall()]
+            
+            # Define the columns we expect to have
+            expected_columns = [
+                'id', 'symbol', 'interval', 'timestamp', 'signal_type', 'signal_strength', 
+                'price', 'stop_loss', 'take_profit', 'stop_loss_method', 'take_profit_method', 
+                'risk_reward_ratio', 'bb_signal', 'rsi_signal', 'macd_signal', 'ema_signal', 
+                'strategy_name', 'strategy_params', 'notes', 'created_at'
+            ]
+            
+            # Check if any expected columns are missing
+            missing_columns = [col for col in expected_columns if col not in columns]
+            
+            if missing_columns:
+                print(f"Warning: Missing columns in trading_signals table: {missing_columns}")
                 columns_valid = False
                 
+                # Close this connection before trying to drop the table
+                conn.close()
+                conn = get_db_connection()
+                if not conn:
+                    print("Failed to reconnect before dropping table")
+                    return False
+                    
+                cur = conn.cursor()
                 # Drop the table if it exists but has issues
                 cur.execute("DROP TABLE IF EXISTS trading_signals;")
                 conn.commit()
                 print("Dropped trading_signals table to recreate with correct schema")
                 table_exists = False
+                
+                # Reconnect again to create table with a clean connection
+                conn.close()
+                conn = get_db_connection()
+                if not conn:
+                    print("Failed to reconnect after dropping table")
+                    return False
+                
+                cur = conn.cursor()
         
         # Only create the table if it doesn't exist or had invalid columns
         if not table_exists or not columns_valid:
@@ -299,18 +344,26 @@ def create_signals_table():
             ON trading_signals(symbol, interval, timestamp);
             """)
             
+            conn.commit()
             print("Trading signals table created successfully")
+            return True
         
         conn.commit()
         return True
     except Exception as e:
         print(f"Error creating trading signals table: {e}")
         if conn:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
         return False
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_last_signal(conn, symbol, interval, strategy_name="default_strategy"):
     """
