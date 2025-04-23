@@ -117,6 +117,41 @@ def check_binance_historical_data_installed():
     except Exception as e:
         logging.error(f"Error checking binance-historical-data command: {e}")
     
+    # Check for Windows helper batch file first
+    npm_bat_path = os.path.join(os.getcwd(), 'npm.bat')
+    if os.name == 'nt' and os.path.exists(npm_bat_path):
+        logging.info("Found npm.bat helper script created by setup_windows.bat")
+        
+        try:
+            # Test if the helper script works
+            npm_test = subprocess.run([npm_bat_path, '--version'], capture_output=True, text=True)
+            if npm_test.returncode == 0:
+                logging.info("npm.bat helper script is working")
+                
+                # Try to check if binance-historical-data is available via the helper
+                try:
+                    bhd_test = subprocess.run(
+                        [npm_bat_path, 'binance-historical-data', '--version'], 
+                        capture_output=True, text=True
+                    )
+                    if bhd_test.returncode == 0:
+                        logging.info("binance-historical-data is available via npm.bat helper")
+                        return 'npm.bat binance-historical-data'
+                    else:
+                        logging.info("binance-historical-data not found, trying to install...")
+                        # Try to install the package using the helper
+                        install_result = subprocess.run(
+                            [npm_bat_path, 'install', 'binance-historical-data', '--no-save'],
+                            capture_output=True, text=True
+                        )
+                        if install_result.returncode == 0:
+                            logging.info("Successfully installed binance-historical-data via npm.bat")
+                            return 'npm.bat binance-historical-data'
+                except Exception as e:
+                    logging.warning(f"Error using npm.bat for binance-historical-data: {e}")
+        except Exception as e:
+            logging.warning(f"Error using npm.bat helper: {e}")
+    
     # Try using npx to run without global installation
     if npm_path:
         try:
