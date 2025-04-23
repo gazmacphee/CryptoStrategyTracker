@@ -12,6 +12,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
+# Use data utilities module to avoid circular imports
+from data_utilities import get_data
+
 from economic_indicators import (
     get_dxy_data, get_liquidity_data, calculate_correlation,
     update_economic_indicators, create_economic_indicator_tables,
@@ -82,9 +85,6 @@ def render_dxy_analysis(crypto_symbol, start_date, end_date):
     if dxy_df.empty:
         st.warning("No Dollar Index data available for the selected period. Try initializing the data or selecting a different period.")
         return
-    
-    # Import get_data function here to avoid circular imports
-    from app import get_data
     
     # Get crypto data for comparison
     with st.spinner(f"Fetching {crypto_symbol} data..."):
@@ -247,9 +247,6 @@ def render_liquidity_analysis(crypto_symbol, start_date, end_date):
         
         return
     
-    # Import get_data function here to avoid circular imports
-    from app import get_data
-    
     # Get crypto data for comparison
     with st.spinner(f"Fetching {crypto_symbol} data..."):
         crypto_df = get_data(
@@ -406,20 +403,26 @@ def render_liquidity_analysis(crypto_symbol, start_date, end_date):
         st.write("Historical correlation with crypto: Generally positive during QE periods, as increased liquidity tends to flow into risk assets including cryptocurrencies.")
     elif indicator_code == "BOGMBASE":
         st.write("Monetary Base is the sum of currency in circulation and reserve balances (deposits held by banks with the Federal Reserve).")
-        st.write("Historical correlation with crypto: Similar to other liquidity measures, often shows positive correlation during periods of monetary expansion.")
+        st.write("Historical correlation with crypto: Can signal changes in monetary policy that may impact cryptocurrency values.")
 
 def render_correlation_analysis(crypto_symbol, start_date, end_date):
-    """Render Comprehensive Correlation Analysis"""
-    st.subheader("Comprehensive Correlation Analysis")
+    """Render correlation analysis between economic indicators and cryptocurrency"""
+    st.subheader("Multi-Indicator Correlation Analysis")
     
-    # Import get_data function here to avoid circular imports
-    from app import get_data
+    # Fetch DXY data
+    with st.spinner("Fetching economic indicators..."):
+        dxy_df = get_dxy_data(start_date, end_date)
+        
+        # Fetch liquidity data
+        liquidity_data = {}
+        for name, code in GLOBAL_LIQUIDITY_INDICATORS.items():
+            liquidity_data[name] = get_liquidity_data(code, start_date, end_date)
     
     # Get crypto data
     with st.spinner(f"Fetching {crypto_symbol} data..."):
         crypto_df = get_data(
             crypto_symbol, 
-            interval="1d",  # Daily data for correlation analysis
+            interval="1d",
             start_date=start_date,
             end_date=end_date
         )
@@ -428,102 +431,88 @@ def render_correlation_analysis(crypto_symbol, start_date, end_date):
         st.warning(f"No {crypto_symbol} data available for the selected period.")
         return
     
-    # Fetch DXY data
-    with st.spinner("Fetching Dollar Index data..."):
-        dxy_df = get_dxy_data(start_date, end_date)
+    # Create correlation matrix
+    correlations = {}
     
-    # Fetch all liquidity indicators
-    with st.spinner("Fetching Liquidity indicators..."):
-        liquidity_df = get_liquidity_data(None, start_date, end_date)
+    # DXY correlation
+    if not dxy_df.empty:
+        dxy_corr = calculate_correlation(dxy_df, crypto_df)
+        if dxy_corr is not None:
+            correlations["US Dollar Index (DXY)"] = dxy_corr
     
-    if dxy_df.empty and liquidity_df.empty:
-        st.warning("No economic indicator data available. Try initializing the data first.")
+    # Liquidity correlations
+    for name, df in liquidity_data.items():
+        if not df.empty:
+            liq_corr = calculate_correlation(df, crypto_df, resample='M')
+            if liq_corr is not None:
+                correlations[name] = liq_corr
+    
+    if not correlations:
+        st.warning("No correlation data could be calculated for the selected period.")
         return
     
-    # Calculate correlations
-    correlations = calculate_correlation(crypto_df, dxy_df, liquidity_df)
-    
-    if correlations.empty:
-        st.warning("Could not calculate correlations with the available data.")
-        return
-    
-    # Display correlation results
-    st.write(f"### Correlation with {crypto_symbol}")
-    st.write("The table below shows the correlation between the cryptocurrency price and various economic indicators.")
-    st.write("A positive correlation means the indicators tend to move in the same direction, while a negative correlation means they tend to move in opposite directions.")
-    
-    # Format the correlations for display
-    correlations['correlation'] = correlations['correlation'].apply(lambda x: f"{x:.4f}")
-    correlations.rename(columns={
-        'indicator': 'Economic Indicator',
-        'correlation': 'Correlation Coefficient',
-        'data_points': 'Data Points'
-    }, inplace=True)
-    
-    # Display as table
-    st.table(correlations)
-    
-    # Visualization of correlations
-    st.subheader("Correlation Strength Visualization")
-    
+    # Create correlation chart
     fig = go.Figure()
     
-    # Convert correlation back to float for plotting
-    correlations['Correlation Value'] = correlations['Correlation Coefficient'].apply(float)
-    
-    # Sort by absolute correlation value
-    correlations = correlations.sort_values(by='Correlation Value', key=abs, ascending=False)
-    
-    # Determine colors based on correlation direction
-    colors = ['green' if float(c) >= 0 else 'red' for c in correlations['Correlation Coefficient']]
-    
-    fig.add_trace(go.Bar(
-        x=correlations['Economic Indicator'],
-        y=correlations['Correlation Value'],
-        marker_color=colors,
-        text=correlations['Correlation Coefficient'],
-        textposition='auto',
-    ))
+    for name, corr in correlations.items():
+        fig.add_trace(go.Bar(
+            x=[name],
+            y=[corr],
+            name=name
+        ))
     
     fig.update_layout(
-        title=f"Correlation Strength with {crypto_symbol}",
+        title=f"{crypto_symbol} Correlation with Economic Indicators",
         xaxis_title="Economic Indicator",
         yaxis_title="Correlation Coefficient",
-        height=400,
-        yaxis=dict(
-            range=[-1, 1],
-            tick0=-1,
-            dtick=0.25
-        )
+        height=500,
+        showlegend=False
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Interpretation
-    st.subheader("Correlation Interpretation")
-    st.write("""
-    * **Strong Positive (> 0.7)**: Strong direct relationship 
-    * **Moderate Positive (0.3 to 0.7)**: Moderate direct relationship
-    * **Weak (-0.3 to 0.3)**: Little to no linear relationship
-    * **Moderate Negative (-0.7 to -0.3)**: Moderate inverse relationship
-    * **Strong Negative (< -0.7)**: Strong inverse relationship
-    """)
+    # Show correlation table
+    st.subheader("Correlation Summary")
     
-    st.write("""
-    **Note on Causality**: Correlation does not imply causation. While these indicators may move together with cryptocurrency prices, this doesn't mean one directly causes the other. Multiple factors influence crypto markets.
-    """)
+    # Create a DataFrame for better display
+    corr_df = pd.DataFrame({
+        'Indicator': list(correlations.keys()),
+        'Correlation': list(correlations.values())
+    })
     
-    # Analysis implications
-    st.subheader("Trading Implications")
-    st.write("""
-    Understanding correlations with economic indicators can help inform trading strategies:
+    # Sort by absolute correlation
+    corr_df['Abs_Correlation'] = corr_df['Correlation'].abs()
+    corr_df = corr_df.sort_values('Abs_Correlation', ascending=False).drop('Abs_Correlation', axis=1)
     
-    1. **Diversification**: Assets with negative correlation can help balance your portfolio
-    2. **Risk Management**: Monitor highly correlated indicators for potential market shifts
-    3. **Market Context**: Use these relationships to understand the broader economic factors affecting crypto
+    # Add interpretation
+    def interpret_correlation(corr):
+        if corr > 0.7:
+            return "Strong positive"
+        elif corr > 0.3:
+            return "Moderate positive"
+        elif corr > -0.3:
+            return "Weak or none"
+        elif corr > -0.7:
+            return "Moderate negative"
+        else:
+            return "Strong negative"
+    
+    corr_df['Interpretation'] = corr_df['Correlation'].apply(interpret_correlation)
+    
+    # Format correlation values
+    corr_df['Correlation'] = corr_df['Correlation'].apply(lambda x: f"{x:.4f}")
+    
+    st.dataframe(corr_df)
+    
+    # Add explanatory text
+    st.subheader("Understanding the Analysis")
+    st.write("""
+    This correlation analysis examines the relationship between various economic indicators and cryptocurrency prices. 
+    A positive correlation suggests that the indicator and cryptocurrency prices tend to move in the same direction, 
+    while a negative correlation indicates they move in opposite directions.
+    
+    Key insights:
+    - DXY is often negatively correlated with crypto (dollar strength = crypto weakness)
+    - Liquidity metrics typically show positive correlation with crypto markets
+    - Correlations may change dramatically during different market regimes
     """)
-
-if __name__ == "__main__":
-    # This will run if the module is executed directly
-    st.set_page_config(page_title="Economic Indicators Analysis", layout="wide")
-    render_economic_indicators_tab()
