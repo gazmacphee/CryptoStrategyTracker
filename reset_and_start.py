@@ -170,16 +170,16 @@ def remove_lock_files():
                 print(f"⚠️ Warning: Failed to remove lock file {lock_file}: {e}")
 
 def start_backfill():
-    """Start a simple backfill process directly"""
+    """Start a continuous full backfill process directly"""
     logger.info("Starting backfill process...")
     
     # Clear any existing lock files
     remove_lock_files()
     
-    # Run the original backfill script directly
+    # Run the original backfill script directly with full and continuous options
     try:
-        # Run in background
-        subprocess.Popen(["python", "backfill_database.py"],
+        # Run in background with continuous mode, full backfill, and 15-minute interval
+        subprocess.Popen(["python", "backfill_database.py", "--full", "--continuous", "--interval", "15"],
                         stdout=open("backfill.log", "w"),
                         stderr=subprocess.STDOUT)
         logger.info("Backfill process started successfully")
