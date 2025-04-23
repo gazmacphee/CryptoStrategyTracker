@@ -16,9 +16,37 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
+from decimal import Decimal
 
 import database
 from database import get_db_connection, save_dxy_data, save_liquidity_data, get_liquidity_data
+
+def ensure_float_values(df):
+    """
+    Ensures all numeric columns in a DataFrame are converted to float type.
+    This prevents issues with decimal.Decimal values.
+    
+    Args:
+        df: DataFrame to convert
+        
+    Returns:
+        DataFrame with all numeric columns as float
+    """
+    if df is None or df.empty:
+        return df
+        
+    for col in df.select_dtypes(include=['number']).columns:
+        # Check if column contains any Decimal objects
+        has_decimal = False
+        for x in df[col].dropna().head():
+            if isinstance(x, Decimal):
+                has_decimal = True
+                break
+                
+        if has_decimal:
+            df[col] = df[col].astype(float)
+    
+    return df
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
