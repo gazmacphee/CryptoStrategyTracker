@@ -487,17 +487,26 @@ def render_correlation_analysis(crypto_symbol, start_date, end_date):
     
     # Add interpretation
     def interpret_correlation(corr):
-        if corr > 0.7:
-            return "Strong positive"
-        elif corr > 0.3:
-            return "Moderate positive"
-        elif corr > -0.3:
-            return "Weak or none"
-        elif corr > -0.7:
-            return "Moderate negative"
-        else:
-            return "Strong negative"
+        try:
+            # Ensure we're working with a numeric value, not a DataFrame or Series
+            corr_val = float(corr)
+            
+            if corr_val > 0.7:
+                return "Strong positive"
+            elif corr_val > 0.3:
+                return "Moderate positive"
+            elif corr_val > -0.3:
+                return "Weak or none"
+            elif corr_val > -0.7:
+                return "Moderate negative"
+            else:
+                return "Strong negative"
+        except (ValueError, TypeError):
+            # If conversion fails, return a default value
+            return "Unknown"
     
+    # Format correlation values to strings first to avoid DataFrame comparison issues
+    corr_df['Correlation'] = corr_df['Correlation'].astype(float)
     corr_df['Interpretation'] = corr_df['Correlation'].apply(interpret_correlation)
     
     # Format correlation values

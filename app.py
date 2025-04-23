@@ -2300,7 +2300,7 @@ def main():
             st.subheader("Personalized Recommendations")
             
             # Create three columns for recommendations - recommendations might not be available
-            if 'recommendations' in digest and digest['recommendations']:
+            if digest.get('recommendations'):
                 cols = st.columns(min(3, len(digest['recommendations'])))
                 
                 for i, (col, rec) in enumerate(zip(cols, digest['recommendations'])):
