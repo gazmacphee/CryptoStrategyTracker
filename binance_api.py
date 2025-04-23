@@ -503,6 +503,57 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
     
     return df
 
+def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
+    """
+    Get historical data for a symbol and interval.
+    This is a wrapper to provide a consistent interface for ML modules.
+    
+    This function now redirects to database_extensions.get_historical_data,
+    which prioritizes pulling data from the database instead of re-downloading.
+    
+    Args:
+        symbol: Trading pair symbol (e.g., 'BTCUSDT')
+        interval: Time interval (e.g., '1h', '1d')
+        lookback_days: Number of days to look back
+        start_date: Optional specific start date (overrides lookback_days)
+        end_date: Optional specific end date (defaults to now)
+        
+    Returns:
+        DataFrame with OHLCV and timestamp data
+    """
+    try:
+        # Import database_extensions to ensure it's available
+        import database_extensions
+        print(f"Redirecting historical data request for {symbol}/{interval} to database_extensions")
+        return database_extensions.get_historical_data(symbol, interval, lookback_days, start_date, end_date)
+    except ImportError:
+        print("Warning: database_extensions module not found. Using direct method.")
+        try:
+            # Convert dates if provided
+            start_time = None
+            if start_date:
+                if isinstance(start_date, str):
+                    start_time = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
+                elif isinstance(start_date, datetime):
+                    start_time = int(start_date.timestamp() * 1000)
+            
+            end_time = None    
+            if end_date:
+                if isinstance(end_date, str):
+                    end_time = int(datetime.strptime(end_date, '%Y-%m-%d').timestamp() * 1000)
+                elif isinstance(end_date, datetime):
+                    end_time = int(end_date.timestamp() * 1000)
+            
+            if not start_time and lookback_days:
+                # Calculate start time based on lookback_days
+                end_ts = end_time if end_time else int(datetime.now().timestamp() * 1000)
+                start_time = end_ts - (lookback_days * 24 * 60 * 60 * 1000)
+                
+            return get_klines_data(symbol, interval, start_time, end_time)
+        except Exception as e:
+            print(f"Error getting historical data for {symbol}/{interval}: {e}")
+            return None
+
 def get_klines_data(symbol, interval, start_time=None, end_time=None, limit=1000):
     """
     Fetch klines (candlestick) data using a hybrid approach:
