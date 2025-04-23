@@ -699,17 +699,16 @@ def train_price_models(symbol: str, interval: str, lookback_days: int = 90) -> b
         Boolean indicating success
     """
     try:
-        try:
-            # Try importing from database_extensions first
-            from database import get_historical_data
-        except ImportError:
-            # Fall back to direct import if not available
-            from binance_api import get_historical_data
+        # Import database_extensions to ensure functions are available
+        import database_extensions  # This will add functions to database module
+        # Use database module's get_historical_data function
+        from database import get_historical_data
         
         # Get historical data
         end_date = datetime.now()
         start_date = end_date - timedelta(days=lookback_days)
         
+        print(f"Getting historical data for {symbol}/{interval} in train_price_models")
         df = get_historical_data(symbol, interval, lookback_days=lookback_days)
         
         if df is None or len(df) < 30:
@@ -748,12 +747,11 @@ def predict_prices_all(symbols: List[str] = None, intervals: List[str] = None) -
     if intervals is None:
         intervals = ["1h", "4h", "1d"]
     
-    try:
-        # Try importing from database_extensions first
-        from database import get_historical_data
-    except ImportError:
-        # Fall back to direct import if not available
-        from binance_api import get_historical_data
+    # Import database_extensions to ensure functions are available
+    import database_extensions  # This will add functions to database module
+    # Use database module's get_historical_data function
+    from database import get_historical_data
+    print(f"Using database module's get_historical_data in predict_prices_all")
     
     prediction_count = 0
     for symbol in symbols:
