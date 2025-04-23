@@ -51,7 +51,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python process_manager.py monitor"
+args = "python process_manager.py run"
 
 [[ports]]
 localPort = 5000
