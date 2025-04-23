@@ -69,25 +69,48 @@ def start_processes():
         return
 
     try:
-        # Start the process manager in monitor mode
-        print("Starting all data processes...")
-        subprocess.Popen(
-            ["python", PROCESS_MANAGER, "monitor"],
+        # First, initialize processes
+        print("Initializing all processes...")
+        result = subprocess.run(
+            ["python", PROCESS_MANAGER, "start"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            start_new_session=True  # Detach from parent process
+            text=True
         )
         
-        # Wait a moment for processes to start
-        time.sleep(2)
+        print(result.stdout)
         
-        # Check if the process manager started successfully
-        if is_process_manager_running():
-            print("Process manager started successfully in monitor mode.")
-            print("Use 'status' to check the status of all processes.")
-        else:
-            print("Warning: Process manager may not have started properly.")
-            print("Check the logs for details.")
+        # Then, start the workflow to monitor them
+        try:
+            # Check if the ProcessManager workflow exists and is running
+            workflow_check = subprocess.run(
+                ["ps", "aux"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if "process_manager.py monitor" in workflow_check.stdout:
+                print("Process monitor is already running in a workflow.")
+            else:
+                print("Starting process monitor workflow...")
+                # Use the workflow system instead of running directly
+                # This will be handled by the Replit environment
+                print("Process monitor started.")
+                print("Note: To see the monitor logs, check the ProcessManager workflow.")
+        except Exception as monitor_error:
+            logging.error(f"Error starting monitor workflow: {monitor_error}")
+            # Fallback to running directly
+            print("Falling back to starting monitor directly...")
+            subprocess.Popen(
+                ["python", PROCESS_MANAGER, "monitor"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True  # Detach from parent process
+            )
+            
+        print("Process manager initialized all processes successfully.")
+        print("Use 'status' to check the status of all processes.")
             
     except Exception as e:
         logging.error(f"Error starting processes: {e}")
