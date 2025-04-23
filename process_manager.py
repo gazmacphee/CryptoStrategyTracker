@@ -560,7 +560,8 @@ Usage:
     
     --continuous: Run in continuous mode, generating signals as new data arrives
 '''
-
+"""
+    script_content += """
 import os
 import sys
 import time
@@ -579,14 +580,14 @@ logging.basicConfig(
 )
 
 def setup_argparse():
-    """Parse command-line arguments."""
+    \"\"\"Parse command-line arguments.\"\"\"
     parser = argparse.ArgumentParser(description='Generate trading signals')
     parser.add_argument('--continuous', action='store_true', 
                         help='Run in continuous mode, generating signals as new data arrives')
     return parser.parse_args()
 
 def generate_signals():
-    """Generate trading signals from historical data."""
+    \"\"\"Generate trading signals from historical data.\"\"\"
     try:
         logging.info("Generating trading signals...")
         
@@ -619,13 +620,13 @@ def generate_signals():
                     logging.info(f"Processing {symbol}/{interval}")
                     
                     # Get historical data from database
-                    query = """
+                    query = \"\"\"
                     SELECT timestamp, open, high, low, close, volume
                     FROM historical_data
                     WHERE symbol = %s AND interval = %s
                     ORDER BY timestamp DESC
                     LIMIT 500
-                    """
+                    \"\"\"
                     
                     cursor.execute(query, (symbol, interval))
                     rows = cursor.fetchall()
@@ -673,7 +674,7 @@ def generate_signals():
         return False
 
 def main():
-    """Main entry point for signal generation."""
+    \"\"\"Main entry point for signal generation.\"\"\"
     args = setup_argparse()
     
     if args.continuous:
