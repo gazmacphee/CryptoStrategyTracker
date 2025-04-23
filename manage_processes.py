@@ -116,7 +116,7 @@ def start_processes():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=30  # 30 second timeout for initialization
+            timeout=120  # 120 second timeout for initialization
         )
         
         print(result.stdout)

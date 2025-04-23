@@ -1,0 +1,32 @@
+python backfill_database.py --continuous --interval 15
+Original DATABASE_URL from environment: postgresql://postgres:2212@localhost:5432/crypto
+Parsed URL - Host: localhost, Port: 5432, DB: crypto, User: postgres
+Trying Binance API endpoint: https://api.binance.com/api/v3
+Successfully connected to Binance API at https://api.binance.com/api/v3
+API credentials are valid on https://api.binance.com/api/v3
+API keys found - forcing use of real Binance API data
+2025-04-23 12:50:22,451 - INFO - Advanced ML module available for pattern detection
+****************************************************************
+Starting cryptocurrency database backfill process
+Full backfill mode: False
+Continuous mode: True
+Background mode: False
+Update interval: 15 minutes
+This process ensures your database has historical price data
+****************************************************************
+2025-04-23 12:50:22,455 - INFO - Starting continuous backfill with 15 minute intervals
+Removed potentially stale lock file: .backfill_lock
+2025-04-23 12:50:22,456 - INFO - Removed potentially stale lock file: .backfill_lock
+
+********************************************************************************
+DATABASE BACKFILL BACKGROUND PROCESS STARTING
+This will download cryptocurrency historical data from Binance
+********************************************************************************
+2025-04-23 12:50:22,457 - INFO - Starting backfill process in background mode
+Connecting to database using DATABASE_URL: localhost:5432/crypto
+Error connecting with DATABASE_URL: connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused
+        Is the server running on that host and accepting TCP/IP connections?
+, trying individual parameters
+Connecting to database at localhost:5432/crypto with user postgres
+Attempt 1/5 - Error connecting to database: connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused
+        Is the server running on that host and accepting TCP/IP connections?
