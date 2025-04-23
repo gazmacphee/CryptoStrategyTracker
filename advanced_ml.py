@@ -1,0 +1,841 @@
+"""
+Advanced Machine Learning module for pattern recognition and trading opportunities.
+This module provides automated pattern analysis across different symbols and intervals
+to identify buying and selling opportunities.
+"""
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import logging
+import os
+import joblib
+from typing import Dict, List, Tuple, Optional, Union
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import concurrent.futures
+import database
+import trading_signals
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Constants
+MODEL_DIR = 'models/pattern_recognition'
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+# Pattern types to detect
+PATTERN_TYPES = {
+    'double_bottom': 'Bullish reversal pattern that forms after a downtrend',
+    'double_top': 'Bearish reversal pattern that forms after an uptrend',
+    'head_shoulders': 'Bearish reversal pattern with three peaks',
+    'inv_head_shoulders': 'Bullish reversal pattern with three troughs',
+    'bull_flag': 'Bullish continuation pattern after a strong uptrend',
+    'bear_flag': 'Bearish continuation pattern after a strong downtrend',
+    'cup_handle': 'Bullish continuation pattern resembling a cup with a handle',
+    'triangle': 'Continuation pattern showing converging trendlines',
+    'channel': 'Price movement between parallel trendlines',
+    'divergence': 'Price and indicator moving in opposite directions',
+    'support_bounce': 'Price bounce from a support level',
+    'resistance_breakdown': 'Price breaking through resistance',
+    'volume_spike': 'Unusual increase in trading volume',
+    'momentum_shift': 'Significant change in price momentum'
+}
+
+class PatternRecognitionModel:
+    """Advanced model for recognizing patterns across symbols and timeframes"""
+    
+    def __init__(self, rebuild_models=False):
+        self.models = {}
+        self.scalers = {}
+        self.feature_importances = {}
+        self.rebuild_models = rebuild_models
+        
+    def prepare_pattern_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract features useful for pattern recognition
+        
+        Args:
+            df: DataFrame with OHLCV data and indicators
+            
+        Returns:
+            DataFrame with extracted pattern features
+        """
+        # Ensure the DataFrame is sorted by timestamp
+        df = df.sort_values('timestamp').copy()
+        
+        # Calculate rolling statistics for pattern detection
+        df['price_range'] = df['high'] - df['low']
+        df['body_size'] = abs(df['close'] - df['open'])
+        df['upper_shadow'] = df['high'] - df[['open', 'close']].max(axis=1)
+        df['lower_shadow'] = df[['open', 'close']].min(axis=1) - df['low']
+        df['body_to_range'] = df['body_size'] / df['price_range'].replace(0, np.nan)
+        
+        # Volume-based features
+        df['rel_volume'] = df['volume'] / df['volume'].rolling(20).mean()
+        
+        # Calculate price changes over different windows
+        for window in [3, 5, 10, 20]:
+            df[f'price_change_{window}d'] = df['close'].pct_change(window)
+            df[f'volume_change_{window}d'] = df['volume'].pct_change(window)
+        
+        # Higher-level patterns require lookback windows
+        # Detect potential double bottoms
+        df['low_min_20d'] = df['low'].rolling(20).min()
+        df['potential_double_bottom'] = ((df['low'] - df['low_min_20d']).abs() < df['low'].rolling(20).std() * 0.1) & \
+                                       (df['low'] > df['low'].shift(1)) & \
+                                       (df['low'] > df['low'].shift(-1))
+        
+        # Detect potential double tops
+        df['high_max_20d'] = df['high'].rolling(20).max()
+        df['potential_double_top'] = ((df['high'] - df['high_max_20d']).abs() < df['high'].rolling(20).std() * 0.1) & \
+                                     (df['high'] < df['high'].shift(1)) & \
+                                     (df['high'] < df['high'].shift(-1))
+        
+        # Detect potential head and shoulders (simplified)
+        df['left_shoulder'] = (df['high'] < df['high'].shift(1)) & (df['high'] > df['high'].shift(2))
+        df['head'] = (df['high'] > df['high'].shift(1)) & (df['high'] > df['high'].shift(-1))
+        df['right_shoulder'] = (df['high'] < df['high'].shift(-1)) & (df['high'] > df['high'].shift(-2))
+        
+        # Detect support/resistance levels
+        df['support_level'] = df['low'].rolling(20).min()
+        df['resistance_level'] = df['high'].rolling(20).max()
+        df['near_support'] = (df['close'] - df['support_level']) / df['close'] < 0.01
+        df['near_resistance'] = (df['resistance_level'] - df['close']) / df['close'] < 0.01
+        
+        # Candlestick pattern features
+        df['doji'] = df['body_size'] < 0.1 * df['price_range']
+        df['hammer'] = (df['lower_shadow'] > 2 * df['body_size']) & (df['upper_shadow'] < 0.5 * df['body_size'])
+        df['shooting_star'] = (df['upper_shadow'] > 2 * df['body_size']) & (df['lower_shadow'] < 0.5 * df['body_size'])
+        
+        # Indicator-based patterns
+        if 'rsi' in df.columns:
+            df['rsi_oversold'] = df['rsi'] < 30
+            df['rsi_overbought'] = df['rsi'] > 70
+            df['rsi_bullish_divergence'] = (df['close'] < df['close'].shift(5)) & (df['rsi'] > df['rsi'].shift(5))
+            df['rsi_bearish_divergence'] = (df['close'] > df['close'].shift(5)) & (df['rsi'] < df['rsi'].shift(5))
+        
+        if 'macd' in df.columns and 'macd_signal' in df.columns:
+            df['macd_crossover_bullish'] = (df['macd'] > df['macd_signal']) & (df['macd'].shift(1) <= df['macd_signal'].shift(1))
+            df['macd_crossover_bearish'] = (df['macd'] < df['macd_signal']) & (df['macd'].shift(1) >= df['macd_signal'].shift(1))
+        
+        # Calculate the slope of EMAs if available
+        for ema in ['ema_9', 'ema_21', 'ema_50', 'ema_200']:
+            if ema in df.columns:
+                df[f'{ema}_slope'] = df[ema].pct_change(5)
+        
+        # Fill NaN values with 0 for boolean columns and median for numeric columns
+        bool_columns = df.select_dtypes(include=[bool]).columns
+        df[bool_columns] = df[bool_columns].fillna(False)
+        
+        # For numeric columns, fill with median
+        numeric_columns = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_columns:
+            df[col] = df[col].fillna(df[col].median())
+        
+        return df
+    
+    def extract_labeled_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract and label historical patterns based on future price movements
+        
+        Args:
+            df: DataFrame with OHLCV, indicators, and pattern features
+            
+        Returns:
+            DataFrame with labeled patterns
+        """
+        # Create future return columns to determine if a pattern was profitable
+        for lookahead in [1, 3, 5, 10, 20]:
+            df[f'future_return_{lookahead}d'] = df['close'].pct_change(periods=-lookahead)
+        
+        # Label the patterns
+        # 1. Double bottom (bullish)
+        df['double_bottom'] = df['potential_double_bottom'] & (df['future_return_10d'] > 0.03)
+        
+        # 2. Double top (bearish)
+        df['double_top'] = df['potential_double_top'] & (df['future_return_10d'] < -0.03)
+        
+        # 3. Bull flag (bullish continuation)
+        df['bull_flag'] = (df['close'] > df['close'].rolling(20).mean()) & \
+                           (df['close'].pct_change(10) > 0.05) & \
+                           (df['close'].pct_change(5) < 0.02) & \
+                           (df['future_return_10d'] > 0.03)
+        
+        # 4. Bear flag (bearish continuation)
+        df['bear_flag'] = (df['close'] < df['close'].rolling(20).mean()) & \
+                           (df['close'].pct_change(10) < -0.05) & \
+                           (df['close'].pct_change(5) > -0.02) & \
+                           (df['future_return_10d'] < -0.03)
+        
+        # 5. Support bounce (bullish)
+        df['support_bounce'] = df['near_support'] & (df['close'] > df['open']) & \
+                               (df['future_return_5d'] > 0.02)
+        
+        # 6. Resistance breakdown (bearish)
+        df['resistance_breakdown'] = df['near_resistance'] & (df['close'] < df['open']) & \
+                                     (df['future_return_5d'] < -0.02)
+        
+        # 7. Volume-supported reversal (can be bullish or bearish)
+        df['volume_reversal'] = (df['rel_volume'] > 1.5) & \
+                                (df['close'].pct_change() * df['close'].pct_change(1) < 0) & \
+                                (abs(df['future_return_5d']) > 0.03)
+        
+        # 8. Momentum shift (direction depends on the shift)
+        if 'rsi' in df.columns:
+            df['momentum_shift_bullish'] = (df['rsi'].shift(5) < 30) & (df['rsi'] > 40) & \
+                                           (df['future_return_10d'] > 0.04)
+            
+            df['momentum_shift_bearish'] = (df['rsi'].shift(5) > 70) & (df['rsi'] < 60) & \
+                                           (df['future_return_10d'] < -0.04)
+        
+        # Combine all patterns and create a single target column
+        pattern_columns = [
+            'double_bottom', 'double_top', 'bull_flag', 'bear_flag',
+            'support_bounce', 'resistance_breakdown', 'volume_reversal'
+        ]
+        
+        if 'rsi' in df.columns:
+            pattern_columns.extend(['momentum_shift_bullish', 'momentum_shift_bearish'])
+        
+        # Create target columns: 'pattern_type' and 'pattern_direction'
+        df['has_pattern'] = df[pattern_columns].any(axis=1)
+        df['pattern_direction'] = 'neutral'
+        
+        # Bullish patterns
+        bullish_patterns = ['double_bottom', 'bull_flag', 'support_bounce']
+        if 'rsi' in df.columns:
+            bullish_patterns.append('momentum_shift_bullish')
+        
+        # Bearish patterns
+        bearish_patterns = ['double_top', 'bear_flag', 'resistance_breakdown']
+        if 'rsi' in df.columns:
+            bearish_patterns.append('momentum_shift_bearish')
+        
+        # Set pattern direction
+        df.loc[df[bullish_patterns].any(axis=1), 'pattern_direction'] = 'bullish'
+        df.loc[df[bearish_patterns].any(axis=1), 'pattern_direction'] = 'bearish'
+        
+        # Identify the pattern type (taking the first one found for simplicity)
+        df['pattern_type'] = 'none'
+        for pattern in pattern_columns:
+            df.loc[df[pattern] & (df['pattern_type'] == 'none'), 'pattern_type'] = pattern
+        
+        # Calculate pattern profitability based on future returns
+        df['pattern_profit_5d'] = df['future_return_5d'] * (df['pattern_direction'] == 'bullish') - \
+                                  df['future_return_5d'] * (df['pattern_direction'] == 'bearish')
+        
+        df['pattern_profit_10d'] = df['future_return_10d'] * (df['pattern_direction'] == 'bullish') - \
+                                   df['future_return_10d'] * (df['pattern_direction'] == 'bearish')
+        
+        # Pattern success or failure
+        df['pattern_success'] = ((df['pattern_direction'] == 'bullish') & (df['future_return_10d'] > 0)) | \
+                               ((df['pattern_direction'] == 'bearish') & (df['future_return_10d'] < 0))
+        
+        return df
+    
+    def train_pattern_model(self, df: pd.DataFrame, symbol: str, interval: str) -> bool:
+        """
+        Train a model to recognize profitable patterns
+        
+        Args:
+            df: DataFrame with OHLCV data and indicators
+            symbol: Trading pair symbol
+            interval: Time interval
+            
+        Returns:
+            Boolean indicating if training was successful
+        """
+        try:
+            if len(df) < 500:
+                logger.warning(f"Not enough data for {symbol}/{interval} to train pattern model")
+                return False
+            
+            # Process features for pattern recognition
+            pattern_df = self.prepare_pattern_features(df)
+            
+            # Extract and label patterns
+            labeled_df = self.extract_labeled_patterns(pattern_df)
+            
+            # Keep only rows with actual patterns for training
+            pattern_data = labeled_df[labeled_df['has_pattern']]
+            
+            if len(pattern_data) < 50:
+                logger.warning(f"Not enough pattern instances for {symbol}/{interval} to train pattern model")
+                return False
+            
+            logger.info(f"Training pattern model for {symbol}/{interval} with {len(pattern_data)} patterns")
+            
+            # Select features for pattern recognition
+            feature_columns = [
+                'price_range', 'body_size', 'upper_shadow', 'lower_shadow',
+                'body_to_range', 'rel_volume',
+                'price_change_3d', 'price_change_5d', 'price_change_10d', 'price_change_20d',
+                'volume_change_3d', 'volume_change_5d', 'volume_change_10d', 'volume_change_20d',
+                'near_support', 'near_resistance',
+                'doji', 'hammer', 'shooting_star'
+            ]
+            
+            # Add indicator features if available
+            if 'rsi' in pattern_data.columns:
+                feature_columns.extend(['rsi', 'rsi_oversold', 'rsi_overbought', 
+                                       'rsi_bullish_divergence', 'rsi_bearish_divergence'])
+                
+            if 'macd' in pattern_data.columns and 'macd_signal' in pattern_data.columns:
+                feature_columns.extend(['macd', 'macd_signal', 'macd_histogram',
+                                       'macd_crossover_bullish', 'macd_crossover_bearish'])
+                
+            # Add EMA features if available
+            for ema in ['ema_9', 'ema_21', 'ema_50', 'ema_200']:
+                if ema in pattern_data.columns:
+                    feature_columns.append(ema)
+                    feature_columns.append(f'{ema}_slope')
+            
+            # Filter out any columns that don't exist in the dataframe
+            feature_columns = [col for col in feature_columns if col in pattern_data.columns]
+            
+            # Prepare features and target for pattern direction classification
+            X = pattern_data[feature_columns].values
+            y_direction = (pattern_data['pattern_direction'] == 'bullish').astype(int)
+            
+            # Split data for training and validation
+            X_train, X_val, y_train, y_val = train_test_split(X, y_direction, test_size=0.2, random_state=42)
+            
+            # Scale features
+            scaler = MinMaxScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_val_scaled = scaler.transform(X_val)
+            
+            # Train model for pattern direction
+            model = RandomForestClassifier(
+                n_estimators=100, 
+                max_depth=15,
+                random_state=42
+            )
+            
+            model.fit(X_train_scaled, y_train)
+            
+            # Evaluate model
+            y_pred = model.predict(X_val_scaled)
+            accuracy = accuracy_score(y_val, y_pred)
+            precision = precision_score(y_val, y_pred, zero_division=0)
+            recall = recall_score(y_val, y_pred, zero_division=0)
+            
+            logger.info(f"Pattern model for {symbol}/{interval} - Accuracy: {accuracy:.2f}, Precision: {precision:.2f}, Recall: {recall:.2f}")
+            
+            # Save feature importances
+            feature_importances = dict(zip(feature_columns, model.feature_importances_))
+            
+            # Save model and scaler
+            model_key = f"{symbol}_{interval}"
+            self.models[model_key] = model
+            self.scalers[model_key] = scaler
+            self.feature_importances[model_key] = feature_importances
+            
+            model_path = os.path.join(MODEL_DIR, f'pattern_model_{model_key}.joblib')
+            joblib.dump({
+                'model': model,
+                'scaler': scaler,
+                'feature_columns': feature_columns,
+                'feature_importances': feature_importances,
+                'metrics': {
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': recall
+                }
+            }, model_path)
+            
+            logger.info(f"Pattern model saved to {model_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error training pattern model for {symbol}/{interval}: {e}")
+            return False
+    
+    def load_pattern_model(self, symbol: str, interval: str) -> bool:
+        """
+        Load a previously trained pattern model
+        
+        Args:
+            symbol: Trading pair symbol
+            interval: Time interval
+            
+        Returns:
+            Boolean indicating if loading was successful
+        """
+        try:
+            model_key = f"{symbol}_{interval}"
+            model_path = os.path.join(MODEL_DIR, f'pattern_model_{model_key}.joblib')
+            
+            if not os.path.exists(model_path):
+                logger.warning(f"No saved pattern model found for {symbol}/{interval}")
+                return False
+            
+            saved_data = joblib.load(model_path)
+            self.models[model_key] = saved_data['model']
+            self.scalers[model_key] = saved_data['scaler']
+            self.feature_importances[model_key] = saved_data['feature_importances']
+            
+            logger.info(f"Pattern model loaded for {symbol}/{interval}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading pattern model for {symbol}/{interval}: {e}")
+            return False
+    
+    def detect_patterns(self, df: pd.DataFrame, symbol: str, interval: str) -> pd.DataFrame:
+        """
+        Detect patterns in the given data
+        
+        Args:
+            df: DataFrame with OHLCV data and indicators
+            symbol: Trading pair symbol
+            interval: Time interval
+            
+        Returns:
+            DataFrame with detected patterns
+        """
+        try:
+            model_key = f"{symbol}_{interval}"
+            
+            # Try to load the model if it's not already loaded
+            if model_key not in self.models:
+                loaded = self.load_pattern_model(symbol, interval)
+                
+                # If loading fails and rebuild_models is True, train a new model
+                if not loaded and self.rebuild_models:
+                    logger.info(f"Training new pattern model for {symbol}/{interval}")
+                    self.train_pattern_model(df, symbol, interval)
+                # If still not available, return empty results
+                if model_key not in self.models:
+                    logger.warning(f"No pattern model available for {symbol}/{interval}")
+                    return pd.DataFrame()
+            
+            # Process features for pattern recognition
+            pattern_df = self.prepare_pattern_features(df)
+            
+            # Get the model and scaler
+            model = self.models[model_key]
+            scaler = self.scalers[model_key]
+            
+            # Get feature columns from feature importances
+            feature_columns = list(self.feature_importances[model_key].keys())
+            
+            # Filter out any columns that don't exist in the dataframe
+            available_features = [col for col in feature_columns if col in pattern_df.columns]
+            
+            # Use only the most recent 100 candles for pattern detection
+            recent_df = pattern_df.iloc[-100:].copy()
+            
+            # Process predictions
+            X = recent_df[available_features].values
+            X_scaled = scaler.transform(X)
+            
+            # Predict pattern direction (1 for bullish, 0 for bearish)
+            direction_pred = model.predict(X_scaled)
+            direction_prob = model.predict_proba(X_scaled)
+            
+            # Add predictions to dataframe
+            recent_df['predicted_direction'] = ['bullish' if p == 1 else 'bearish' for p in direction_pred]
+            recent_df['prediction_confidence'] = np.max(direction_prob, axis=1)
+            
+            # Determine detected patterns based on feature values
+            # We'll use simple rules to categorize patterns
+            pattern_types = []
+            pattern_strengths = []
+            expected_returns = []
+            
+            for idx, row in recent_df.iterrows():
+                # Determine pattern type based on feature values
+                pattern_type = 'unknown'
+                pattern_strength = row['prediction_confidence']
+                expected_return = 0.0
+                
+                # Use a confidence threshold to filter out weak signals
+                if pattern_strength < 0.6:
+                    pattern_type = 'none'
+                    expected_return = 0.0
+                else:
+                    # Bullish patterns
+                    if row['predicted_direction'] == 'bullish':
+                        if row.get('potential_double_bottom', False):
+                            pattern_type = 'double_bottom'
+                            expected_return = 0.03
+                        elif row.get('near_support', False) and row['rel_volume'] > 1.2:
+                            pattern_type = 'support_bounce'
+                            expected_return = 0.02
+                        elif row.get('rsi_oversold', False) and row.get('macd_crossover_bullish', False):
+                            pattern_type = 'oversold_reversal'
+                            expected_return = 0.025
+                        elif row.get('hammer', False) and row['price_change_5d'] < -0.03:
+                            pattern_type = 'hammer_reversal'
+                            expected_return = 0.02
+                        else:
+                            pattern_type = 'bullish_signal'
+                            expected_return = 0.015
+                    
+                    # Bearish patterns
+                    else:
+                        if row.get('potential_double_top', False):
+                            pattern_type = 'double_top'
+                            expected_return = 0.03
+                        elif row.get('near_resistance', False) and row['rel_volume'] > 1.2:
+                            pattern_type = 'resistance_breakdown'
+                            expected_return = 0.02
+                        elif row.get('rsi_overbought', False) and row.get('macd_crossover_bearish', False):
+                            pattern_type = 'overbought_reversal'
+                            expected_return = 0.025
+                        elif row.get('shooting_star', False) and row['price_change_5d'] > 0.03:
+                            pattern_type = 'shooting_star_reversal'
+                            expected_return = 0.02
+                        else:
+                            pattern_type = 'bearish_signal'
+                            expected_return = 0.015
+                
+                pattern_types.append(pattern_type)
+                pattern_strengths.append(pattern_strength)
+                expected_returns.append(expected_return if pattern_type != 'none' else 0.0)
+            
+            recent_df['pattern_type'] = pattern_types
+            recent_df['pattern_strength'] = pattern_strengths
+            recent_df['expected_return'] = expected_returns
+            
+            # Filter out rows without detected patterns
+            patterns = recent_df[recent_df['pattern_type'] != 'none'].copy()
+            
+            # Add symbol and interval information
+            patterns['symbol'] = symbol
+            patterns['interval'] = interval
+            
+            # Calculate additional information for alerts
+            now = datetime.now()
+            patterns['detection_time'] = now
+            patterns['days_since_signal'] = (now - patterns['timestamp']).dt.total_seconds() / (24 * 3600)
+            
+            # Filter to recent patterns (< 3 days old) with sufficient confidence
+            recent_patterns = patterns[(patterns['days_since_signal'] < 3) & 
+                                       (patterns['pattern_strength'] > 0.65)].copy()
+            
+            return recent_patterns
+            
+        except Exception as e:
+            logger.error(f"Error detecting patterns for {symbol}/{interval}: {e}")
+            return pd.DataFrame()
+
+
+class MultiSymbolPatternAnalyzer:
+    """Analyzes patterns across multiple symbols and timeframes"""
+    
+    def __init__(self, max_symbols=10, max_intervals=3):
+        self.max_symbols = max_symbols
+        self.max_intervals = max_intervals
+        self.pattern_model = PatternRecognitionModel(rebuild_models=True)
+        
+    def get_symbols_data(self, symbols=None, intervals=None, days=30):
+        """
+        Get data for multiple symbols and intervals
+        
+        Args:
+            symbols: List of symbols to analyze (or None to use popular symbols)
+            intervals: List of intervals to analyze
+            days: Number of days to look back
+            
+        Returns:
+            Dictionary mapping (symbol, interval) to dataframes
+        """
+        try:
+            from app import get_data, get_available_symbols
+            
+            # Get popular symbols if not specified
+            if symbols is None or len(symbols) == 0:
+                if hasattr(get_available_symbols, '__call__'):
+                    symbols = get_available_symbols(limit=self.max_symbols)
+                else:
+                    # Default symbols
+                    symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'SOLUSDT',
+                              'DOGEUSDT', 'DOTUSDT', 'MATICUSDT', 'LINKUSDT', 'UNIUSDT']
+            
+            # Default intervals if not specified
+            if intervals is None or len(intervals) == 0:
+                intervals = ['1h', '4h', '1d']
+            
+            # Limit the number of symbols and intervals
+            symbols = symbols[:self.max_symbols]
+            intervals = intervals[:self.max_intervals]
+            
+            # Use multithreading to fetch data in parallel
+            data = {}
+            
+            def fetch_symbol_interval(symbol, interval):
+                df = get_data(symbol, interval, lookback_days=days)
+                if df is not None and not df.empty:
+                    return (symbol, interval), df
+                return (symbol, interval), None
+            
+            # Use ThreadPoolExecutor to parallelize data fetching
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = []
+                for symbol in symbols:
+                    for interval in intervals:
+                        futures.append(executor.submit(fetch_symbol_interval, symbol, interval))
+                
+                for future in concurrent.futures.as_completed(futures):
+                    key, df = future.result()
+                    if df is not None:
+                        data[key] = df
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error fetching multi-symbol data: {e}")
+            return {}
+    
+    def train_pattern_models(self, symbols=None, intervals=None, days=90):
+        """
+        Train pattern models for multiple symbols and intervals
+        
+        Args:
+            symbols: List of symbols to train models for
+            intervals: List of intervals to train models for
+            days: Number of days of data to use for training
+            
+        Returns:
+            Dictionary with training results
+        """
+        # Get data for symbols and intervals
+        data = self.get_symbols_data(symbols, intervals, days)
+        
+        if not data:
+            logger.warning("No data available for training pattern models")
+            return {}
+        
+        # Train models for each symbol and interval
+        results = {}
+        for (symbol, interval), df in data.items():
+            success = self.pattern_model.train_pattern_model(df, symbol, interval)
+            results[(symbol, interval)] = success
+        
+        # Return success rates
+        success_count = sum(1 for success in results.values() if success)
+        logger.info(f"Successfully trained {success_count}/{len(results)} pattern models")
+        
+        return {
+            'total': len(results),
+            'successful': success_count,
+            'details': results
+        }
+    
+    def analyze_all_patterns(self, symbols=None, intervals=None, days=30):
+        """
+        Analyze patterns across all specified symbols and intervals
+        
+        Args:
+            symbols: List of symbols to analyze
+            intervals: List of intervals to analyze
+            days: Number of days of data to analyze
+            
+        Returns:
+            DataFrame with detected patterns and recommendations
+        """
+        # Get data for symbols and intervals
+        data = self.get_symbols_data(symbols, intervals, days)
+        
+        if not data:
+            logger.warning("No data available for pattern analysis")
+            return pd.DataFrame()
+        
+        # Detect patterns for each symbol and interval
+        all_patterns = []
+        
+        for (symbol, interval), df in data.items():
+            patterns = self.pattern_model.detect_patterns(df, symbol, interval)
+            if not patterns.empty:
+                all_patterns.append(patterns)
+        
+        if not all_patterns:
+            logger.info("No patterns detected across any symbols or intervals")
+            return pd.DataFrame()
+        
+        # Combine all patterns into a single DataFrame
+        combined = pd.concat(all_patterns, ignore_index=True)
+        
+        # Calculate a composite score for better sorting/filtering
+        combined['composite_score'] = combined['pattern_strength'] * combined['expected_return'] * \
+                                     (1.0 / (combined['days_since_signal'] + 0.1))
+        
+        # Sort by composite score
+        sorted_patterns = combined.sort_values('composite_score', ascending=False)
+        
+        # Add action recommendations
+        sorted_patterns['recommended_action'] = sorted_patterns.apply(
+            lambda row: f"{'BUY' if row['predicted_direction'] == 'bullish' else 'SELL'} {row['symbol']} on {row['interval']} timeframe",
+            axis=1
+        )
+        
+        # Format the results for display
+        display_columns = [
+            'symbol', 'interval', 'timestamp', 'close', 
+            'pattern_type', 'predicted_direction', 'pattern_strength',
+            'expected_return', 'days_since_signal', 'recommended_action'
+        ]
+        
+        return sorted_patterns[display_columns]
+    
+    def get_pattern_recommendations(self, min_strength=0.7, max_days_old=2, limit=10):
+        """
+        Get high-confidence pattern recommendations for trading
+        
+        Args:
+            min_strength: Minimum pattern strength to include (0.0-1.0)
+            max_days_old: Maximum age of patterns in days
+            limit: Maximum number of recommendations to return
+            
+        Returns:
+            DataFrame with top pattern recommendations
+        """
+        # Analyze patterns across popular symbols and timeframes
+        all_patterns = self.analyze_all_patterns()
+        
+        if all_patterns.empty:
+            return pd.DataFrame()
+        
+        # Filter by strength and recency
+        strong_recent = all_patterns[
+            (all_patterns['pattern_strength'] >= min_strength) & 
+            (all_patterns['days_since_signal'] <= max_days_old)
+        ].copy()
+        
+        if strong_recent.empty:
+            return pd.DataFrame()
+        
+        # Sort by composite score and take top N
+        recommendations = strong_recent.sort_values('composite_score', ascending=False).head(limit)
+        
+        # Format for display
+        recommendations['timestamp'] = recommendations['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+        recommendations['pattern_strength'] = recommendations['pattern_strength'].apply(lambda x: f"{x:.2f}")
+        recommendations['expected_return'] = recommendations['expected_return'].apply(lambda x: f"{x*100:.1f}%")
+        recommendations['days_since_signal'] = recommendations['days_since_signal'].apply(lambda x: f"{x:.1f}")
+        
+        display_columns = [
+            'symbol', 'interval', 'timestamp', 'close', 
+            'pattern_type', 'predicted_direction', 'pattern_strength',
+            'expected_return', 'recommended_action'
+        ]
+        
+        return recommendations[display_columns]
+    
+    def save_trading_opportunity(self, pattern_row):
+        """
+        Save a detected pattern as a trading signal
+        
+        Args:
+            pattern_row: Series/row from pattern DataFrame
+            
+        Returns:
+            Boolean indicating success
+        """
+        try:
+            # Convert pattern to trading signal format
+            signal_type = 'buy' if pattern_row['predicted_direction'] == 'bullish' else 'sell'
+            
+            # Create a minimal DataFrame with the required columns for trading signals
+            signal_df = pd.DataFrame({
+                'timestamp': [pattern_row['timestamp']],
+                'close': [pattern_row['close']],
+                'buy_signal': [signal_type == 'buy'],
+                'sell_signal': [signal_type == 'sell']
+            })
+            
+            # Add indicator signals if available
+            for indicator in ['bb_signal', 'rsi_signal', 'macd_signal', 'ema_signal']:
+                if indicator in pattern_row:
+                    signal_df[indicator] = pattern_row[indicator]
+            
+            # Strategy parameters
+            strategy_params = {
+                'pattern_type': pattern_row['pattern_type'],
+                'pattern_strength': float(pattern_row['pattern_strength']),
+                'expected_return': float(pattern_row['expected_return'].replace('%', '')) / 100 
+                if isinstance(pattern_row['expected_return'], str) 
+                else pattern_row['expected_return']
+            }
+            
+            # Save to database
+            return trading_signals.save_trading_signals(
+                signal_df, 
+                pattern_row['symbol'], 
+                pattern_row['interval'],
+                strategy_name="pattern_recognition",
+                strategy_params=strategy_params
+            )
+            
+        except Exception as e:
+            logger.error(f"Error saving trading opportunity: {e}")
+            return False
+    
+    def save_all_recommendations(self, min_strength=0.75):
+        """
+        Save all high-confidence recommendations as trading signals
+        
+        Args:
+            min_strength: Minimum pattern strength to save
+            
+        Returns:
+            Number of signals saved
+        """
+        # Get current recommendations
+        recommendations = self.get_pattern_recommendations(min_strength=min_strength)
+        
+        if recommendations.empty:
+            return 0
+        
+        # Save each recommendation
+        saved_count = 0
+        for _, row in recommendations.iterrows():
+            success = self.save_trading_opportunity(row)
+            if success:
+                saved_count += 1
+        
+        logger.info(f"Saved {saved_count} pattern-based trading signals")
+        return saved_count
+
+
+# Utility functions
+def train_all_pattern_models():
+    """Train pattern models for popular symbols and intervals"""
+    analyzer = MultiSymbolPatternAnalyzer()
+    return analyzer.train_pattern_models()
+
+def get_pattern_recommendations(min_strength=0.7, max_days_old=2, limit=10):
+    """Get current pattern recommendations for trading"""
+    analyzer = MultiSymbolPatternAnalyzer()
+    return analyzer.get_pattern_recommendations(min_strength, max_days_old, limit)
+
+def analyze_all_market_patterns():
+    """Analyze patterns across all popular symbols and timeframes"""
+    analyzer = MultiSymbolPatternAnalyzer()
+    return analyzer.analyze_all_patterns()
+
+def save_current_recommendations():
+    """Save current recommendations as trading signals"""
+    analyzer = MultiSymbolPatternAnalyzer()
+    return analyzer.save_all_recommendations()
+
+if __name__ == "__main__":
+    # Test the pattern recognition functionality
+    print("Training pattern models...")
+    train_results = train_all_pattern_models()
+    print(f"Training completed: {train_results['successful']}/{train_results['total']} models trained")
+    
+    print("\nAnalyzing current market patterns...")
+    recommendations = get_pattern_recommendations()
+    
+    if not recommendations.empty:
+        print(f"\nFound {len(recommendations)} trading opportunities:")
+        print(recommendations[['symbol', 'interval', 'pattern_type', 'predicted_direction', 'pattern_strength', 'expected_return']])
+    else:
+        print("No trading opportunities detected at this time")
