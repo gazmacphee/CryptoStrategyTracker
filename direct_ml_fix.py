@@ -107,10 +107,11 @@ def apply_recursion_fix():
             if conn:
                 conn.close()
     
-    # Patch the ML get_historical_data function to use our direct database query
+    # Patch the ML get_historical_data function to use our direct database query ONLY
     def ml_get_historical_data(symbol, interval, lookback_days=30, start_date=None, end_date=None):
         """
         Safe version of get_historical_data for ML modules that avoids recursion
+        and ONLY uses database data without attempting Binance API calls
         
         Args:
             symbol: Trading pair symbol (e.g., 'BTCUSDT')
@@ -120,59 +121,20 @@ def apply_recursion_fix():
             end_date: Optional specific end date (defaults to now)
             
         Returns:
-            DataFrame with OHLCV and timestamp data
+            DataFrame with OHLCV and timestamp data or empty DataFrame if no data in database
         """
         logging.info(f"ML get_historical_data called for {symbol}/{interval}")
         
-        # Try direct database query first
+        # Only query the database, never try to download from Binance
         df = direct_db_query(symbol, interval, start_date, end_date, lookback_days)
         
         if df is not None and not df.empty:
             logging.info(f"Successfully retrieved {len(df)} records from database")
             return df
         
-        # If database is empty, try Binance Data Vision direct download
-        # This avoids the recursion by not calling binance_api.get_historical_data
-        logging.info(f"Database empty for {symbol}/{interval}, attempting direct download")
-        
-        # Use a completely separate method that doesn't call other methods
-        try:
-            # Convert dates for binance API format
-            if start_date:
-                if isinstance(start_date, str):
-                    start_ms = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
-                elif isinstance(start_date, datetime):
-                    start_ms = int(start_date.timestamp() * 1000)
-                else:
-                    start_ms = None
-            else:
-                start_ms = int((datetime.now() - timedelta(days=lookback_days)).timestamp() * 1000)
-                
-            if end_date:
-                if isinstance(end_date, str):
-                    end_ms = int(datetime.strptime(end_date, '%Y-%m-%d').timestamp() * 1000)
-                elif isinstance(end_date, datetime):
-                    end_ms = int(end_date.timestamp() * 1000)
-                else:
-                    end_ms = None
-            else:
-                end_ms = int(datetime.now().timestamp() * 1000)
-            
-            # Use binance_api.get_klines_data which doesn't redirect to database_extensions
-            empty_frame = pd.DataFrame()
-            
-            if hasattr(binance_api, 'get_klines_data'):
-                df = binance_api.get_klines_data(symbol, interval, start_ms, end_ms)
-                if df is not None and not df.empty:
-                    logging.info(f"Successfully retrieved {len(df)} records from direct binance API")
-                    return df
-            
-            logging.warning(f"No data available for {symbol}/{interval}")
-            return empty_frame
-            
-        except Exception as e:
-            logging.error(f"Error in direct data retrieval: {e}")
-            return pd.DataFrame()
+        # If no data in database, return empty DataFrame (never attempt direct download)
+        logging.warning(f"No data available in database for {symbol}/{interval}")
+        return pd.DataFrame()
     
     # Replace the functions that cause recursion
     # This is essentially monkey patching to break the infinite recursion
