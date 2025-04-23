@@ -37,56 +37,113 @@ def check_binance_historical_data_installed():
     # Detect if we're running on Replit
     is_replit = 'REPL_ID' in os.environ or 'REPLIT_DB_URL' in os.environ
     
-    # On Replit, npm global modules don't work properly
+    # On Replit, we should use the direct Binance Data Vision download approach
     if is_replit:
-        logging.info("Running on Replit environment - skipping npm tools")
+        logging.info("Running on Replit environment - using direct Binance Data Vision downloads")
+        return False
+    
+    # Look for npm in PATH
+    npm_path = None
+    try:
+        npm_check = subprocess.run(['npm', '--version'], capture_output=True, text=True)
+        if npm_check.returncode == 0:
+            npm_path = 'npm'
+            logging.info(f"Found npm: {npm_check.stdout.strip()}")
+    except FileNotFoundError:
+        logging.warning("npm not found in PATH")
+    except Exception as e:
+        logging.error(f"Error checking npm: {e}")
+    
+    # Try node directly
+    node_path = None
+    try:
+        node_check = subprocess.run(['node', '--version'], capture_output=True, text=True)
+        if node_check.returncode == 0:
+            node_path = 'node'
+            logging.info(f"Found Node.js: {node_check.stdout.strip()}")
+    except FileNotFoundError:
+        logging.warning("Node.js not found in PATH")
+    except Exception as e:
+        logging.error(f"Error checking Node.js: {e}")
+    
+    # If npm isn't found, we should use direct downloads
+    if not npm_path:
+        logging.warning("npm not available - using direct Binance Data Vision downloads")
         return False
         
-    # Possible paths for Windows users
-    windows_paths = [
-        # Standard global npm path
-        os.path.join(os.environ.get('APPDATA', ''), 'npm', 'binance-historical-data.cmd'),
-        # NPM global bin directory
-        os.path.join(os.environ.get('ProgramFiles', ''), 'nodejs', 'binance-historical-data.cmd'),
-        # Alternative path
-        os.path.join(os.environ.get('APPDATA', ''), 'npm', 'node_modules', 'binance-historical-data', 'bin', 'binance-historical-data')
-    ]
+    # Possible paths for binance-historical-data
+    possible_paths = []
     
-    # For Windows, first try direct paths
+    # Windows specific paths
     if os.name == 'nt':  # Windows
-        for path in windows_paths:
-            if os.path.exists(path):
-                logging.info(f"Found binance-historical-data at: {path}")
-                return path
+        appdata = os.environ.get('APPDATA', '')
+        programfiles = os.environ.get('ProgramFiles', '')
+        userprofile = os.environ.get('USERPROFILE', '')
+        possible_paths.extend([
+            os.path.join(appdata, 'npm', 'binance-historical-data.cmd'),
+            os.path.join(programfiles, 'nodejs', 'node_modules', 'binance-historical-data', 'bin', 'binance-historical-data.js'),
+            os.path.join(appdata, 'npm', 'node_modules', 'binance-historical-data', 'bin', 'binance-historical-data.js'),
+            os.path.join(userprofile, 'AppData', 'Roaming', 'npm', 'binance-historical-data.cmd'),
+            # Also check for local installation
+            os.path.join(os.getcwd(), 'node_modules', '.bin', 'binance-historical-data.cmd'),
+            os.path.join(os.getcwd(), 'node_modules', 'binance-historical-data', 'bin', 'binance-historical-data.js')
+        ])
+    else:  # Unix/Linux/Mac paths
+        home = os.environ.get('HOME', '')
+        possible_paths.extend([
+            '/usr/local/bin/binance-historical-data',
+            '/usr/bin/binance-historical-data',
+            os.path.join(home, '.npm', 'binance-historical-data'),
+            os.path.join(home, 'node_modules', '.bin', 'binance-historical-data'),
+            # Local installation
+            os.path.join(os.getcwd(), 'node_modules', '.bin', 'binance-historical-data')
+        ])
     
-    # Standard method for non-Windows or if direct path not found
+    # Check all possible paths
+    for path in possible_paths:
+        if os.path.exists(path):
+            logging.info(f"Found binance-historical-data at: {path}")
+            return path
+            
+    # Try running the command directly
     try:
         result = subprocess.run(['binance-historical-data', '--version'], 
                       capture_output=True, text=True)
         if result.returncode == 0:
-            return 'binance-historical-data'  # Command works directly
+            logging.info("binance-historical-data command is available in PATH")
+            return 'binance-historical-data'
     except FileNotFoundError:
-        # Don't try to install on Replit
-        if not is_replit:
-            logging.warning("binance-historical-data not found. Installing...")
-            try:
-                subprocess.run(['npm', 'install', '-g', 'binance-historical-data'], 
-                            check=True)
-                # Try to find the path after installation
-                if os.name == 'nt':  # Windows
-                    for path in windows_paths:
-                        if os.path.exists(path):
-                            logging.info(f"Found binance-historical-data at: {path}")
-                            return path
-                return 'binance-historical-data'  # Assume it's in PATH after install
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Failed to install binance-historical-data: {e}")
-                return False
-        return False
+        logging.warning("binance-historical-data command not found in PATH")
     except Exception as e:
-        logging.error(f"Error checking binance-historical-data: {e}")
-        return False
+        logging.error(f"Error checking binance-historical-data command: {e}")
     
+    # Try using npx to run without global installation
+    if npm_path:
+        try:
+            # Check if it's already available via npx
+            result = subprocess.run(['npx', 'binance-historical-data', '--version'], 
+                          capture_output=True, text=True)
+            if result.returncode == 0:
+                logging.info("binance-historical-data available via npx")
+                return 'npx binance-historical-data'
+        except Exception:
+            # Try installing it locally
+            try:
+                logging.info("Installing binance-historical-data locally...")
+                subprocess.run(['npm', 'install', 'binance-historical-data'], 
+                              check=True, capture_output=True)
+                
+                # Check if we can use it with npx after install
+                result = subprocess.run(['npx', 'binance-historical-data', '--version'], 
+                              capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info("Successfully installed and verified binance-historical-data")
+                    return 'npx binance-historical-data'
+            except Exception as e:
+                logging.error(f"Error installing binance-historical-data: {e}")
+    
+    # If we reach here, we couldn't find or install the package
+    logging.warning("binance-historical-data not found or not working - falling back to direct Binance Data Vision downloads")
     return False
 
 def download_klines(symbol, interval, start_date=None):
@@ -94,11 +151,25 @@ def download_klines(symbol, interval, start_date=None):
     # Get the actual command/path to use
     binance_cmd = check_binance_historical_data_installed()
     if not binance_cmd:
-        raise RuntimeError("binance-historical-data package not available")
+        logging.warning("binance-historical-data package not available")
+        return None
         
     try:
-        # Use the detected path or command
-        if isinstance(binance_cmd, str):
+        # Check if we're using npx
+        if isinstance(binance_cmd, str) and binance_cmd.startswith('npx'):
+            # Split the npx command properly
+            cmd_parts = binance_cmd.split()
+            cmd = cmd_parts + ['--symbol', symbol, '--interval', interval]
+        # Check if it's a direct path to executable
+        elif isinstance(binance_cmd, str) and os.path.exists(binance_cmd):
+            if binance_cmd.endswith('.js'):
+                # For JavaScript files, use node to execute
+                cmd = ['node', binance_cmd, '--symbol', symbol, '--interval', interval]
+            else:
+                # For other executables, run directly
+                cmd = [binance_cmd, '--symbol', symbol, '--interval', interval]
+        # Check if it's a command name
+        elif isinstance(binance_cmd, str):
             cmd = [binance_cmd, '--symbol', symbol, '--interval', interval]
         else:
             logging.error("Invalid binance-historical-data command type")
@@ -108,15 +179,33 @@ def download_klines(symbol, interval, start_date=None):
             cmd.extend(['--startDate', start_date.strftime('%Y-%m-%d')])
             
         logging.info(f"Executing command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            logging.error(f"Error downloading data: {result.stderr}")
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                logging.error(f"Error downloading data: {result.stderr}")
+                return None
+                
+            # Check if output looks like JSON
+            stdout = result.stdout.strip()
+            if not stdout.startswith('[') and not stdout.startswith('{'):
+                logging.error(f"Invalid JSON output: {stdout[:200]}...")
+                return None
+                
+            # Parse the output into DataFrame
+            data = json.loads(stdout)
+            if not data:
+                logging.warning("Empty data returned from binance-historical-data")
+                return None
+                
+            df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        except subprocess.TimeoutExpired:
+            logging.error("Command timed out after 60 seconds")
             return None
-
-        # Parse the output into DataFrame
-        data = json.loads(result.stdout)
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        except Exception as e:
+            logging.error(f"Error executing command: {e}")
+            return None
         
         # Convert timestamps to datetime with error handling
         try:
@@ -184,30 +273,31 @@ def backfill_symbol_interval(symbol, interval):
     # Detect if we're running on Replit
     is_replit = 'REPL_ID' in os.environ or 'REPLIT_DB_URL' in os.environ
     
-    # On Replit, always use direct Binance Data Vision downloads
+    # Always check if we can use Binance npm package first, but handle gracefully if not available
+    use_direct_download = True  # Default to direct download
+    
+    # Skip npm tool on Replit
     if is_replit:
         logging.info(f"Running on Replit - using direct Binance Data Vision downloads for {symbol}/{interval}")
-        use_direct_download = True
     else:
-        # For non-Replit environments, try npm package first
+        # For non-Replit environments, try npm package first (but just skip if not available)
         try:
             # Download data in chunks
             start_date = datetime(2017, 1, 1) if not last_timestamp else last_timestamp
             current_date = start_date
 
+            # This will return None if npm tool is not available
             df = download_klines(symbol, interval, current_date)
+            
             if df is not None and not df.empty:
                 process_and_save_chunk(df, symbol, interval)
                 logging.info(f"Successfully used npm package for {symbol}/{interval}")
-                use_direct_download = False
                 return  # Successfully used npm package, no need for further processing
             else:
-                logging.warning(f"No data available via npm tool for {symbol}/{interval}")
-                use_direct_download = True
+                logging.info(f"No data available via npm tool for {symbol}/{interval}, using direct download method")
         except Exception as e:
             logging.warning(f"Failed to use binance-historical-data npm package: {e}")
             logging.info(f"Falling back to direct download method for {symbol}/{interval}")
-            use_direct_download = True
     
     # If we reached here, we need to use direct downloads
     if use_direct_download:
@@ -361,45 +451,27 @@ def download_monthly_klines(symbol, interval, year, month):
                         invalid_timestamps = df['open_time'] > timestamp_cutoff
                         if invalid_timestamps.any():
                             logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {symbol}/{interval} {year}-{month:02d}, correcting to valid dates")
-                            # Instead of using an arbitrary cutoff, determine dates from the actual data
-                            logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in {symbol}/{interval} {year}-{month:02d}, examining closely")
-                            # Extract time component pattern from valid timestamps
-                            valid_timestamps = df.loc[~invalid_timestamps, 'open_time']
-                            
-                            if len(valid_timestamps) > 0:
-                                # Calculate median difference between consecutive timestamps to determine interval pattern
-                                valid_timestamps_sorted = sorted(valid_timestamps)
-                                if len(valid_timestamps_sorted) > 1:
-                                    diffs = [valid_timestamps_sorted[i+1] - valid_timestamps_sorted[i] 
-                                            for i in range(len(valid_timestamps_sorted)-1)]
-                                    if diffs:
-                                        median_interval = sorted(diffs)[len(diffs)//2]  # Median interval
-                                        logging.info(f"Detected median interval of {median_interval}ms between records")
-                                    else:
-                                        median_interval = 3600000  # Default to 1 hour in ms if can't determine
-                                else:
-                                    median_interval = 3600000  # Default to 1 hour in ms
-                                    
-                                # Get the expected date range from the file context (year-month)
-                                expected_month_start = pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000
-                                days_in_month = calendar.monthrange(year, month)[1]
-                                expected_month_end = pd.Timestamp(f"{year}-{month:02d}-{days_in_month}").timestamp() * 1000
+                            # Use the file's month information to create valid timestamps
+                            logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in {symbol}/{interval} {year}-{month:02d}, using file date")
+                            # Get the expected date range from the file context (year-month)
+                            month_start_ms = int(pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000)
+                            days_in_month = calendar.monthrange(year, month)[1]
+                            month_end_ms = int(pd.Timestamp(f"{year}-{month:02d}-{days_in_month} 23:59:59").timestamp() * 1000)
                             for idx in df.index[invalid_timestamps]:
                                 # Get digits from the timestamp but map to valid range
                                 digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
                                 try:
-                                    # Simply use the file date as the timestamp with an offset based on position
-                                    # This ensures we get timestamps within the expected month range
+                                    # Use the position in dataset to distribute timestamps evenly across the month
                                     position = df.index.get_loc(idx) / len(df.index)  # Relative position in the dataset (0 to 1)
-                                    file_date_ms = int(pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000)
-                                    month_end_ms = int(pd.Timestamp(f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]}").timestamp() * 1000)
-                                    month_duration_ms = month_end_ms - file_date_ms
+                                    
+                                    # Calculate duration of month in milliseconds
+                                    month_duration_ms = month_end_ms - month_start_ms
                                     
                                     # Set new timestamp based on position in dataframe
-                                    new_ts = int(file_date_ms + position * month_duration_ms)
+                                    new_ts = int(month_start_ms + position * month_duration_ms)
                                     
                                     # Ensure the timestamp is within the expected month
-                                    new_ts = max(file_date_ms, min(month_end_ms, new_ts))
+                                    new_ts = max(month_start_ms, min(month_end_ms, new_ts))
                                     df.loc[idx, 'open_time'] = new_ts
                                 except Exception as e:
                                     # If anything fails, set a default timestamp based on year/month
@@ -594,11 +666,11 @@ def download_daily_klines(symbol, interval, year, month):
                                 day_start_ms = int(pd.Timestamp(date_str).timestamp() * 1000)
                                 day_end_ms = int(pd.Timestamp(f"{date_str} 23:59:59").timestamp() * 1000)
                                 for idx in df.index[invalid_timestamps]:
-                                    # Get digits from the timestamp but map to valid range
-                                    digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
                                     try:
-                                        # Create a new valid timestamp from these digits
-                                        new_ts = int(min_valid + (int(digits) % (max_valid - min_valid)))
+                                        # Calculate timestamp based on position in dataset
+                                        position = df.index.get_loc(idx) / len(df.index)  # Relative position (0-1)
+                                        # Set timestamp within the file's day range
+                                        new_ts = int(day_start_ms + position * (day_end_ms - day_start_ms))
                                         df.loc[idx, 'open_time'] = new_ts
                                     except Exception as e:
                                         # If anything fails, set a default timestamp based on the day
