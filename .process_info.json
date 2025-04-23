@@ -1,16 +1,16 @@
 {
-  "last_update": "2025-04-23T16:12:53.959767",
+  "last_update": "2025-04-23T16:14:08.938571",
   "processes": {
     "backfill": {
-      "pid": 25618,
+      "pid": 26098,
       "status": "running",
-      "start_time": "2025-04-23T16:12:41.930758",
+      "start_time": "2025-04-23T16:13:56.911453",
       "restarts": 0
     },
     "signal_generator": {
-      "pid": 25665,
+      "pid": 26127,
       "status": "running",
-      "start_time": "2025-04-23T16:12:43.946321",
+      "start_time": "2025-04-23T16:13:58.922152",
       "restarts": 0
     }
   },
@@ -19,7 +19,7 @@
     "sentiment_analysis": "2025-04-23T15:00:16.092535",
     "economic_indicators": "2025-04-23T10:59:11.711477",
     "ml_training": "2025-04-23T16:01:22.123380",
-    "backfill": "2025-04-23T16:12:41.930769",
-    "signal_generator": "2025-04-23T16:12:43.946332"
+    "backfill": "2025-04-23T16:13:56.911464",
+    "signal_generator": "2025-04-23T16:13:58.922163"
   }
 }

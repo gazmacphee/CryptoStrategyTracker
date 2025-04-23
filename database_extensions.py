@@ -95,6 +95,7 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
     Returns:
         DataFrame with OHLCV and timestamp data
     """
+    print(f"====== DATABASE_EXTENSIONS: get_historical_data called for {symbol}/{interval} =======")
     try:
         # First try to import from binance_api
         from binance_api import get_historical_data as binance_get_historical_data
