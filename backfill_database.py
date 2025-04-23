@@ -109,29 +109,30 @@ def check_for_ml_analysis():
         if len(symbols_with_sufficient_data) >= MIN_SYMBOLS:
             logging.info(f"Running ML pattern detection on {len(symbols_with_sufficient_data)} symbol/interval pairs")
             
-            # First, train all pattern models
+            # Use our database-only ML wrapper to avoid Binance API calls
             try:
+                # Import our fixed ML wrapper
+                import direct_ml_fix
+                direct_ml_fix.fix_ml_modules()
+                
+                # Now import ML modules after fix is applied
+                import advanced_ml
+                
+                # First, train all pattern models
                 training_results = advanced_ml.train_all_pattern_models()
                 logging.info(f"Pattern model training completed: {training_results['successful']}/{training_results['total']} models trained")
-            except Exception as e:
-                logging.error(f"Error training pattern models: {e}")
-                return 0
-            
-            # Now analyze current patterns
-            try:
+                
+                # Now analyze current patterns
                 patterns = advanced_ml.analyze_all_market_patterns()
                 logging.info(f"Pattern analysis complete - found patterns: {not patterns.empty}")
-            except Exception as e:
-                logging.error(f"Error analyzing market patterns: {e}")
-                return 0
-            
-            # Save high-confidence recommendations
-            try:
+                
+                # Save high-confidence recommendations
                 saved_count = advanced_ml.save_current_recommendations()
                 logging.info(f"Saved {saved_count} pattern-based trading signals")
                 return saved_count
+                
             except Exception as e:
-                logging.error(f"Error saving pattern recommendations: {e}")
+                logging.error(f"Error in ML operations (using database-only): {e}")
                 return 0
         else:
             logging.info(f"Not enough symbols with sufficient data for ML analysis. Found {len(symbols_with_sufficient_data)}, need {MIN_SYMBOLS}")

@@ -63,7 +63,7 @@ MANAGED_PROCESSES = {
     },
     "ml_training": {
         "name": "ML Model Training",
-        "command": ["python", "advanced_ml.py", "--train"],
+        "command": ["python", "run_ml_fixed.py", "--train"],
         "priority": 3,
         "restart_on_failure": True,
         "dependencies": ["backfill"],  # Requires backfill to run first
