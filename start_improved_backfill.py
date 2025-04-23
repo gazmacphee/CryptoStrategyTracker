@@ -48,20 +48,42 @@ def get_priority_intervals():
     # Start with the most commonly used intervals
     return ["1h", "1d", "4h", "15m", "30m"]
 
-def start_background_backfill(full=False):
+def start_background_backfill(full=False, continuous=False, interval_minutes=15):
     """
     Start an improved background backfill process
     
     Args:
         full: Whether to perform a full backfill (more symbols, longer history)
+        continuous: Whether to run the backfill continuously at regular intervals
+        interval_minutes: How often to run the backfill in continuous mode (minutes)
     """
-    threading.Thread(
-        target=_run_background_backfill,
-        args=(full,),
-        daemon=True
-    ).start()
+    if continuous:
+        def continuous_backfill_thread():
+            while True:
+                try:
+                    _run_background_backfill(full=full)
+                    logging.info(f"Completed backfill cycle, waiting {interval_minutes} minutes before next run")
+                    # Sleep for the specified interval
+                    time.sleep(interval_minutes * 60)
+                except Exception as e:
+                    logging.error(f"Error in continuous backfill: {e}")
+                    # Even on error, keep the thread alive
+                    time.sleep(60)  # Wait a minute before retrying
+                    
+        thread = threading.Thread(
+            target=continuous_backfill_thread,
+            daemon=True
+        )
+    else:
+        thread = threading.Thread(
+            target=_run_background_backfill,
+            args=(full,),
+            daemon=True
+        )
     
-    logging.info(f"Started improved background backfill process (full={full})")
+    thread.start()
+    
+    logging.info(f"Started improved background backfill process (full={full}, continuous={continuous}, interval={interval_minutes}min)")
     return True
 
 def _run_background_backfill(full=False):
