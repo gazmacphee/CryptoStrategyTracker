@@ -30,56 +30,85 @@ logging.basicConfig(
 def restart_process_manager():
     """Restart the ProcessManager workflow."""
     try:
-        # Try to find and kill any existing process_manager.py processes
-        ps_output = subprocess.run(
-            ["ps", "aux"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        ).stdout
-        
-        for line in ps_output.split('\n'):
-            if 'process_manager.py monitor' in line:
-                # Extract PID and kill process
-                parts = line.split()
-                if len(parts) > 1:
-                    try:
-                        pid = int(parts[1])
-                        subprocess.run(['kill', str(pid)])
-                        logging.info(f"Killed existing process manager with PID {pid}")
-                        print(f"Killed existing process manager with PID {pid}")
-                    except Exception as e:
-                        logging.error(f"Error killing process: {e}")
-        
         # Remove any lock files
         if os.path.exists('.process_manager.lock'):
             os.remove('.process_manager.lock')
             logging.info("Removed process manager lock file")
             print("Removed process manager lock file")
         
-        # Start the process manager monitor
-        print("Starting process manager monitor...")
-        subprocess.Popen(
-            ["python", "process_manager.py", "monitor"],
-            stdout=open("process_manager.log", "a"),
-            stderr=open("process_manager.log", "a"),
-            start_new_session=True  # Detach from parent process
-        )
+        # Check if the .process_info.json file exists and is corrupted
+        if os.path.exists('.process_info.json'):
+            try:
+                with open('.process_info.json', 'r') as f:
+                    import json
+                    json.load(f)  # Try to parse
+            except Exception:
+                # File is corrupted, create a clean one
+                with open('.process_info.json', 'w') as f:
+                    f.write('{"processes": {}}')
+                logging.info("Reset corrupted process info file")
+                print("Reset corrupted process info file")
+        
+        # Restart the workflow using the Replit workflow mechanism
+        print("Restarting ProcessManager workflow...")
+        
+        # We can't directly access the workflow APIs, so we'll use bash
+        # This effectively stops and starts the workflow
+        try:
+            # First kill any running instances
+            ps_output = subprocess.run(
+                ["ps", "aux"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            ).stdout
+            
+            for line in ps_output.split('\n'):
+                if 'process_manager.py monitor' in line:
+                    # Extract PID and kill process
+                    parts = line.split()
+                    if len(parts) > 1:
+                        try:
+                            pid = int(parts[1])
+                            subprocess.run(['kill', str(pid)])
+                            logging.info(f"Killed process manager with PID {pid}")
+                            print(f"Killed process manager with PID {pid}")
+                        except Exception as e:
+                            logging.error(f"Error killing process: {e}")
+        except Exception as e:
+            logging.error(f"Error stopping existing processes: {e}")
+        
+        # Start a new workflow
+        try:
+            subprocess.run(
+                ["python", "process_manager.py", "monitor"],
+                stdout=open("process_manager.log", "a"),
+                stderr=open("process_manager.log", "a"),
+                start_new_session=True  # Detach from parent process
+            )
+            logging.info("Started new ProcessManager workflow")
+            print("Started new ProcessManager workflow")
+        except Exception as e:
+            logging.error(f"Error starting workflow: {e}")
+            print(f"Error starting workflow: {e}")
         
         # Give the monitor a moment to start
         time.sleep(2)
         
         # Initialize processes
         print("Initializing processes...")
-        result = subprocess.run(
-            ["python", "process_manager.py", "start"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30  # 30 second timeout for initialization
-        )
-        
-        print(result.stdout)
+        try:
+            result = subprocess.run(
+                ["python", "process_manager.py", "start"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30  # 30 second timeout for initialization
+            )
+            print(result.stdout)
+        except subprocess.TimeoutExpired:
+            print("Process initialization is taking longer than expected.")
+            print("This is normal during first startup. Check status in a minute.")
         
         logging.info("Process manager workflow restarted successfully")
         print("\nProcess manager workflow restarted successfully")

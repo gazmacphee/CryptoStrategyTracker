@@ -67,8 +67,56 @@ def main():
         return 0
     
     try:
+        # Remove any lock files
+        if os.path.exists('.process_manager.lock'):
+            os.remove('.process_manager.lock')
+            logging.info("Removed process manager lock file")
+            print("Removed process manager lock file")
+        
+        # If we need to force restart or the workflow isn't running
+        if args.force or not workflow_running:
+            # Kill any existing process_manager processes
+            ps_output = subprocess.run(
+                ["ps", "aux"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            ).stdout
+            
+            for line in ps_output.split('\n'):
+                if 'process_manager.py monitor' in line:
+                    parts = line.split()
+                    if len(parts) > 1:
+                        try:
+                            pid = int(parts[1])
+                            subprocess.run(['kill', str(pid)])
+                            logging.info(f"Killed process manager with PID {pid}")
+                            print(f"Killed existing process manager with PID {pid}")
+                        except Exception as e:
+                            logging.error(f"Error killing process: {e}")
+            
+            # Start the process manager using the Replit workflow system
+            print("Starting process manager workflow...")
+            try:
+                # Start the workflow via Popen to run in background
+                subprocess.Popen(
+                    ["python", "process_manager.py", "monitor"],
+                    stdout=open("process_manager.log", "a"),
+                    stderr=open("process_manager.log", "a"),
+                    start_new_session=True  # Detach from parent process
+                )
+                logging.info("Started process manager workflow")
+                print("Process manager workflow started")
+            except Exception as e:
+                logging.error(f"Error starting workflow: {e}")
+                print(f"Error starting workflow: {e}")
+                # Continue anyway - we'll still try to initialize processes
+        
+        # Wait a moment for the workflow to start
+        time.sleep(2)
+        
         # Initialize all processes with a timeout
-        print("Initializing all processes...")
+        print("Initializing processes...")
         try:
             result = subprocess.run(
                 ["python", "process_manager.py", "start"],
@@ -81,11 +129,6 @@ def main():
         except subprocess.TimeoutExpired:
             print("Process initialization is taking longer than expected.")
             print("This is normal during first startup. Check status in a minute.")
-        
-        # Check if monitor workflow needs to be started
-        if not workflow_running:
-            print("\nStarting process monitor...")
-            print("Note: This will be handled by the Replit workflow system.")
         
         print("\nAll processes have been initialized.")
         print("Process manager is running as a background workflow.")
