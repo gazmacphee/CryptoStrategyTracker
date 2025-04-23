@@ -452,6 +452,7 @@ def create_tables():
             symbol VARCHAR(20) NOT NULL,
             interval VARCHAR(10) NOT NULL,
             timestamp TIMESTAMP NOT NULL,
+            detection_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             pattern_type VARCHAR(50) NOT NULL,
             pattern_strength NUMERIC NOT NULL,
             expected_outcome VARCHAR(20) NOT NULL,  -- bullish, bearish, neutral
