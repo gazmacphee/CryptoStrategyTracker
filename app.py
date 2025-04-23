@@ -20,14 +20,14 @@ from strategy import evaluate_buy_sell_signals, backtest_strategy, find_optimal_
 from utils import timeframe_to_seconds, timeframe_to_interval, get_timeframe_options, calculate_trade_statistics
 from data_loader import get_backfill_progress, start_backfill_thread, run_backfill_process
 
-# Import ML modules (with graceful fallback if not available)
-try:
-    from ml_ui import render_ml_predictions_tab
-except ImportError:
-    # Create stub function if ML module is not available
-    def render_ml_predictions_tab():
-        st.header("Machine Learning Price Predictions")
-        st.warning("Machine Learning module is not available. Please ensure ml_ui.py is installed.")
+# We'll import the ML UI module later to avoid set_page_config conflicts
+# Define a fallback function in case ml_ui is not available
+def _default_render_ml_predictions_tab():
+    st.header("Machine Learning Price Predictions")
+    st.warning("Machine Learning module is not available. Please ensure ml_ui.py is installed.")
+
+# This will be populated with the actual function if available
+render_ml_predictions_tab = _default_render_ml_predictions_tab
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -293,6 +293,15 @@ def main():
     import os
     import logging
     import pandas as pd
+    
+    # Now that st.set_page_config has been called, we can safely import ml_ui
+    try:
+        from ml_ui import render_ml_predictions_tab as ml_render_function
+        global render_ml_predictions_tab
+        render_ml_predictions_tab = ml_render_function
+    except ImportError:
+        # Keep using the default function if ml_ui can't be imported
+        pass
     
     # Show initial message about data loading
     if 'initial_message_shown' not in st.session_state:
@@ -2657,17 +2666,28 @@ def main():
                             end_time = datetime.now()
                             start_time = end_time - timedelta(days=trend_lookback)
                             
-                            # Get data from database or API
-                            df = get_cached_data(symbol, interval, trend_lookback)
-                            
-                            if not df.empty:
-                                # Calculate percentage change and other metrics
-                                df['pct_change'] = df['close'].pct_change() * 100
-                                df['cumulative_return'] = (1 + df['pct_change']/100).cumprod() - 1
-                                df['sma_5'] = df['close'].rolling(window=5).mean()
+                            try:
+                                # Get data from database or API - try with extended lookback if needed
+                                df = get_cached_data(symbol, interval, trend_lookback)
                                 
-                                # Store data
-                                crypto_data[symbol] = df
+                                # If we have no data, try to fetch directly from API with longer lookback
+                                if df.empty:
+                                    st.info(f"Trying to fetch more data for {symbol}...")
+                                    df = get_data(symbol, interval, trend_lookback * 2)
+                                
+                                if not df.empty:
+                                    # Calculate percentage change and other metrics
+                                    df['pct_change'] = df['close'].pct_change() * 100
+                                    df['cumulative_return'] = (1 + df['pct_change']/100).cumprod() - 1
+                                    df['sma_5'] = df['close'].rolling(window=5).mean()
+                                    
+                                    # Store data
+                                    crypto_data[symbol] = df
+                                else:
+                                    # Log missing data
+                                    logging.warning(f"No data available for {symbol}/{interval}")
+                            except Exception as e:
+                                logging.error(f"Error processing {symbol}/{interval}: {str(e)}")
                     
                     # Display each crypto in its column with animated emoji
                     for i, symbol in enumerate(selected_cryptos):
