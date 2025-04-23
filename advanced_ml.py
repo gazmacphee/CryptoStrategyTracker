@@ -990,29 +990,60 @@ def save_current_recommendations():
     analyzer = MultiSymbolPatternAnalyzer()
     return analyzer.save_all_recommendations()
 
+def main():
+    """Main entry point for command line execution"""
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Advanced ML Pattern Recognition for Cryptocurrency Trading')
+    parser.add_argument('--train', action='store_true', help='Train pattern models for popular symbols')
+    parser.add_argument('--analyze', action='store_true', help='Analyze current market patterns')
+    parser.add_argument('--save', action='store_true', help='Save detected patterns as trading signals')
+    parser.add_argument('--verbose', action='store_true', help='Display detailed information')
+    
+    args = parser.parse_args()
+    
+    # Default behavior - run everything if no specific args provided
+    run_all = not (args.train or args.analyze or args.save)
+    
+    # Train pattern models if requested
+    if args.train or run_all:
+        print("Training pattern models...")
+        train_results = train_all_pattern_models()
+        
+        # Get keys safely with defaults as a precaution
+        total = train_results.get('total', 0)
+        successful = train_results.get('successful', 0)
+        print(f"Training completed: {successful}/{total} models trained")
+        
+        if args.verbose:
+            print(f"Full results: {train_results}")
+    
+    # Analyze market patterns if requested
+    if args.analyze or run_all:
+        print("\nAnalyzing current market patterns...")
+        recommendations = get_pattern_recommendations()
+        
+        if not isinstance(recommendations, pd.DataFrame):
+            print("Error: recommendations is not a DataFrame")
+            if args.verbose:
+                print(f"Type: {type(recommendations)}")
+                print(f"Value: {recommendations}")
+        elif recommendations.empty:
+            print("No trading opportunities detected at this time")
+        else:
+            print(f"\nFound {len(recommendations)} trading opportunities:")
+            display_cols = ['symbol', 'interval', 'pattern_type', 'predicted_direction', 'pattern_strength', 'expected_return']
+            # Only select columns that exist in the DataFrame
+            available_cols = [col for col in display_cols if col in recommendations.columns]
+            print(recommendations[available_cols])
+    
+    # Save recommendations as trading signals if requested
+    if args.save or run_all:
+        print("\nSaving detected patterns as trading signals...")
+        saved_count = save_current_recommendations()
+        print(f"Saved {saved_count} patterns as trading signals")
+
+
 if __name__ == "__main__":
-    # Test the pattern recognition functionality
-    print("Training pattern models...")
-    train_results = train_all_pattern_models()
-    
-    # Get keys safely with defaults as a precaution
-    total = train_results.get('total', 0)
-    successful = train_results.get('successful', 0)
-    print(f"Training completed: {successful}/{total} models trained")
-    print(f"Full results: {train_results}")
-    
-    print("\nAnalyzing current market patterns...")
-    recommendations = get_pattern_recommendations()
-    
-    if not isinstance(recommendations, pd.DataFrame):
-        print("Error: recommendations is not a DataFrame")
-        print(f"Type: {type(recommendations)}")
-        print(f"Value: {recommendations}")
-    elif recommendations.empty:
-        print("No trading opportunities detected at this time")
-    else:
-        print(f"\nFound {len(recommendations)} trading opportunities:")
-        display_cols = ['symbol', 'interval', 'pattern_type', 'predicted_direction', 'pattern_strength', 'expected_return']
-        # Only select columns that exist in the DataFrame
-        available_cols = [col for col in display_cols if col in recommendations.columns]
-        print(recommendations[available_cols])
+    main()
