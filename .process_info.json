@@ -1,8 +1,15 @@
 {
-  "last_update": "2025-04-23T13:47:12.827632",
-  "processes": {},
+  "last_update": "2025-04-23T14:32:42.950979",
+  "processes": {
+    "news_retrieval": {
+      "pid": null,
+      "status": "stopped",
+      "start_time": "2025-04-23T14:00:12.857264",
+      "restarts": 0
+    }
+  },
   "last_run_times": {
-    "news_retrieval": "2025-04-23T12:59:53.763677",
+    "news_retrieval": "2025-04-23T14:00:12.857275",
     "sentiment_analysis": "2025-04-23T10:59:11.709435",
     "economic_indicators": "2025-04-23T10:59:11.711477",
     "ml_training": "2025-04-23T11:06:59.710601"
