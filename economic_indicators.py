@@ -484,6 +484,9 @@ def get_full_dxy_data(start_date=None, end_date=None):
             df = pd.concat([df, api_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
     
     logger.info(f"Retrieved {len(df)} DXY records")
+        # Convert any decimal.Decimal columns to float
+    df = ensure_float_values(df)
+    
     return df
 
 def get_liquidity_data_from_database(indicator=None, start_date=None, end_date=None):
@@ -635,6 +638,9 @@ def get_liquidity_data(indicator=None, start_date=None, end_date=None):
         if not external_df.empty:
             # Re-query database to get all data
             df = get_liquidity_data_from_database(indicator, start_date, end_date)
+    
+        # Convert any decimal.Decimal columns to float
+    df = ensure_float_values(df)
     
     return df
 
