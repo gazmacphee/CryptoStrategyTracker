@@ -155,13 +155,13 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                 
                 # Determine which indicators contributed to the signal
                 bb_signal = 'bb_percent' in row and (
-                    (signal_type == 'buy' and row['bb_percent'] < -0.8) or 
-                    (signal_type == 'sell' and row['bb_percent'] > 0.8)
+                    (signal_type == 'buy' and row['bb_percent'] < -0.75) or 
+                    (signal_type == 'sell' and row['bb_percent'] > 0.75)
                 )
                 
                 rsi_signal = 'rsi' in row and (
-                    (signal_type == 'buy' and row['rsi'] < 30) or 
-                    (signal_type == 'sell' and row['rsi'] > 70)
+                    (signal_type == 'buy' and row['rsi'] < 35) or 
+                    (signal_type == 'sell' and row['rsi'] > 65)
                 )
                 
                 macd_signal = 'macd_histogram' in row and (
