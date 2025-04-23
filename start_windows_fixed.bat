@@ -40,7 +40,7 @@ timeout /t 5 /nobreak > nul
 
 :: Start the main application
 echo [5/5] Starting Streamlit Application...
-start "Crypto Trading App" cmd /k python app.py
+start "Crypto Trading App" cmd /k python -m streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 
 echo ========================================================================
 echo All components started successfully!

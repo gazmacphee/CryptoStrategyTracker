@@ -42,7 +42,7 @@ Start-Sleep -Seconds 5
 
 # Start the main application
 Write-Host "[5/5] Starting Streamlit Application..." -ForegroundColor Cyan
-Start-Process -FilePath "cmd" -ArgumentList "/k set PYTHONIOENCODING=utf-8 && python app.py"
+Start-Process -FilePath "cmd" -ArgumentList "/k set PYTHONIOENCODING=utf-8 && python -m streamlit run app.py --server.port 8501 --server.address 0.0.0.0"
 
 Write-Host "========================================================================"
 Write-Host "All components started successfully!" -ForegroundColor Green
