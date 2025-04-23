@@ -680,7 +680,12 @@ class MultiSymbolPatternAnalyzer:
         
         if not data:
             logger.warning("No data available for training pattern models")
-            return {}
+            # Return a properly structured empty result
+            return {
+                'total': 0,
+                'successful': 0,
+                'details': {}
+            }
         
         # Train models for each symbol and interval
         results = {}
