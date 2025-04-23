@@ -503,6 +503,11 @@ def create_tables():
             signal_type VARCHAR(10) NOT NULL,  -- 'buy', 'sell', or 'neutral'
             signal_strength NUMERIC,           -- 0.0 to 1.0 indicating signal strength
             price NUMERIC NOT NULL,            -- price at signal generation
+            stop_loss NUMERIC,                 -- suggested stop loss price level
+            take_profit NUMERIC,               -- suggested take profit price level
+            stop_loss_method VARCHAR(50),      -- method used to calculate stop loss
+            take_profit_method VARCHAR(50),    -- method used to calculate take profit
+            risk_reward_ratio NUMERIC,         -- risk to reward ratio (e.g., 1:2, 1:3)
             bb_signal BOOLEAN,                 -- individual indicator signals
             rsi_signal BOOLEAN,
             macd_signal BOOLEAN,
