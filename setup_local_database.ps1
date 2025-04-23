@@ -12,10 +12,11 @@ try {
     # Try to use psql to check version
     $pgVersion = Invoke-Expression "psql --version" -ErrorAction Stop
     $pgInstalled = $true
-    Write-Host "✓ PostgreSQL is installed:" -ForegroundColor Green
+    Write-Host "PostgreSQL is installed:" -ForegroundColor Green
     Write-Host $pgVersion
-} catch {
-    Write-Host "❌ PostgreSQL is not installed or not in PATH." -ForegroundColor Red
+}
+catch {
+    Write-Host "PostgreSQL is not installed or not in PATH." -ForegroundColor Red
     Write-Host "Please download and install PostgreSQL from:" -ForegroundColor Yellow
     Write-Host "https://www.postgresql.org/download/windows/" -ForegroundColor Cyan
     Write-Host ""
@@ -34,13 +35,13 @@ Write-Host ""
 Write-Host "Creating 'crypto' database if it doesn't exist..." -ForegroundColor Yellow
 
 $createDbScript = @"
-DO \$\$
+DO `$`$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'crypto') THEN
     CREATE DATABASE crypto;
   END IF;
 END
-\$\$;
+`$`$;
 "@
 
 try {
@@ -55,9 +56,10 @@ try {
     # Remove the temporary file
     Remove-Item -Path $tempFile
 
-    Write-Host "✓ Database 'crypto' is ready" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Failed to create database: $_" -ForegroundColor Red
+    Write-Host "Database 'crypto' is ready" -ForegroundColor Green
+}
+catch {
+    Write-Host "Failed to create database: $_" -ForegroundColor Red
     Write-Host "Please check your PostgreSQL installation and permissions." -ForegroundColor Yellow
     
     Write-Host "Press any key to exit..." -ForegroundColor Yellow
@@ -124,7 +126,7 @@ foreach ($key in @("BINANCE_API_KEY", "BINANCE_API_SECRET", "FRED_API_KEY", "ALP
 # Save the file
 Set-Content -Path ".env" -Value $envFileContent
 
-Write-Host "✓ .env file updated with local database settings" -ForegroundColor Green
+Write-Host ".env file updated with local database settings" -ForegroundColor Green
 
 # Create .streamlit directory and config if needed
 if (-not (Test-Path ".streamlit")) {
@@ -138,7 +140,7 @@ port = 5000
 "@
 
     Set-Content -Path ".streamlit/config.toml" -Value $streamlitConfig
-    Write-Host "✓ Created Streamlit configuration" -ForegroundColor Green
+    Write-Host "Created Streamlit configuration" -ForegroundColor Green
 }
 
 # Update the process manager timeout
@@ -150,7 +152,7 @@ if (Test-Path $manageProcessesPath) {
     if ($content -match "timeout=30\s+#\s+30\s+second\s+timeout") {
         $updatedContent = $content -replace "timeout=30\s+#\s+30\s+second\s+timeout", "timeout=120  # 120 second timeout"
         Set-Content -Path $manageProcessesPath -Value $updatedContent
-        Write-Host "✓ Updated process manager timeout to 120 seconds" -ForegroundColor Green
+        Write-Host "Updated process manager timeout to 120 seconds" -ForegroundColor Green
     }
 }
 
