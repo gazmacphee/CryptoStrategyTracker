@@ -19,6 +19,14 @@ import concurrent.futures
 import database
 import trading_signals
 
+# Import ML database operations and database extensions
+try:
+    import db_ml_operations
+    ML_DB_AVAILABLE = True
+except ImportError:
+    print("Warning: db_ml_operations module not available. ML data will not be saved to database.")
+    ML_DB_AVAILABLE = False
+
 # Import database extensions to ensure all required database functions are available
 try:
     import database_extensions

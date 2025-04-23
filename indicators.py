@@ -217,3 +217,38 @@ def add_volume_profile(df, bins=10):
     df['volume_poc'] = poc_price
     
     return df
+
+def add_all_indicators(df):
+    """
+    Add all technical indicators to the DataFrame
+    
+    Args:
+        df: DataFrame with OHLCV data
+        
+    Returns:
+        DataFrame with all indicators added
+    """
+    if df.empty:
+        return df
+    
+    # Ensure required columns exist
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    for col in required_cols:
+        if col not in df.columns:
+            print(f"Required column '{col}' missing from data")
+            return df
+            
+    # Apply all indicator functions in sequence
+    df = add_bollinger_bands(df)
+    df = add_rsi(df)
+    df = add_macd(df)
+    df = add_ema(df)
+    df = add_atr(df)
+    df = add_stochastic(df)
+    df = add_adx(df)
+    
+    # Only add volume profile if we have enough data
+    if len(df) >= 10:
+        df = add_volume_profile(df)
+    
+    return df
