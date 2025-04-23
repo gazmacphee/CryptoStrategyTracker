@@ -417,8 +417,19 @@ class ProcessManager:
         if proc_id in self.processes and self.processes[proc_id].get('pid'):
             self.stop_process(proc_id)
         
+        # Create a copy of the configuration
+        config = MANAGED_PROCESSES[proc_id].copy()
+        
+        # Temporarily remove any schedule to force immediate execution
+        if 'schedule' in config:
+            temp_schedule = config.pop('schedule')
+            logging.info(f"Temporarily removing schedule to force immediate execution of {config['name']}")
+            
+            # Force update of last run time to prevent cooldown issues
+            self.last_run_times[proc_id] = datetime.now() - timedelta(days=1)
+        
         # Start the process again
-        self._start_process(proc_id, MANAGED_PROCESSES[proc_id])
+        self._start_process(proc_id, config)
         self._save_process_state()
         
         return True
