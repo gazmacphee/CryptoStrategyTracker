@@ -174,6 +174,12 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                     (signal_type == 'sell' and row['ema_9'] < row['ema_21'] and row.get('ema_9_prev', 0) >= row.get('ema_21_prev', 0))
                 )
                 
+                # Get strategy used if available in the row
+                if 'strategy_used' in row:
+                    current_strategy_name = f"{strategy_name}_{row['strategy_used']}"
+                else:
+                    current_strategy_name = strategy_name
+                
                 # Convert strategy params to JSON
                 strategy_params_json = json.dumps(strategy_params) if strategy_params else None
                 
@@ -184,6 +190,11 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                 if rsi_signal: signal_reasons.append("RSI")
                 if macd_signal: signal_reasons.append("MACD")
                 if ema_signal: signal_reasons.append("EMA Crossover")
+                
+                # Add strategy information to notes
+                if 'strategy_used' in row:
+                    signal_reasons.append(f"Strategy: {row['strategy_used']}")
+                    
                 notes += ", ".join(signal_reasons) if signal_reasons else "combined indicators"
                 
                 # Insert the signal
@@ -198,7 +209,7 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
                     rsi_signal,
                     macd_signal,
                     ema_signal,
-                    strategy_name,
+                    current_strategy_name,
                     strategy_params_json,
                     notes
                 ))
@@ -219,6 +230,31 @@ def save_trading_signals(df, symbol, interval, strategy_name="default_strategy",
     finally:
         if conn:
             conn.close()
+
+def save_trading_signals_from_multiple_strategies(dataframes, symbol, interval):
+    """
+    Save trading signals from multiple strategies to the database
+    
+    Args:
+        dataframes: Dictionary of DataFrames, each with a different strategy applied
+        symbol: Trading pair symbol (e.g., 'BTCUSDT')
+        interval: Time interval (e.g., '1h', '4h', '1d')
+    
+    Returns:
+        Total number of signals saved
+    """
+    total_signals = 0
+    
+    # Process each strategy's dataframe
+    for strategy_name, df in dataframes.items():
+        if not df.empty and ('buy_signal' in df.columns or 'sell_signal' in df.columns):
+            # Save signals from this strategy
+            if save_trading_signals(df, symbol, interval, strategy_name):
+                # Count approximate number of signals (rough estimate)
+                signal_count = df['buy_signal'].sum() + df['sell_signal'].sum()
+                total_signals += int(signal_count)
+    
+    return total_signals
 
 def get_recent_signals(symbol=None, interval=None, start_time=None, limit=100):
     """
