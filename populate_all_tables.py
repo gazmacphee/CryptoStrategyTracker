@@ -231,32 +231,78 @@ def main():
     start_time = time.time()
     logging.info("Starting to populate all tables...")
     
-    # Run all population functions
-    sentiment_count = populate_sentiment_data()
-    logging.info(f"Populated sentiment data: {sentiment_count} records")
+    try:
+        # Check if we have historical data to work with
+        from database import get_db_connection
+        import pandas as pd
+        
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Failed to connect to database")
+            return {"error": "Database connection failed"}
+            
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM historical_data")
+            data_count = cur.fetchone()[0]
+            logging.info(f"Found {data_count} records in historical_data table")
+            
+            if data_count < 100:
+                logging.warning("Historical data table has less than 100 records. Some operations may fail.")
+        except Exception as e:
+            logging.error(f"Error checking historical data: {e}")
+            data_count = 0
+        finally:
+            if conn:
+                conn.close()
     
-    news_success = populate_news_data()
-    logging.info(f"Populated news data: {'Success' if news_success else 'Failed'}")
-    
-    ml_success = run_ml_training()
-    logging.info(f"ML training and predictions: {'Success' if ml_success else 'Failed'}")
-    
-    benchmark_count = run_benchmarks()
-    logging.info(f"Strategy benchmarks: {benchmark_count} created")
-    
-    end_time = time.time()
-    duration = end_time - start_time
-    
-    logging.info(f"All table population completed in {duration:.2f} seconds")
-    
-    # Return a summary of what was done
-    return {
-        "sentiment_count": sentiment_count,
-        "news_populated": news_success,
-        "ml_populated": ml_success,
-        "benchmark_count": benchmark_count,
-        "duration_seconds": duration
-    }
+        # Run sentiment population - this is relatively quick
+        logging.info("Step 1/4: Populating sentiment data...")
+        sentiment_count = populate_sentiment_data()
+        logging.info(f"✅ Populated sentiment data: {sentiment_count} records")
+        
+        # Run news population
+        logging.info("Step 2/4: Populating news data...")
+        news_success = populate_news_data()
+        logging.info(f"✅ Populated news data: {'Success' if news_success else 'Failed'}")
+        
+        # Only run ML training if we have enough data
+        if data_count >= 500:
+            logging.info("Step 3/4: Running ML training and predictions...")
+            ml_success = run_ml_training()
+            logging.info(f"✅ ML training and predictions: {'Success' if ml_success else 'Failed'}")
+        else:
+            logging.warning("Skipping ML training due to insufficient historical data")
+            ml_success = False
+        
+        # Only run benchmarks if we have enough data
+        if data_count >= 500:
+            logging.info("Step 4/4: Running strategy benchmarks...")
+            benchmark_count = run_benchmarks()
+            logging.info(f"✅ Strategy benchmarks: {benchmark_count} created")
+        else:
+            logging.warning("Skipping benchmarks due to insufficient historical data")
+            benchmark_count = 0
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        logging.info(f"All table population completed in {duration:.2f} seconds")
+        
+        # Return a summary of what was done
+        return {
+            "historical_data_count": data_count,
+            "sentiment_count": sentiment_count,
+            "news_populated": news_success,
+            "ml_populated": ml_success,
+            "benchmark_count": benchmark_count,
+            "duration_seconds": duration
+        }
+    except Exception as e:
+        logging.error(f"Error in main population function: {e}")
+        end_time = time.time()
+        duration = end_time - start_time
+        return {"error": str(e), "duration_seconds": duration}
 
 if __name__ == "__main__":
     main()
