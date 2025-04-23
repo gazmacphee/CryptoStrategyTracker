@@ -75,8 +75,12 @@ if (Test-Path ".env") {
     Get-Content ".env" | ForEach-Object {
         $line = $_.Trim()
         if ($line -and !$line.StartsWith("#")) {
-            $key, $value = $line.Split('=', 2)
-            $envContent[$key] = $value
+            $parts = $line.Split("=", 2)
+            if ($parts.Count -eq 2) {
+                $key = $parts[0]
+                $value = $parts[1]
+                $envContent[$key] = $value
+            }
         }
     }
 }
