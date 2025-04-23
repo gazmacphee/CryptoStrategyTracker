@@ -234,5 +234,129 @@ def main():
     logging.info(f"Finished sentiment scraping. Saved {total_count} records in total.")
     return total_count
 
+def get_combined_sentiment(symbol=None, days_back=7):
+    """
+    Get combined sentiment data for a cryptocurrency
+    
+    Args:
+        symbol: Symbol to get sentiment for (e.g., 'BTC')
+        days_back: Number of days to look back
+        
+    Returns:
+        Pandas DataFrame with sentiment data or empty DataFrame
+    """
+    # Get sentiment data from database
+    conn = get_db_connection()
+    if not conn:
+        logging.error("Failed to connect to database")
+        # Return empty DataFrame instead of empty dict
+        import pandas as pd
+        return pd.DataFrame()
+    
+    try:
+        # Use pandas to read from database
+        import pandas as pd
+        
+        # Set time threshold
+        time_threshold = datetime.now() - timedelta(days=days_back)
+        
+        # Create query with parameters
+        query = """
+            SELECT * FROM sentiment_data
+            WHERE timestamp >= %s
+        """
+        params = [time_threshold]
+        
+        # Add symbol filter if provided
+        if symbol:
+            symbol_filter = f"{symbol}%"  # For partial matches like BTC, BTCUSDT
+            query += " AND symbol LIKE %s"
+            params.append(symbol_filter)
+            
+        query += " ORDER BY timestamp DESC"
+            
+        # Execute query
+        df = pd.read_sql_query(query, conn, params=params)
+        
+        # Return DataFrame (even if empty)
+        return df
+        
+    except Exception as e:
+        logging.error(f"Error getting sentiment data: {e}")
+        # Return empty DataFrame instead of empty dict
+        import pandas as pd
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def get_sentiment_summary(sentiment_df):
+    """
+    Calculate summary metrics from sentiment data
+    
+    Args:
+        sentiment_df: DataFrame with sentiment data
+        
+    Returns:
+        Dictionary with summary metrics
+    """
+    import pandas as pd
+    import numpy as np
+    
+    if sentiment_df.empty:
+        # Return default summary if no data
+        return {
+            "average_sentiment": 0.0,
+            "sentiment_trend": "stable",
+            "volume_trend": "stable",
+            "sources": []
+        }
+    
+    # Calculate average sentiment
+    avg_sentiment = sentiment_df['sentiment_score'].mean()
+    
+    # Calculate trend by comparing recent vs older data
+    mid_point = len(sentiment_df) // 2
+    if mid_point > 0:
+        recent_data = sentiment_df.iloc[:mid_point]
+        older_data = sentiment_df.iloc[mid_point:]
+        
+        if not recent_data.empty and not older_data.empty:
+            recent_avg = recent_data['sentiment_score'].mean()
+            older_avg = older_data['sentiment_score'].mean()
+            
+            # Determine trend
+            sentiment_trend = "stable"
+            if recent_avg > older_avg + 0.1:
+                sentiment_trend = "improving"
+            elif recent_avg < older_avg - 0.1:
+                sentiment_trend = "declining"
+                
+            # Also check volume trend
+            recent_vol = recent_data['post_volume'].mean() if 'post_volume' in recent_data.columns else 0
+            older_vol = older_data['post_volume'].mean() if 'post_volume' in older_data.columns else 0
+            
+            volume_trend = "stable"
+            if recent_vol > older_vol * 1.2:
+                volume_trend = "increasing"
+            elif recent_vol < older_vol * 0.8:
+                volume_trend = "decreasing"
+        else:
+            sentiment_trend = "stable"
+            volume_trend = "stable"
+    else:
+        sentiment_trend = "stable"
+        volume_trend = "stable"
+    
+    # Get unique sources
+    sources = sentiment_df['source'].unique().tolist() if 'source' in sentiment_df.columns else []
+    
+    return {
+        "average_sentiment": float(avg_sentiment),
+        "sentiment_trend": sentiment_trend,
+        "volume_trend": volume_trend,
+        "sources": sources
+    }
+
 if __name__ == "__main__":
     main()
