@@ -276,85 +276,61 @@ def fetch_fred_data(series_id, start_date=None, end_date=None):
         return pd.DataFrame()
 
 def save_dxy_to_database(df):
-    """Save US Dollar Index data to database"""
+    """
+    Save US Dollar Index data to database using the centralized database function
+    
+    Args:
+        df: DataFrame with DXY data
+        
+    Returns:
+        Boolean indicating success or number of records saved
+    """
     if df.empty:
         logger.warning("No DXY data to save to database")
         return 0
     
-    conn = get_db_connection()
-    records_saved = 0
-    
     try:
-        with conn.cursor() as cursor:
-            for _, row in df.iterrows():
-                try:
-                    cursor.execute("""
-                    INSERT INTO dollar_index (timestamp, close, open, high, low, volume)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (timestamp) DO UPDATE 
-                    SET close = EXCLUDED.close,
-                        open = EXCLUDED.open,
-                        high = EXCLUDED.high,
-                        low = EXCLUDED.low,
-                        volume = EXCLUDED.volume
-                    """, (
-                        row['timestamp'],
-                        row['close'],
-                        row.get('open'),
-                        row.get('high'),
-                        row.get('low'),
-                        row.get('volume')
-                    ))
-                    records_saved += 1
-                except Exception as e:
-                    logger.error(f"Error saving DXY record for {row['timestamp']}: {e}")
-            
-            conn.commit()
+        # Use the centralized database function to save DXY data
+        success = save_dxy_data(df)
         
-        logger.info(f"Saved {records_saved} DXY records to database")
+        if success:
+            logger.info(f"Successfully saved {len(df)} DXY data points")
+            return len(df)
+        else:
+            logger.error("Failed to save DXY data")
+            return 0
     except Exception as e:
-        logger.error(f"Database error while saving DXY data: {e}")
-    finally:
-        conn.close()
-    
-    return records_saved
+        logger.error(f"Error saving DXY data: {e}")
+        return 0
 
 def save_liquidity_to_database(df):
-    """Save global liquidity indicator data to database"""
+    """
+    Save global liquidity indicator data to database using centralized database function
+    
+    Args:
+        df: DataFrame with global liquidity data 
+            (must have indicator_name, timestamp, and value columns)
+            
+    Returns:
+        Boolean indicating success or number of records saved
+    """
     if df.empty:
         logger.warning("No liquidity data to save to database")
         return 0
     
-    conn = get_db_connection()
-    records_saved = 0
-    
     try:
-        with conn.cursor() as cursor:
-            for _, row in df.iterrows():
-                try:
-                    cursor.execute("""
-                    INSERT INTO global_liquidity (indicator_name, timestamp, value)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (indicator_name, timestamp) DO UPDATE 
-                    SET value = EXCLUDED.value
-                    """, (
-                        row['indicator_name'],
-                        row['timestamp'],
-                        row['value']
-                    ))
-                    records_saved += 1
-                except Exception as e:
-                    logger.error(f"Error saving liquidity record for {row['indicator_name']}, {row['timestamp']}: {e}")
-            
-            conn.commit()
+        # Use the centralized database function to save liquidity data
+        success = save_liquidity_data(df)
         
-        logger.info(f"Saved {records_saved} liquidity records to database")
+        if success:
+            logger.info(f"Successfully saved {len(df)} liquidity data points")
+            return len(df)
+        else:
+            logger.error("Failed to save liquidity data")
+            return 0
     except Exception as e:
-        logger.error(f"Database error while saving liquidity data: {e}")
-    finally:
-        conn.close()
-    
-    return records_saved
+        logger.error(f"Error saving liquidity data: {e}")
+        return 0
 
 def get_dxy_data_from_api(start_date=None, end_date=None):
     """
@@ -394,7 +370,7 @@ def get_dxy_data_from_api(start_date=None, end_date=None):
 
 def get_dxy_data_from_database(start_date=None, end_date=None):
     """
-    Get US Dollar Index data directly from database
+    Get US Dollar Index data directly from database using centralized function
     
     Args:
         start_date: Start date for data (datetime or string YYYY-MM-DD)
@@ -415,29 +391,18 @@ def get_dxy_data_from_database(start_date=None, end_date=None):
     if end_date is None:
         end_date = datetime.now()
     
-    # Get data directly from database
-    conn = get_db_connection()
-    df = pd.DataFrame()
+    # Use centralized database function (using parameter names it expects)
+    df = get_dxy_data(start_time=start_date, end_time=end_date)
     
-    try:
-        query = """
-        SELECT timestamp, close, open, high, low, volume
-        FROM dollar_index
-        WHERE timestamp BETWEEN %s AND %s
-        ORDER BY timestamp ASC
-        """
-        
-        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
+    # Log the result
+    if not df.empty:
         logger.info(f"Retrieved {len(df)} DXY records from database")
-    except Exception as e:
-        logger.error(f"Error getting DXY data from database: {e}")
-    finally:
-        if conn:
-            conn.close()
+    else:
+        logger.warning("No DXY records found in database for specified date range")
     
     return df
 
-def get_dxy_data(start_date=None, end_date=None):
+def get_full_dxy_data(start_date=None, end_date=None):
     """
     Get US Dollar Index data from database or fetch from external source if missing
     
@@ -461,36 +426,19 @@ def get_dxy_data(start_date=None, end_date=None):
         end_date = datetime.now()
     
     # First try to get data from database
-    conn = get_db_connection()
-    df = pd.DataFrame()
+    # Call the database function using the parameter names it expects (start_time, end_time)
+    df = get_dxy_data(start_time=start_date, end_time=end_date)
     
-    try:
-        # Query the database first
-        query = """
-        SELECT timestamp, close, open, high, low, volume
-        FROM dollar_index
-        WHERE timestamp BETWEEN %s AND %s
-        ORDER BY timestamp ASC
-        """
+    # If we have no data or incomplete data, fetch from external source
+    if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
+        logger.info(f"Insufficient DXY data in database, fetching from external source")
+        api_df = get_dxy_data_from_api(start_date, end_date)
         
-        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-        
-        # If we have no data or incomplete data, fetch from external source
-        if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
-            logger.info(f"Insufficient DXY data in database, fetching from external source")
-            api_df = get_dxy_data_from_api(start_date, end_date)
-            
-            if not api_df.empty:
-                # Combine with existing data
-                df = pd.concat([df, api_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-        
-        logger.info(f"Retrieved {len(df)} DXY records")
-    except Exception as e:
-        logger.error(f"Error getting DXY data from database: {e}")
-    finally:
-        if conn:
-            conn.close()
+        if not api_df.empty:
+            # Combine with existing data
+            df = pd.concat([df, api_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
     
+    logger.info(f"Retrieved {len(df)} DXY records")
     return df
 
 def get_liquidity_data_from_database(indicator=None, start_date=None, end_date=None):
@@ -517,6 +465,7 @@ def get_liquidity_data_from_database(indicator=None, start_date=None, end_date=N
     if end_date is None:
         end_date = datetime.now()
     
+    # Access database directly to avoid circular reference
     conn = get_db_connection()
     df = pd.DataFrame()
     
@@ -536,7 +485,12 @@ def get_liquidity_data_from_database(indicator=None, start_date=None, end_date=N
         query += " ORDER BY indicator_name, timestamp"
         
         df = pd.read_sql_query(query, conn, params=params)
-        logger.info(f"Retrieved {len(df)} liquidity records from database")
+        
+        # Log the result
+        if not df.empty:
+            logger.info(f"Retrieved {len(df)} liquidity records from database")
+        else:
+            logger.warning("No liquidity records found in database for specified criteria")
     except Exception as e:
         logger.error(f"Error getting liquidity data from database: {e}")
     finally:
