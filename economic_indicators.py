@@ -392,6 +392,51 @@ def get_dxy_data_from_api(start_date=None, end_date=None):
     
     return df
 
+def get_dxy_data_from_database(start_date=None, end_date=None):
+    """
+    Get US Dollar Index data directly from database
+    
+    Args:
+        start_date: Start date for data (datetime or string YYYY-MM-DD)
+        end_date: End date for data (datetime or string YYYY-MM-DD)
+        
+    Returns:
+        DataFrame with DXY data
+    """
+    # Convert string dates to datetime if needed
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # Default dates if not provided
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=365)
+    if end_date is None:
+        end_date = datetime.now()
+    
+    # Get data directly from database
+    conn = get_db_connection()
+    df = pd.DataFrame()
+    
+    try:
+        query = """
+        SELECT timestamp, close, open, high, low, volume
+        FROM dollar_index
+        WHERE timestamp BETWEEN %s AND %s
+        ORDER BY timestamp ASC
+        """
+        
+        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        logger.info(f"Retrieved {len(df)} DXY records from database")
+    except Exception as e:
+        logger.error(f"Error getting DXY data from database: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    return df
+
 def get_dxy_data(start_date=None, end_date=None):
     """
     Get US Dollar Index data from database or fetch from external source if missing
@@ -415,20 +460,42 @@ def get_dxy_data(start_date=None, end_date=None):
     if end_date is None:
         end_date = datetime.now()
     
-    # Use centralized database function to get DXY data
-    df = get_dxy_data(start_date, end_date)
+    # First try to get data from database
+    conn = get_db_connection()
+    df = pd.DataFrame()
     
-    # If we have no data or incomplete data, fetch from external source
-    if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
-        logger.info(f"Insufficient DXY data in database, fetching from external source")
-        df = get_dxy_data_from_api(start_date, end_date)
+    try:
+        # Query the database first
+        query = """
+        SELECT timestamp, close, open, high, low, volume
+        FROM dollar_index
+        WHERE timestamp BETWEEN %s AND %s
+        ORDER BY timestamp ASC
+        """
+        
+        df = pd.read_sql_query(query, conn, params=(start_date, end_date))
+        
+        # If we have no data or incomplete data, fetch from external source
+        if df.empty or len(df) < (end_date - start_date).days * 0.7:  # If less than 70% of expected daily data
+            logger.info(f"Insufficient DXY data in database, fetching from external source")
+            api_df = get_dxy_data_from_api(start_date, end_date)
+            
+            if not api_df.empty:
+                # Combine with existing data
+                df = pd.concat([df, api_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+        
+        logger.info(f"Retrieved {len(df)} DXY records")
+    except Exception as e:
+        logger.error(f"Error getting DXY data from database: {e}")
+    finally:
+        if conn:
+            conn.close()
     
-    logger.info(f"Retrieved {len(df)} DXY records")
     return df
 
-def get_liquidity_data(indicator=None, start_date=None, end_date=None):
+def get_liquidity_data_from_database(indicator=None, start_date=None, end_date=None):
     """
-    Get global liquidity data from database or fetch from external source if missing
+    Get global liquidity data directly from database
     
     Args:
         indicator: Specific indicator name (or None for all)
@@ -469,34 +536,106 @@ def get_liquidity_data(indicator=None, start_date=None, end_date=None):
         query += " ORDER BY indicator_name, timestamp"
         
         df = pd.read_sql_query(query, conn, params=params)
-        
-        # If we have no data or incomplete data, fetch from external source
-        indicators_to_fetch = [indicator] if indicator else GLOBAL_LIQUIDITY_INDICATORS.keys()
-        
-        for ind in indicators_to_fetch:
-            # Check if we have enough records for this indicator
-            ind_df = df[df['indicator_name'] == ind] if not df.empty else pd.DataFrame()
-            
-            # Monthly data should have approximately 30% of days in range (allowing for weekends, holidays)
-            expected_min_records = (end_date - start_date).days * 0.3 / 30  
-            
-            if len(ind_df) < expected_min_records:
-                logger.info(f"Insufficient data for {ind}, fetching from FRED")
-                
-                if ind in GLOBAL_LIQUIDITY_INDICATORS:
-                    series_id = GLOBAL_LIQUIDITY_INDICATORS[ind]
-                    external_df = fetch_fred_data(series_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-                    
-                    if not external_df.empty:
-                        save_liquidity_to_database(external_df)
-        
-        # Re-query to get all data including newly saved records
-        df = pd.read_sql_query(query, conn, params=params)
         logger.info(f"Retrieved {len(df)} liquidity records from database")
     except Exception as e:
-        logger.error(f"Error getting liquidity data: {e}")
+        logger.error(f"Error getting liquidity data from database: {e}")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+    
+    return df
+
+def get_liquidity_data_from_fred(indicator=None, start_date=None, end_date=None):
+    """
+    Fetch global liquidity data from FRED API
+    
+    Args:
+        indicator: Specific indicator name (or None for all)
+        start_date: Start date for data
+        end_date: End date for data
+        
+    Returns:
+        DataFrame with liquidity data
+    """
+    # Convert string dates to datetime if needed
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # Default dates if not provided
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=365*5)  # 5 years
+    if end_date is None:
+        end_date = datetime.now()
+    
+    all_data = []
+    indicators_to_fetch = [indicator] if indicator else GLOBAL_LIQUIDITY_INDICATORS.keys()
+    
+    for ind in indicators_to_fetch:
+        if ind in GLOBAL_LIQUIDITY_INDICATORS:
+            series_id = GLOBAL_LIQUIDITY_INDICATORS[ind]
+            df = fetch_fred_data(series_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+            
+            if not df.empty:
+                all_data.append(df)
+                # Save to database
+                save_liquidity_data(df)
+    
+    if all_data:
+        return pd.concat(all_data)
+    else:
+        return pd.DataFrame()
+
+def get_liquidity_data(indicator=None, start_date=None, end_date=None):
+    """
+    Get global liquidity data from database or fetch from external source if missing
+    
+    Args:
+        indicator: Specific indicator name (or None for all)
+        start_date: Start date for data
+        end_date: End date for data
+        
+    Returns:
+        DataFrame with liquidity data
+    """
+    # Convert string dates to datetime if needed
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # Default dates if not provided
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=365*5)  # 5 years
+    if end_date is None:
+        end_date = datetime.now()
+    
+    # First try to get data from database
+    df = get_liquidity_data_from_database(indicator, start_date, end_date)
+    
+    # If we have no data or incomplete data, fetch from external source
+    indicators_to_check = [indicator] if indicator else GLOBAL_LIQUIDITY_INDICATORS.keys()
+    need_external_data = False
+    
+    for ind in indicators_to_check:
+        # Check if we have enough records for this indicator
+        ind_df = df[df['indicator_name'] == ind] if not df.empty else pd.DataFrame()
+        
+        # Monthly data should have approximately 30% of days in range (allowing for weekends, holidays)
+        expected_min_records = (end_date - start_date).days * 0.3 / 30  
+        
+        if len(ind_df) < expected_min_records:
+            logger.info(f"Insufficient data for {ind}, fetching from FRED")
+            need_external_data = True
+            break
+    
+    if need_external_data:
+        external_df = get_liquidity_data_from_fred(indicator, start_date, end_date)
+        
+        if not external_df.empty:
+            # Re-query database to get all data
+            df = get_liquidity_data_from_database(indicator, start_date, end_date)
     
     return df
 
