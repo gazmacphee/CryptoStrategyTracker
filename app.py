@@ -307,7 +307,7 @@ def main():
     st.title("Cryptocurrency Trading Analysis Platform")
     
     # Create a sidebar tab selector
-    tab_options = ["Analysis", "Portfolio", "ML Predictions", "Sentiment", "News Digest", "Trend Visualizer", "Data Progress", "Data Gaps"]
+    tab_options = ["Analysis", "Portfolio", "ML Predictions", "Economic Indicators", "Sentiment", "News Digest", "Trend Visualizer", "Data Progress", "Data Gaps"]
     selected_tab = st.sidebar.radio("Navigation", tab_options)
     
     # Initialize session state for backfill tracking
@@ -2511,6 +2511,30 @@ def main():
             render_ml_predictions_tab()
         except Exception as e:
             st.error(f"An error occurred in the ML Predictions tab: {str(e)}")
+            import traceback
+            st.text(traceback.format_exc())
+    
+    # Economic Indicators Tab
+    elif selected_tab == "Economic Indicators":
+        try:
+            # Import economic indicators UI module
+            from economic_ui import render_economic_indicators_tab
+            
+            # Get the current symbol from sidebar if available
+            try:
+                current_symbol = symbol  # From the Analysis tab
+            except NameError:
+                # Default to BTCUSDT if symbol isn't defined
+                current_symbol = "BTCUSDT"
+                
+            # Render the economic indicators tab with the current symbol
+            render_economic_indicators_tab(current_symbol)
+            
+        except ImportError:
+            st.header("Economic Indicators")
+            st.warning("Economic Indicators module is not available. Please ensure economic_ui.py and economic_indicators.py are installed.")
+        except Exception as e:
+            st.error(f"An error occurred in the Economic Indicators tab: {str(e)}")
             import traceback
             st.text(traceback.format_exc())
     
