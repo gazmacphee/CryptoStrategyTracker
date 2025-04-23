@@ -858,8 +858,9 @@ def download_daily_klines(symbol, interval, year, month):
         try:
             from unprocessed_files import log_unprocessed_file
             for date_str in unprocessed_files:
-                log_unprocessed_file(symbol, interval, year, int(date_str.split('-')[2]), 
-                                    f"Daily file could not be processed")
+                # Create file_path in format expected by log_unprocessed_file
+                file_path = f"{symbol}/{interval}/{year}-{date_str}"
+                log_unprocessed_file(symbol, interval, file_path, f"Daily file could not be processed")
         except ImportError:
             # Fall back to simple logging if module not available
             with open("unprocessed_files.log", "a") as f:
