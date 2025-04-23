@@ -143,6 +143,64 @@ def test_using_extensions():
         print("Failed to retrieve data using enhanced get_historical_data")
         return None
 
+def test_manual_resampling():
+    """Test the resampling function with a manually created DataFrame"""
+    print("\nTesting manual resampling...")
+    
+    # Create a test dataframe with 30m data
+    timestamps = [
+        pd.Timestamp('2022-04-01 00:00:00'),
+        pd.Timestamp('2022-04-01 00:30:00'),
+        pd.Timestamp('2022-04-01 01:00:00'),
+        pd.Timestamp('2022-04-01 01:30:00'),
+        pd.Timestamp('2022-04-01 02:00:00'),
+        pd.Timestamp('2022-04-01 02:30:00')
+    ]
+    
+    test_df = pd.DataFrame({
+        'timestamp': timestamps,
+        'open': [100.0, 105.0, 110.0, 112.0, 115.0, 118.0],
+        'high': [106.0, 108.0, 113.0, 116.0, 119.0, 121.0],
+        'low': [99.0, 104.0, 108.0, 110.0, 113.0, 117.0],
+        'close': [105.0, 110.0, 112.0, 115.0, 118.0, 120.0],
+        'volume': [10.0, 15.0, 12.0, 13.0, 11.0, 14.0],
+        'symbol': ['BTCUSDT'] * 6,
+        'interval': ['30m'] * 6
+    })
+    
+    print("\nTest 30m data:")
+    print(test_df)
+    
+    # Convert to 1h using our function
+    df_30m = test_df.copy()
+    result_1h = test_convert_30m_to_1h(df_30m)
+    
+    # Verify the expected results
+    if result_1h is not None:
+        print("\nVerification:")
+        # Verify that the 1h interval has half as many rows as 30m
+        assert len(result_1h) == len(test_df) // 2, f"Expected half as many rows ({len(test_df)//2}), got {len(result_1h)}"
+        # Check that high values are the max of each hour's 30m values
+        assert result_1h.iloc[0]['high'] == 108.0, f"Expected max high for first hour to be 108.0, got {result_1h.iloc[0]['high']}"
+        assert result_1h.iloc[1]['high'] == 119.0, f"Expected max high for second hour to be 119.0, got {result_1h.iloc[1]['high']}"
+        # Check that low values are the min of each hour's 30m values
+        assert result_1h.iloc[0]['low'] == 99.0, f"Expected min low for first hour to be 99.0, got {result_1h.iloc[0]['low']}"
+        assert result_1h.iloc[1]['low'] == 110.0, f"Expected min low for second hour to be 110.0, got {result_1h.iloc[1]['low']}"
+        # Check that close values are the last of each hour's 30m values
+        assert result_1h.iloc[0]['close'] == 110.0, f"Expected close for first hour to be 110.0, got {result_1h.iloc[0]['close']}"
+        assert result_1h.iloc[1]['close'] == 118.0, f"Expected close for second hour to be 118.0, got {result_1h.iloc[1]['close']}"
+        # Check that open values are the first of each hour's 30m values
+        assert result_1h.iloc[0]['open'] == 100.0, f"Expected open for first hour to be 100.0, got {result_1h.iloc[0]['open']}"
+        assert result_1h.iloc[1]['open'] == 112.0, f"Expected open for second hour to be 112.0, got {result_1h.iloc[1]['open']}"
+        # Check that volume values are the sum of each hour's 30m values
+        assert result_1h.iloc[0]['volume'] == 25.0, f"Expected volume for first hour to be 25.0, got {result_1h.iloc[0]['volume']}"
+        assert result_1h.iloc[1]['volume'] == 25.0, f"Expected volume for second hour to be 25.0, got {result_1h.iloc[1]['volume']}"
+        print("✅ All verification checks passed!")
+    else:
+        print("❌ Failed to convert test data to 1h interval")
+    
+    return result_1h
+
 def main():
     """Main test function"""
     print("=== Testing 30m to 1h Conversion Functionality ===")
@@ -156,6 +214,9 @@ def main():
     
     # Test using extensions
     df_ext = test_using_extensions()
+    
+    # Even if no real data, test with manual data
+    test_manual_resampling()
     
     print("\n=== Test Complete ===")
 
