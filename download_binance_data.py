@@ -361,16 +361,45 @@ def download_monthly_klines(symbol, interval, year, month):
                         invalid_timestamps = df['open_time'] > timestamp_cutoff
                         if invalid_timestamps.any():
                             logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {symbol}/{interval} {year}-{month:02d}, correcting to valid dates")
-                            # Normalize the timestamps to milliseconds in the valid range
-                            # This preserves the relative ordering but brings them into valid range
-                            max_valid = pd.Timestamp('2099-12-31').timestamp() * 1000
-                            min_valid = pd.Timestamp('1970-01-01').timestamp() * 1000
+                            # Instead of using an arbitrary cutoff, determine dates from the actual data
+                            logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in {symbol}/{interval} {year}-{month:02d}, examining closely")
+                            # Extract time component pattern from valid timestamps
+                            valid_timestamps = df.loc[~invalid_timestamps, 'open_time']
+                            
+                            if len(valid_timestamps) > 0:
+                                # Calculate median difference between consecutive timestamps to determine interval pattern
+                                valid_timestamps_sorted = sorted(valid_timestamps)
+                                if len(valid_timestamps_sorted) > 1:
+                                    diffs = [valid_timestamps_sorted[i+1] - valid_timestamps_sorted[i] 
+                                            for i in range(len(valid_timestamps_sorted)-1)]
+                                    if diffs:
+                                        median_interval = sorted(diffs)[len(diffs)//2]  # Median interval
+                                        logging.info(f"Detected median interval of {median_interval}ms between records")
+                                    else:
+                                        median_interval = 3600000  # Default to 1 hour in ms if can't determine
+                                else:
+                                    median_interval = 3600000  # Default to 1 hour in ms
+                                    
+                                # Get the expected date range from the file context (year-month)
+                                expected_month_start = pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000
+                                days_in_month = calendar.monthrange(year, month)[1]
+                                expected_month_end = pd.Timestamp(f"{year}-{month:02d}-{days_in_month}").timestamp() * 1000
                             for idx in df.index[invalid_timestamps]:
                                 # Get digits from the timestamp but map to valid range
                                 digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
                                 try:
-                                    # Create a new valid timestamp from these digits
-                                    new_ts = int(min_valid + (int(digits) % (max_valid - min_valid)))
+                                    # Simply use the file date as the timestamp with an offset based on position
+                                    # This ensures we get timestamps within the expected month range
+                                    position = df.index.get_loc(idx) / len(df.index)  # Relative position in the dataset (0 to 1)
+                                    file_date_ms = int(pd.Timestamp(f"{year}-{month:02d}-01").timestamp() * 1000)
+                                    month_end_ms = int(pd.Timestamp(f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]}").timestamp() * 1000)
+                                    month_duration_ms = month_end_ms - file_date_ms
+                                    
+                                    # Set new timestamp based on position in dataframe
+                                    new_ts = int(file_date_ms + position * month_duration_ms)
+                                    
+                                    # Ensure the timestamp is within the expected month
+                                    new_ts = max(file_date_ms, min(month_end_ms, new_ts))
                                     df.loc[idx, 'open_time'] = new_ts
                                 except Exception as e:
                                     # If anything fails, set a default timestamp based on year/month
@@ -559,10 +588,11 @@ def download_daily_klines(symbol, interval, year, month):
                             invalid_timestamps = df['open_time'] > timestamp_cutoff
                             if invalid_timestamps.any():
                                 logging.warning(f"Found {invalid_timestamps.sum()} invalid timestamps in {date_str}, correcting to valid dates")
-                                # Normalize the timestamps to milliseconds in the valid range
-                                # This preserves the relative ordering but brings them into valid range
-                                max_valid = pd.Timestamp('2099-12-31').timestamp() * 1000
-                                min_valid = pd.Timestamp('1970-01-01').timestamp() * 1000
+                                # Use the daily file date to ensure we have correct timestamps
+                                # for this specific day rather than arbitrary limits
+                                logging.warning(f"Found {invalid_timestamps.sum()} suspicious timestamps in daily file {date_str}, using file date")
+                                day_start_ms = int(pd.Timestamp(date_str).timestamp() * 1000)
+                                day_end_ms = int(pd.Timestamp(f"{date_str} 23:59:59").timestamp() * 1000)
                                 for idx in df.index[invalid_timestamps]:
                                     # Get digits from the timestamp but map to valid range
                                     digits = str(df.loc[idx, 'open_time'])[-13:] # Take last 13 digits
