@@ -466,6 +466,14 @@ def download_monthly_klines(symbol, interval, year, month):
     Returns:
         DataFrame with OHLCV data or None if download fails
     """
+    # Check if requested data is from the future
+    current_date = datetime.now()
+    
+    # If we're requesting data from a future year/month, skip it
+    if (year > current_date.year) or (year == current_date.year and month > current_date.month):
+        logging.warning(f"Skipping future data for {symbol}/{interval} for {year}-{month:02d} (current date: {current_date.year}-{current_date.month:02d})")
+        return None
+        
     try:
         # Build URL for monthly file
         base_url = "https://data.binance.vision/data/spot/monthly/klines"
