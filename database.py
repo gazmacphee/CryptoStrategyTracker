@@ -1198,6 +1198,85 @@ def get_benchmark_data(name, start_time, end_time):
     finally:
         if conn:
             conn.close()
+            
+            
+def save_benchmark_results(symbol, interval, strategy_name, start_date, end_date, 
+                          total_trades, win_rate, profit_factor, net_profit_pct, max_drawdown_pct):
+    """
+    Save the results of strategy backtesting as benchmark data
+    
+    Args:
+        symbol: Trading symbol (e.g., BTCUSDT)
+        interval: Time interval (e.g., 1h, 4h, 1d)
+        strategy_name: Name of the strategy
+        start_date: Start date of the backtest
+        end_date: End date of the backtest
+        total_trades: Total number of trades executed
+        win_rate: Percentage of winning trades
+        profit_factor: Profit factor (gross profit / gross loss)
+        net_profit_pct: Net profit as a percentage
+        max_drawdown_pct: Maximum drawdown as a percentage
+        
+    Returns:
+        Boolean indicating success
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Insert into a strategy_benchmarks table
+        query = """
+            CREATE TABLE IF NOT EXISTS strategy_benchmarks (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                interval VARCHAR(10) NOT NULL,
+                strategy_name VARCHAR(50) NOT NULL,
+                start_date TIMESTAMP,
+                end_date TIMESTAMP,
+                total_trades INTEGER,
+                win_rate FLOAT,
+                profit_factor FLOAT,
+                net_profit_pct FLOAT,
+                max_drawdown_pct FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        cur.execute(query)
+        
+        # Insert the benchmark result
+        query = """
+            INSERT INTO strategy_benchmarks 
+            (symbol, interval, strategy_name, start_date, end_date, total_trades, 
+             win_rate, profit_factor, net_profit_pct, max_drawdown_pct)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cur.execute(query, (
+            symbol, interval, strategy_name, start_date, end_date, total_trades,
+            win_rate, profit_factor, net_profit_pct, max_drawdown_pct
+        ))
+        
+        # Also save a simplified version to benchmarks for time series visualization
+        # Format: strategy_name_symbol_interval
+        name = f"{strategy_name}_{symbol}_{interval}"
+        timestamp = datetime.now()
+        
+        # Use save_benchmark_data function
+        save_benchmark_data(name, symbol, timestamp, net_profit_pct)
+        
+        conn.commit()
+        logging.info(f"Saved benchmark results for {strategy_name} on {symbol}/{interval}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error saving benchmark results: {e}")
+        if conn:
+            conn.rollback()
+        return False
+        
+    finally:
+        if conn:
+            conn.close()
 
 def save_sentiment_data(symbol, source, timestamp, sentiment_score, post_volume=0, sentiment_ratio=0.0, discussion_intensity=0.0):
     """
