@@ -726,36 +726,51 @@ def download_daily_klines(symbol, interval, year, month):
                             # Instead of dropping values, adjust all timestamps to be in valid range
                             timestamp_cutoff = 4102444800000  # 2100-01-01 in milliseconds
                             
+                            # Initialize flag to track if we've already handled timestamp conversion
+                            skip_regular_conversion = False
+                            
                             # First check if date_str appears to be in the future (April 2025, etc.)
                             try:
                                 file_date = pd.Timestamp(date_str)
                                 now = pd.Timestamp.now()
                                 is_future_date = file_date > now
-                            except:
+                            except Exception as e:
+                                logging.error(f"Error checking if date is in future: {e}")
                                 is_future_date = False
                                 
                             # Handle differently based on whether it's a future date or invalid timestamp
                             if is_future_date:
-                                logging.warning(f"File date {date_str} appears to be in the future, using current date range")
-                                # For future dates, we'll normalize to recent timeframes
-                                # Get the hour from the row position
-                                day_start_ms = int((now - pd.Timedelta(days=1)).timestamp() * 1000)
-                                day_end_ms = int(now.timestamp() * 1000)
+                                logging.warning(f"File date {date_str} appears to be in the future, normalizing to recent date range")
+                                # For future dates, we'll use a consistent approach that keeps the data usable
+                                # but maps it to the current time period
                                 
-                                # Fix all timestamps in the file to be valid recent ones
-                                for idx in df.index:
-                                    try:
-                                        # Calculate timestamp based on position in dataset
-                                        position = df.index.get_loc(idx) / len(df.index)  # Relative position (0-1)
-                                        # Set timestamp within the recent day range
-                                        new_ts = int(day_start_ms + position * (day_end_ms - day_start_ms))
-                                        df.loc[idx, 'open_time'] = new_ts
-                                    except Exception as e:
-                                        # If anything fails, set a default timestamp based on now
-                                        default_ts = int(now.timestamp() * 1000)
-                                        df.loc[idx, 'open_time'] = default_ts
-                                logging.info(f"Adjusted all timestamps in future file {date_str} to valid recent range")
+                                # Calculate appropriate recent date range (last 24 hours)
+                                end_time = now
+                                start_time = end_time - pd.Timedelta(days=1)
+                                
+                                # Generate reasonable timestamps for each record
+                                row_count = len(df)
+                                if row_count > 0:
+                                    # Create a sequence of timestamps across our 24-hour window
+                                    time_delta = (end_time - start_time) / row_count
+                                    
+                                    # Apply these new timestamps directly (skip the open_time intermediate step)
+                                    new_timestamps = [start_time + (i * time_delta) for i in range(row_count)]
+                                    df['timestamp'] = new_timestamps
+                                    
+                                    # Also update open_time to be consistent with timestamp
+                                    df['open_time'] = [int(ts.timestamp() * 1000) for ts in new_timestamps]
+                                    
+                                    logging.info(f"Successfully converted future dated file {date_str} to valid recent timestamps ({row_count} records)")
+                                else:
+                                    logging.warning(f"Future dated file {date_str} has no records")
+                                    
+                                # Skip the regular timestamp conversion since we've already set the timestamp column
+                                skip_regular_conversion = True
                             else:
+                                # Regular case - not a future date
+                                skip_regular_conversion = False
+                                
                                 # Handle the normal case of invalid timestamps
                                 invalid_timestamps = df['open_time'] > timestamp_cutoff
                                 if invalid_timestamps.any():
@@ -782,16 +797,18 @@ def download_daily_klines(symbol, interval, year, month):
                                 logging.info(f"Converting string timestamps for {date_str}")
                                 df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
                             
-                            # Add a safeguard to prevent timestamp conversion errors
-                            try:
-                                # Try millisecond timestamps first (standard Binance format)
-                                df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
-                            except Exception as e:
-                                logging.error(f"Error converting timestamps to datetime: {e}")
-                                df['timestamp'] = pd.NaT  # Set all to NaT if conversion fails
+                            # Only process timestamp conversion if we didn't already set it directly
+                            if not skip_regular_conversion:
+                                # Add a safeguard to prevent timestamp conversion errors
+                                try:
+                                    # Try millisecond timestamps first (standard Binance format)
+                                    df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                                except Exception as e:
+                                    logging.error(f"Error converting timestamps to datetime: {e}")
+                                    df['timestamp'] = pd.NaT  # Set all to NaT if conversion fails
                             
-                            # If we have NaT values, try other formats
-                            if df['timestamp'].isna().any():
+                            # If we have NaT values and haven't skipped regular conversion, try other formats
+                            if not skip_regular_conversion and 'timestamp' in df.columns and df['timestamp'].isna().any():
                                 logging.info(f"Trying alternative timestamp formats for {date_str}")
                                 
                                 try:
@@ -810,7 +827,7 @@ def download_daily_klines(symbol, interval, year, month):
                                     logging.error(f"Error in ISO format conversion: {e}")
                             
                             # For any remaining NaT values, use file date to create valid timestamps
-                            if df['timestamp'].isna().any():
+                            if 'timestamp' in df.columns and df['timestamp'].isna().any():
                                 logging.warning(f"Some timestamps still invalid for {date_str} - using file date")
                                 file_date = pd.to_datetime(date_str)
                                 # Create sequence of timestamps through the day
