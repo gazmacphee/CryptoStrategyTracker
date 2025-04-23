@@ -149,6 +149,15 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             # Create DataFrame
             df = pd.DataFrame(rows, columns=columns)
             
+            # Log the data retrieval results
+            if df.empty:
+                print(f"No data found in database for {symbol}/{interval} between {start_time} and {end_time}")
+                # Print the query for debugging
+                print(f"Query: {query}")
+                print(f"Parameters: {symbol}, {interval}, {start_timestamp}, {end_timestamp}")
+            else:
+                print(f"Retrieved {len(df)} rows from database for {symbol}/{interval}")
+            
             # Make sure timestamp is in datetime format
             if not df.empty and 'timestamp' in df.columns:
                 # Convert to pandas datetime if it's not already

@@ -647,9 +647,14 @@ class MultiSymbolPatternAnalyzer:
             data = {}
             
             def fetch_symbol_interval(symbol, interval):
-                df = get_data(symbol, interval, lookback_days=days)
+                # Use get_historical_data function from database module
+                df = get_historical_data(symbol, interval, lookback_days=days)
                 if df is not None and not df.empty:
+                    # Log the data retrieval success
+                    print(f"Retrieved {len(df)} rows for {symbol}/{interval}")
                     return (symbol, interval), df
+                else:
+                    print(f"No data retrieved for {symbol}/{interval}")
                 return (symbol, interval), None
             
             # Use ThreadPoolExecutor to parallelize data fetching
