@@ -74,6 +74,16 @@ The application will be available at:
 http://localhost:5000
 ```
 
+## Windows-Specific Setup
+
+For Windows users, we provide a helper script to simplify installation of the required Node.js package for data downloading:
+
+1. Make sure Node.js is installed on your system. You can download it from the [Node.js website](https://nodejs.org/).
+2. Run the `setup_windows.bat` script by double-clicking it in File Explorer.
+3. The script will check for Node.js, create the required files, and install the binance-historical-data package.
+
+If you encounter the error `binance-historical-data command not found in PATH` or similar, don't worry - the application will automatically fall back to direct downloads from Binance Data Vision.
+
 ## Troubleshooting
 
 ### Database Connection Issues
@@ -86,6 +96,14 @@ If you see an error like "DATABASE_URL environment variable is not set", make su
 ### Data Loading Issues
 
 The application will start backfilling cryptocurrency data in the background. This process may take some time depending on your internet connection and the amount of data being fetched.
+
+### Windows npm Package Issues
+
+If you're experiencing issues with binance-historical-data on Windows:
+
+1. Run the `setup_windows.bat` script to install the package locally
+2. Check if Node.js is properly installed and in your PATH
+3. If problems persist, don't worry - the application will automatically use direct downloads instead
 
 ### PostgreSQL Installation
 

@@ -126,21 +126,47 @@ def check_binance_historical_data_installed():
             if result.returncode == 0:
                 logging.info("binance-historical-data available via npx")
                 return 'npx binance-historical-data'
-        except Exception:
-            # Try installing it locally
-            try:
-                logging.info("Installing binance-historical-data locally...")
-                subprocess.run(['npm', 'install', 'binance-historical-data'], 
-                              check=True, capture_output=True)
+        except Exception as e:
+            logging.warning(f"Error checking binance-historical-data via npx: {e}")
+            
+        # Try installing it locally - using a more Windows-friendly approach
+        try:
+            logging.info("Installing binance-historical-data locally...")
+            
+            # Create a package.json file if it doesn't exist (required for npm install)
+            if not os.path.exists('package.json'):
+                with open('package.json', 'w') as f:
+                    f.write('{"name": "crypto-app", "version": "1.0.0", "private": true}')
+                logging.info("Created package.json for local npm install")
+            
+            # Use shell=True on Windows - solves many path resolution issues
+            if os.name == 'nt':  # Windows
+                install_cmd = 'npm install binance-historical-data --no-save'
+                result = subprocess.run(install_cmd, shell=True, capture_output=True, text=True)
+            else:
+                result = subprocess.run(['npm', 'install', 'binance-historical-data', '--no-save'], 
+                                      check=True, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                logging.error(f"npm install error: {result.stderr}")
+                raise Exception(f"npm install failed with code {result.returncode}")
                 
-                # Check if we can use it with npx after install
-                result = subprocess.run(['npx', 'binance-historical-data', '--version'], 
-                              capture_output=True, text=True)
-                if result.returncode == 0:
-                    logging.info("Successfully installed and verified binance-historical-data")
-                    return 'npx binance-historical-data'
-            except Exception as e:
-                logging.error(f"Error installing binance-historical-data: {e}")
+            # For Windows, prefer direct execution of the local node_modules bin file
+            local_bin_path = os.path.join(os.getcwd(), 'node_modules', '.bin', 
+                                        'binance-historical-data.cmd')
+            if os.path.exists(local_bin_path):
+                logging.info(f"Found local binance-historical-data at: {local_bin_path}")
+                return local_bin_path
+                
+            # Check if we can use it with npx after install
+            result = subprocess.run(['npx', 'binance-historical-data', '--version'], 
+                          capture_output=True, text=True)
+            if result.returncode == 0:
+                logging.info("Successfully installed and verified binance-historical-data with npx")
+                return 'npx binance-historical-data'
+                
+        except Exception as e:
+            logging.error(f"Error installing binance-historical-data: {e}")
     
     # If we reach here, we couldn't find or install the package
     logging.warning("binance-historical-data not found or not working - falling back to direct Binance Data Vision downloads")
@@ -181,7 +207,14 @@ def download_klines(symbol, interval, start_date=None):
         logging.info(f"Executing command: {' '.join(cmd)}")
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            # For Windows .cmd files, use shell=True to properly execute them
+            if os.name == 'nt' and isinstance(binance_cmd, str) and binance_cmd.endswith('.cmd'):
+                # Convert cmd list to string command for Windows shell execution
+                cmd_str = ' '.join(cmd)
+                result = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=60)
+            else:
+                # For all other cases, use the standard approach
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
             if result.returncode != 0:
                 logging.error(f"Error downloading data: {result.stderr}")
