@@ -22,8 +22,10 @@ import trading_signals
 # Import ML database operations
 try:
     import db_ml_operations
+    ML_DB_AVAILABLE = True
 except ImportError:
     print("Warning: db_ml_operations module not available. ML data will not be saved to database.")
+    ML_DB_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -329,8 +331,39 @@ class PatternRecognitionModel:
             accuracy = accuracy_score(y_val, y_pred)
             precision = precision_score(y_val, y_pred, zero_division=0)
             recall = recall_score(y_val, y_pred, zero_division=0)
+            f1 = f1_score(y_val, y_pred, zero_division=0)
             
             logger.info(f"Pattern model for {symbol}/{interval} - Accuracy: {accuracy:.2f}, Precision: {precision:.2f}, Recall: {recall:.2f}")
+            
+            # Save model performance to database if available
+            if ML_DB_AVAILABLE:
+                try:
+                    # Calculate regression metrics (simplified - we're classifying but saving standard metrics)
+                    y_prob = model.predict_proba(X_val_scaled)[:, 1]  # Probability of positive class
+                    mse = ((y_val - y_prob)**2).mean()
+                    mae = abs(y_val - y_prob).mean()
+                    
+                    # Save to database
+                    db_ml_operations.save_ml_model_performance(
+                        model_name=f"pattern_recognition_{symbol}_{interval}",
+                        symbol=symbol,
+                        interval=interval,
+                        training_timestamp=datetime.now(),
+                        accuracy=float(accuracy),
+                        precision_score=float(precision),
+                        recall=float(recall),
+                        f1_score=float(f1),
+                        mse=float(mse),
+                        mae=float(mae),
+                        training_params={
+                            'features': feature_columns,
+                            'model_type': 'RandomForestClassifier',
+                            'training_rows': len(X_train)
+                        }
+                    )
+                    logger.info(f"Saved model performance metrics for {symbol}/{interval} pattern recognition model")
+                except Exception as e:
+                    logger.error(f"Error saving model performance metrics: {e}")
             
             # Save feature importances
             feature_importances = dict(zip(feature_columns, model.feature_importances_))
@@ -525,36 +558,36 @@ class PatternRecognitionModel:
             recent_patterns = patterns[(patterns['days_since_signal'] < 3) & 
                                        (patterns['pattern_strength'] > 0.65)].copy()
             
-            # Save detected patterns to database
-            try:
-                from db_ml_operations import save_detected_pattern
-                for _, row in recent_patterns.iterrows():
-                    # Determine expected outcome from pattern type
-                    pattern_type = row['pattern_type']
-                    expected_outcome = 'neutral'
-                    if 'bullish' in pattern_type or 'support' in pattern_type or 'bounce' in pattern_type:
-                        expected_outcome = 'bullish'
-                    elif 'bearish' in pattern_type or 'resistance' in pattern_type:
-                        expected_outcome = 'bearish'
-                    
-                    # Create description
-                    description = f"{pattern_type.replace('_', ' ').title()} pattern detected with {row['pattern_strength']:.2f} strength. "
-                    description += f"Expected price change: {row['expected_return'] * 100:.1f}%"
-                    
-                    # Save to database
-                    save_detected_pattern(
-                        symbol=symbol,
-                        interval=interval,
-                        timestamp=row['timestamp'],
-                        pattern_type=pattern_type,
-                        pattern_strength=float(row['pattern_strength']),
-                        expected_outcome=expected_outcome,
-                        confidence_score=float(row['prediction_confidence']),
-                        description=description
-                    )
-                logger.info(f"Saved {len(recent_patterns)} detected patterns to database for {symbol}/{interval}")
-            except Exception as e:
-                logger.error(f"Error saving patterns to database: {e}")
+            # Save detected patterns to database if available
+            if ML_DB_AVAILABLE and len(recent_patterns) > 0:
+                try:
+                    for _, row in recent_patterns.iterrows():
+                        # Determine expected outcome from pattern type
+                        pattern_type = row['pattern_type']
+                        expected_outcome = f"{'Increase' if row['predicted_direction'] == 'bullish' else 'Decrease'} of approximately {row['expected_return'] * 100:.1f}%"
+                        
+                        # Create description
+                        if pattern_type in PATTERN_TYPES:
+                            description = PATTERN_TYPES[pattern_type]
+                        else:
+                            description = f"{pattern_type.replace('_', ' ').title()} pattern detected with {row['pattern_strength']:.2f} strength. "
+                            description += f"Expected price change: {row['expected_return'] * 100:.1f}%"
+                        
+                        # Save to database
+                        db_ml_operations.save_detected_pattern(
+                            symbol=symbol,
+                            interval=interval,
+                            timestamp=row['timestamp'],
+                            pattern_type=pattern_type,
+                            pattern_strength=float(row['pattern_strength']),
+                            expected_outcome=expected_outcome,
+                            confidence_score=float(row['prediction_confidence']),
+                            description=description,
+                            detection_timestamp=datetime.now()
+                        )
+                    logger.info(f"Saved {len(recent_patterns)} detected patterns to database for {symbol}/{interval}")
+                except Exception as e:
+                    logger.error(f"Error saving patterns to database: {e}")
             
             return recent_patterns
             
@@ -812,8 +845,8 @@ class MultiSymbolPatternAnalyzer:
             
             # Also save as detected pattern in the ML database if available
             try:
-                # Check if db_ml_operations is imported and available
-                if 'db_ml_operations' in globals():
+                # Check if ML database operations are available
+                if ML_DB_AVAILABLE:
                     # Format expected outcome description
                     direction = pattern_row['predicted_direction']
                     expected_return = pattern_row['expected_return']
