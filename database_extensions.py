@@ -212,7 +212,7 @@ def get_historical_data(symbol, interval, lookback_days=30, start_date=None, end
             df_30m = df_30m.set_index('timestamp')
             
             # Resample to 1h
-            df_1h = df_30m.resample('1H').agg({
+            df_1h = df_30m.resample('1h').agg({
                 'open': 'first',
                 'high': 'max',
                 'low': 'min',
